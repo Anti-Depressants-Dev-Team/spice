@@ -1,0 +1,26 @@
+{
+  "name": "spice",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Anti-Depressants-Dev-Team/spice.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Anti-Depressants-Dev-Team/spice/issues"
+  },
+  "homepage": "https://github.com/Anti-Depressants-Dev-Team/spice#readme",
+  "devDependencies": {
+    "electron": "^40.0.0",
+    "electron-store": "^11.0.2"
+  }
+}

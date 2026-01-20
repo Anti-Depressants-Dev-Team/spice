@@ -1,0 +1,20 @@
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+release/
+build/
+out/
+
+# Environment variables
+.env
+
+# Electron-store
+config.json

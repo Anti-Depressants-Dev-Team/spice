@@ -1,0 +1,242 @@
+:root {
+    --bg-color: #121212;
+    --card-bg: #1e1e1e;
+    --text-color: #ffffff;
+    --accent-yt: #ff0000;
+    --accent-sc: #ff5500;
+    --top-bar-height: 50px;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    overflow: hidden;
+    /* Prevent body scroll, content is in BrowserView */
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Helper Class */
+.hidden {
+    display: none !important;
+}
+
+/* Top Navigation Bar */
+#top-bar {
+    height: var(--top-bar-height);
+    background-color: #202020;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 15px;
+    border-bottom: 1px solid #333;
+    z-index: 1000;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.nav-controls button,
+.home-control button {
+    background: none;
+    border: none;
+    color: #ccc;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, color 0.2s;
+}
+
+.nav-controls button svg,
+.home-control button svg {
+    width: 24px;
+    height: 24px;
+}
+
+.nav-controls button:hover,
+.home-control button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+.app-title {
+    font-weight: bold;
+    font-size: 1.1em;
+    color: #888;
+    user-select: none;
+    -webkit-app-region: no-drag;
+    /* We have a custom title bar now */
+    flex-grow: 1;
+    text-align: center;
+}
+
+/* Custom Title Bar */
+#title-bar {
+    height: 40px;
+    /* Increased slightly for touch targets */
+    background-color: #000;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    -webkit-app-region: drag;
+    padding: 0;
+    position: relative;
+    z-index: 2000;
+    border-bottom: 1px solid #222;
+}
+
+.nav-controls {
+    display: flex;
+    align-items: center;
+    -webkit-app-region: no-drag;
+    height: 100%;
+    padding-left: 10px;
+}
+
+.nav-btn {
+    background: none;
+    border: none;
+    color: #888;
+    height: 30px;
+    width: 30px;
+    margin-right: 5px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+}
+
+.nav-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.nav-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.drag-region {
+    flex-grow: 1;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9em;
+    color: #444;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+
+.window-controls {
+    display: flex;
+    height: 100%;
+    -webkit-app-region: no-drag;
+}
+
+.win-btn {
+    background: none;
+    border: none;
+    color: #fff;
+    width: 46px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+    transition: background-color 0.1s;
+}
+
+.win-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.win-close:hover {
+    background-color: #e81123;
+}
+
+.win-btn svg {
+    width: 10px;
+    height: 10px;
+}
+
+/* Homepage Styles */
+#home-container {
+    padding-top: 40px;
+    /* Offset for title bar */
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+h1 {
+    font-size: 2.5rem;
+    margin-bottom: 3rem;
+    font-weight: 300;
+    letter-spacing: 2px;
+}
+
+.card-container {
+    display: flex;
+    gap: 30px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.service-card {
+    background-color: var(--card-bg);
+    border: none;
+    border-radius: 12px;
+    width: 250px;
+    height: 250px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s;
+    color: var(--text-color);
+}
+
+.service-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4);
+    background-color: #2a2a2a;
+}
+
+.card-icon {
+    margin-bottom: 20px;
+}
+
+.service-card h2 {
+    margin: 0;
+    font-weight: 600;
+    font-size: 1.2rem;
+}
+
+/* Specific Accents on Hover or always */
+.yt-music:hover {
+    border-bottom: 4px solid var(--accent-yt);
+}
+
+.yt-music .card-icon {
+    color: var(--accent-yt);
+}
+
+.soundcloud:hover {
+    border-bottom: 4px solid var(--accent-sc);
+}
+
+.soundcloud .card-icon {
+    color: var(--accent-sc);
+}

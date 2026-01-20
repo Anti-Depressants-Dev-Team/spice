@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spice</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+    <!-- Custom Title Bar -->
+    <div id="title-bar">
+        <!-- Window Controls -->
+        <div class="window-controls">
+            <button id="btn-min" class="win-btn" title="Minimize">
+                <svg viewBox="0 0 12 12">
+                    <path fill="currentColor" d="M11 6H1V5h10v1z" />
+                </svg>
+            </button>
+            <button id="btn-max" class="win-btn" title="Maximize">
+                <svg viewBox="0 0 12 12">
+                    <path fill="currentColor" d="M1 1v10h10V1H1zm1 9V2h8v8H2z" />
+                </svg>
+            </button>
+            <button id="btn-close" class="win-btn win-close" title="Close">
+                <svg viewBox="0 0 12 12">
+                    <path fill="currentColor"
+                        d="M11 1.7L10.3 1 6 5.3 1.7 1 1 1.7 5.3 6 1 10.3 1.7 11 6 6.7 10.3 11 11 10.3 6.7 6z" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Top Navigation Bar (Hidden by default) -->
+    <div id="top-bar" class="hidden">
+        <div class="nav-controls">
+            <button id="btn-back" title="Back">
+                <svg viewBox="0 0 24 24">
+                    <path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+                </svg>
+            </button>
+            <button id="btn-forward" title="Forward">
+                <svg viewBox="0 0 24 24">
+                    <path fill="currentColor" d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z" />
+                </svg>
+            </button>
+            <button id="btn-reload" title="Reload">
+                <svg viewBox="0 0 24 24">
+                    <path fill="currentColor"
+                        d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
+                </svg>
+            </button>
+        </div>
+        <div class="app-title">Spice</div>
+        <div class="home-control">
+            <button id="btn-home" title="Home">
+                <svg viewBox="0 0 24 24">
+                    <path fill="currentColor" d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Homepage Selection -->
+    <div id="home-container">
+        <h1>Welcome to Spice</h1>
+        <div class="card-container">
+            <button class="service-card yt-music" onclick="window.api.loadService('yt')">
+                <div class="card-icon">
+                    <!-- Simple Play Icon for visual -->
+                    <svg viewBox="0 0 24 24" width="64" height="64">
+                        <path fill="currentColor" d="M8 5v14l11-7z" />
+                    </svg>
+                </div>
+                <h2>YouTube Music</h2>
+            </button>
+            <button class="service-card soundcloud" onclick="window.api.loadService('sc')">
+                <div class="card-icon">
+                    <!-- Cloud Icon for visual -->
+                    <svg viewBox="0 0 24 24" width="64" height="64">
+                        <path fill="currentColor"
+                            d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" />
+                    </svg>
+                </div>
+                <h2>SoundCloud</h2>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Setup Navigation Listeners
+        document.getElementById('btn-back').addEventListener('click', () => window.api.navigate('back'));
+        document.getElementById('btn-forward').addEventListener('click', () => window.api.navigate('forward'));
+        document.getElementById('btn-reload').addEventListener('click', () => window.api.navigate('reload'));
+        document.getElementById('btn-home').addEventListener('click', () => window.api.navigate('home'));
+
+        // Window Controls
+        document.getElementById('btn-min').addEventListener('click', () => window.api.windowControls.minimize());
+        document.getElementById('btn-max').addEventListener('click', () => window.api.windowControls.maximize());
+        document.getElementById('btn-close').addEventListener('click', () => window.api.windowControls.close());
+
+        // Handle Active State
+        const homeContainer = document.getElementById('home-container');
+
+        window.api.onServiceActive((active) => {
+            if (active) {
+                homeContainer.classList.add('hidden');
+                document.body.style.backgroundColor = '#000';
+            } else {
+                homeContainer.classList.remove('hidden');
+                document.body.style.backgroundColor = '';
+            }
+        });
+    </script>
+</body>
+
+</html>
