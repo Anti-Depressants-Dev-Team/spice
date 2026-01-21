@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spice Settings</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            margin: 0;
+            padding: 0;
+            background-color: #121212;
+            color: #ffffff;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #title-bar {
+            position: relative;
+            /* Relative is fine as body is flex column */
+            flex-shrink: 0;
+        }
+
+        .settings-content {
+            overflow-y: auto;
+            flex-grow: 1;
+            padding: 20px;
+        }
+
+        .settings-header {
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        h2 {
+            margin: 0;
+            font-weight: 300;
+        }
+
+        .settings-section {
+            margin-bottom: 30px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 10px;
+            color: #ccc;
+        }
+
+        /* Toggle CSS */
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 0;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 20px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #444;
+            transition: .4s;
+            border-radius: 20px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background-color: #ba2f2f;
+            /* Deep Red Accent */
+        }
+
+        input:checked+.slider:before {
+            transform: translateX(20px);
+        }
+
+        /* Dropdown CSS */
+        select {
+            background-color: #222;
+            color: #fff;
+            border: 1px solid #444;
+            padding: 8px 12px;
+            border-radius: 4px;
+            width: 100%;
+            font-size: 14px;
+            margin-top: 5px;
+            cursor: pointer;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #ba2f2f;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Custom Title Bar -->
+    <div id="title-bar">
+        <!-- Spacer/Drag Region -->
+        <div class="drag-region"
+            style="-webkit-app-region: drag; flex-grow: 1; margin-left:15px; display:flex; align-items:center; font-weight:bold; color:#888;">
+            Spice Settings
+        </div>
+
+        <!-- Right Side Controls (Only Close for Settings) -->
+        <div class="window-controls">
+            <button id="btn-close" class="win-btn win-close" title="Close">
+                <svg viewBox="0 0 12 12">
+                    <path fill="currentColor"
+                        d="M11 1.7L10.3 1 6 5.3 1.7 1 1 1.7 5.3 6 1 10.3 1.7 11 6 6.7 10.3 11 11 10.3 6.7 6z" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Content -->
+    <div class="settings-content">
+        <div class="settings-header">
+            <h2>Preferences</h2>
+        </div>
+
+        <div class="settings-section">
+            <div class="toggle-container">
+                <label for="adblock-toggle" style="margin:0; font-size: 16px;">Enable AdBlocker</label>
+                <label class="switch">
+                    <input type="checkbox" id="adblock-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <p style="color: #666; font-size: 12px; margin-top: 5px;">Blocks audio and visual ads on supported services.
+            </p>
+        </div>
+
+        <div class="settings-section">
+            <label for="default-service" style="font-size: 16px;">Default Startup Service</label>
+            <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Select which service to load automatically.
+                Changing this will restart the application.</p>
+            <select id="default-service">
+                <option value="home">None (Home Screen)</option>
+                <option value="yt">YouTube Music</option>
+                <option value="sc">SoundCloud</option>
+            </select>
+        </div>
+    </div>
+
+    <script>
+        const adBlockToggle = document.getElementById('adblock-toggle');
+        const defaultServiceSelect = document.getElementById('default-service');
+
+        // Load settings
+        window.api.getSettings().then(settings => {
+            adBlockToggle.checked = settings.adBlockerEnabled;
+            defaultServiceSelect.value = settings.defaultService;
+        });
+
+        adBlockToggle.addEventListener('change', (e) => {
+            window.api.setAdBlocker(e.target.checked);
+        });
+
+        defaultServiceSelect.addEventListener('change', (e) => {
+            if (confirm('Changing the default service will restart the application. Continue?')) {
+                window.api.setDefaultService(e.target.value);
+            } else {
+                // Revert if cancelled (though hard to revert to original without storing it, but fetching settings again works)
+                window.api.getSettings().then(settings => {
+                    defaultServiceSelect.value = settings.defaultService;
+                });
+            }
+        });
+
+        document.getElementById('btn-close').addEventListener('click', () => window.api.windowControls.close());
+    </script>
+</body>
+
+</html>
