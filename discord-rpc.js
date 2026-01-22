@@ -117,11 +117,45 @@ async function updatePresence(track) {
             instance: false
         };
 
-        // Add timestamps for progress bar if duration is available
-        if (track.duration && track.duration > 0) {
+        // Handle Pause/Play State and Timestamps
+        if (track.paused) {
+            activity.smallImageText = 'Paused';
+            // No timestamps when paused
+        } else if (track.duration && track.duration > 0) {
             const now = Date.now();
-            activity.startTimestamp = now;
-            activity.endTimestamp = now + (track.duration * 1000);
+            let startTime;
+
+            // If we have currentTime, use it for accurate seeking
+            if (track.currentTime !== undefined) {
+                // Calculate when the song ostensibly started
+                const computedStart = now - (track.currentTime * 1000);
+
+                // STABLE TIMESTAMP LOGIC:
+                // If we have a previous start time and the new one is within 2 seconds, keep the old one.
+                // This prevents the timer from jittering due to small latency variations.
+                if (rpcClient.lastStartTime && Math.abs(computedStart - rpcClient.lastStartTime) < 2000) {
+                    startTime = rpcClient.lastStartTime;
+                    // console.log('[Discord RPC] Stabilized timestamp');
+                } else {
+                    startTime = computedStart;
+                    rpcClient.lastStartTime = startTime;
+                    console.log(`[Discord RPC] New Start Time: ${new Date(startTime).toTimeString()} (Seek/New Track)`);
+                }
+
+                activity.startTimestamp = Math.floor(startTime);
+                activity.endTimestamp = Math.floor(startTime + (track.duration * 1000));
+            } else {
+                // Fallback for initial load
+                startTime = now;
+                rpcClient.lastStartTime = startTime;
+                activity.startTimestamp = now;
+                activity.endTimestamp = now + (track.duration * 1000);
+            }
+
+            // Debug check for the "00:10" issue
+            if (track.duration < 30) {
+                console.log('[Discord RPC] WARNING: Very short duration detected:', track.duration);
+            }
         }
 
         await rpcClient.user?.setActivity(activity);

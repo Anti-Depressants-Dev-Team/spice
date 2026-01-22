@@ -1103,10 +1103,87 @@ ipcMain.on('scrobble-now-playing', (event, track) => {
     }
 });
 
+// Track last RPC update time to avoid rate limiting
+let lastRpcUpdate = 0;
+let lastExpectedTime = 0;
+let lastUpdateTime = 0;
+
 ipcMain.on('scrobble-track-progress', (event, progress) => {
     // Forward to lyrics window if open
     if (lyricsWindow) {
         lyricsWindow.webContents.send('lyrics-progress-update', progress);
+    }
+
+    // Sync Discord RPC on Pause/Seek
+    if (discordRpc && lastTrack) {
+        const now = Date.now();
+        const isPaused = progress.paused;
+        const currentTime = progress.currentTime;
+
+        // Initialize state if needed
+        if (lastTrack.paused === undefined) lastTrack.paused = !isPaused; // Force update on first run
+
+        let shouldUpdate = false;
+
+        // Check 1: Pause State Changed
+        if (lastTrack.paused !== isPaused) {
+            console.log(`[Main] Pause state changed: ${lastTrack.paused} -> ${isPaused}`);
+            lastTrack.paused = isPaused;
+            shouldUpdate = true;
+        }
+
+        // Check 2: Seek/Time Drift (only if playing)
+        if (!isPaused) {
+            // Expected time since last update
+            const timePassed = (now - lastUpdateTime) / 1000;
+            const expectedCurrentTime = lastExpectedTime + timePassed;
+
+            // If actual time differs from expected by > 2 seconds (seek happened)
+            if (Math.abs(currentTime - expectedCurrentTime) > 3) { // 3s tolerance
+                console.log(`[Main] Seek detected: Expected ${expectedCurrentTime.toFixed(1)}, Got ${currentTime.toFixed(1)}`);
+                shouldUpdate = true;
+            }
+        }
+
+        // Update Reference Time
+        lastExpectedTime = currentTime;
+        lastUpdateTime = now;
+
+        // Update global track state immediately
+        lastTrack.currentTime = currentTime;
+        lastTrack.duration = progress.duration || lastTrack.duration;
+
+        if (shouldUpdate) {
+
+            // Rate limit updates logic with trailing edge
+            const timeSinceLast = now - lastRpcUpdate;
+            const limit = isPaused ? 500 : 2000; // Faster updates for pause, 2s for seeks
+
+            if (timeSinceLast > limit) {
+                // Can update immediately
+                if (discordRpc.pendingUpdate) {
+                    clearTimeout(discordRpc.pendingUpdate);
+                    discordRpc.pendingUpdate = null;
+                }
+                discordRpc.updatePresence(lastTrack);
+                lastRpcUpdate = now;
+            } else {
+                // Rate limited - schedule trailing update
+                if (!discordRpc.pendingUpdate) {
+                    console.log(`[Main] RPC rate limited, scheduling update in ${limit - timeSinceLast}ms`);
+                    discordRpc.pendingUpdate = setTimeout(() => {
+                        discordRpc.pendingUpdate = null;
+                        console.log('[Main] Sending buffered RPC update');
+                        discordRpc.updatePresence(lastTrack);
+                        lastRpcUpdate = Date.now();
+                    }, limit - timeSinceLast + 100);
+                }
+            }
+        }
+        // Feed progress to Scrobbler (for progress-based scrobbling)
+        if (scrobbler) {
+            scrobbler.updateProgress(currentTime, progress.duration);
+        }
     }
 });
 
@@ -1128,8 +1205,8 @@ function injectTrackDetection(serviceKey) {
             (function() {
                 console.log('[Spice Scrobbler] YouTube Music track detection injected');
                 
-                let lastTrack = null;
-                let checkInterval = null;
+                let lastTrackKey = null;
+                let lastTime = 0;
                 
                 function getTrackInfo() {
                     const titleEl = document.querySelector('.content-info-wrapper .title, ytmusic-player-bar .title');
@@ -1137,10 +1214,9 @@ function injectTrackDetection(serviceKey) {
                     const albumEl = document.querySelector('ytmusic-player-bar .subtitle .yt-formatted-string[href*="browse"]');
                     const video = document.querySelector('video');
                     
-                    // Get album art - YouTube Music uses the thumbnail in the player bar
+                    // Get album art
                     const albumArtEl = document.querySelector('ytmusic-player-bar .image img, .thumbnail-image-wrapper img, img.ytmusic-player-bar');
                     let albumArt = albumArtEl?.src || '';
-                    // Get higher resolution version if possible (replace size params)
                     if (albumArt) {
                         albumArt = albumArt.replace(/w\d+-h\d+/, 'w1200-h1200').replace(/=w\d+-h\d+/, '=w1200-h1200').replace(/s\d+-/, 's1200-');
                     }
@@ -1159,27 +1235,46 @@ function injectTrackDetection(serviceKey) {
                 
                 function checkForTrackChange() {
                     const video = document.querySelector('video');
-                    if (!video || video.paused) return;
+                    if (!video) return;
+                    // Note: We check even if paused to detect track changes while paused? Usually not needed but good for seeking.
                     
                     const track = getTrackInfo();
                     if (!track) return;
                     
                     const trackKey = track.artist + ' - ' + track.track;
-                    if (lastTrack !== trackKey) {
-                        lastTrack = trackKey;
+                    const currentTime = video.currentTime;
+                    const duration = video.duration || 180;
+
+                    // Repeat Detection: Same track, but time jumped BACKWARDS significantly
+                    if (lastTrackKey === trackKey) {
+                        // If time jumped back by more than 5 seconds, consider it a seek-to-start or loop
+                        // This handles both automatic loops and manual restarts
+                        if (currentTime < lastTime && (lastTime - currentTime) > 5) {
+                             console.log(\`[Spice Scrobbler] Repeat detected! (Time jump: \${lastTime.toFixed(1)} -> \${currentTime.toFixed(1)})\`);
+                             track.isRepeat = true;
+                             window.spiceReportTrack(track); // Report as repeat
+                             lastTime = currentTime;
+                             return;
+                        }
+                    }
+
+                    if (lastTrackKey !== trackKey) {
+                        lastTrackKey = trackKey;
                         console.log('[Spice Scrobbler] Now Playing:', trackKey);
                         
-                        // Send to main process via global function exposed by preload
+                        // Send to main process
                         if (typeof window.spiceReportTrack === 'function') {
                             window.spiceReportTrack(track);
                         }
                     }
+                    
+                    lastTime = currentTime;
                 }
                 
-                // Check every 2 seconds for track change
-                checkInterval = setInterval(checkForTrackChange, 2000);
+                // Check every 1 second
+                setInterval(checkForTrackChange, 1000);
                 
-                // Check progress more frequently (500ms) for lyrics sync
+                // Report progress/pause state every 500ms
                 setInterval(() => {
                     const video = document.querySelector('video');
                     if (video) {
@@ -1194,10 +1289,10 @@ function injectTrackDetection(serviceKey) {
                     }
                 }, 500);
 
-                // Also check on video play events
+                // Also check on video play events to catch immediate changes
                 document.addEventListener('play', (e) => {
                     if (e.target.tagName === 'VIDEO') {
-                        setTimeout(checkForTrackChange, 500);
+                        setTimeout(checkForTrackChange, 200);
                     }
                 }, true);
             })();
@@ -1208,8 +1303,20 @@ function injectTrackDetection(serviceKey) {
             (function() {
                 console.log('[Spice Scrobbler] SoundCloud track detection injected');
                 
-                let lastTrack = null;
+                let lastTrackKey = null;
+                let lastTime = 0;
                 
+                function parseTime(timeStr) {
+                    if (!timeStr) return 0;
+                    const parts = timeStr.split(':');
+                    if (parts.length === 2) {
+                        return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+                    } else if (parts.length === 3) {
+                        return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
+                    }
+                    return 0;
+                }
+
                 function getTrackInfo() {
                     const titleEl = document.querySelector('.playbackSoundBadge__titleLink span:last-child');
                     const artistEl = document.querySelector('.playbackSoundBadge__lightLink');
@@ -1221,11 +1328,10 @@ function injectTrackDetection(serviceKey) {
                     
                     if (!title || !artist) return null;
                     
-                    // Get album art from SoundCloud player
+                    // Get album art
                     const albumArtEl = document.querySelector('.playbackSoundBadge__avatar .image span');
                     let albumArt = '';
                     if (albumArtEl) {
-                        // SoundCloud uses background-image style
                         const bgImage = getComputedStyle(albumArtEl).backgroundImage;
                         const match = bgImage.match(/url\\(["']?([^"')]+)["']?\\)/);
                         if (match) {
@@ -1233,41 +1339,84 @@ function injectTrackDetection(serviceKey) {
                         }
                     }
                     
-                    // SoundCloud doesn't always have duration easily accessible
+                    // Parse duration from UI
                     const progressEl = document.querySelector('.playbackTimeline__duration span[aria-hidden="true"]');
-                    let duration = 0;
-                    if (progressEl) {
-                        const parts = progressEl.textContent.split(':');
-                        if (parts.length === 2) {
-                            duration = parseInt(parts[0]) * 60 + parseInt(parts[1]);
-                        } else if (parts.length === 3) {
-                            duration = parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
-                        }
-                    }
+                    const duration = progressEl ? parseTime(progressEl.textContent) : 0;
                     
                     return { track: title, artist, album: '', duration, albumArt };
                 }
                 
-                function checkForTrackChange() {
+                function getPlaybackState() {
+                    // Try to find audio element first
+                    const audio = document.querySelector('media') || document.querySelector('audio');
+                    if (audio) {
+                         return {
+                             currentTime: audio.currentTime,
+                             duration: audio.duration,
+                             paused: audio.paused
+                         };
+                    }
+
+                    // Fallback to UI scraping
+                    const timePassedEl = document.querySelector('.playbackTimeline__timePassed span[aria-hidden="true"]');
+                    const currentTime = timePassedEl ? parseTime(timePassedEl.textContent) : 0;
+                    
                     const playBtn = document.querySelector('.playControl');
-                    if (!playBtn || !playBtn.classList.contains('playing')) return;
+                    const paused = !playBtn || !playBtn.classList.contains('playing');
+                    
+                    return { currentTime, paused };
+                }
+
+                function checkForTrackChange() {
+                    const state = getPlaybackState();
+                    // If UI based, only proceed if not paused? No, we want to update state even if paused but only if track exists.
                     
                     const track = getTrackInfo();
                     if (!track) return;
                     
                     const trackKey = track.artist + ' - ' + track.track;
-                    if (lastTrack !== trackKey) {
-                        lastTrack = trackKey;
+                    const currentTime = state.currentTime;
+                    const duration = track.duration || 180;
+
+                    // Repeat Detection
+                    if (lastTrackKey === trackKey) {
+                        // Relaxed logic: Any significant backward jump
+                        if (currentTime < lastTime && (lastTime - currentTime) > 5) {
+                             console.log(\`[Spice Scrobbler] Repeat detected(SC)! (Time jump: \${lastTime.toFixed(1)} -> \${currentTime.toFixed(1)})\`);
+                             track.isRepeat = true;
+                             window.spiceReportTrack(track);
+                             lastTime = currentTime;
+                             return;
+                        }
+                    } else if (lastTrackKey !== trackKey) {
+                        lastTrackKey = trackKey;
                         console.log('[Spice Scrobbler] Now Playing:', trackKey);
                         
                         if (typeof window.spiceReportTrack === 'function') {
                             window.spiceReportTrack(track);
                         }
                     }
+                    lastTime = currentTime;
                 }
                 
-                // Check every 2 seconds
-                setInterval(checkForTrackChange, 2000);
+                // Check every 1 second
+                setInterval(checkForTrackChange, 1000);
+
+                // Report progress
+                setInterval(() => {
+                    const state = getPlaybackState();
+                    const track = getTrackInfo(); // Need duration if audio el missing
+                    
+                    const progress = {
+                         currentTime: state.currentTime,
+                         duration: state.duration || track?.duration || 0,
+                         paused: state.paused
+                    };
+                    
+                    if (typeof window.spiceReportProgress === 'function') {
+                        window.spiceReportProgress(progress);
+                    }
+                }, 500);
             })();
         `;
     }

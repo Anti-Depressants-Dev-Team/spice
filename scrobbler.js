@@ -268,7 +268,7 @@ class Scrobbler {
         this.store = store;
         this.currentTrack = null;
         this.trackStartTime = null;
-        this.scrobbleTimeout = null;
+        this.hasScrobbled = false;
         this.lastScrobbledTrack = null;
         this.pendingToken = null; // For Last.fm auth flow
     }
@@ -396,28 +396,29 @@ class Scrobbler {
      * Update now playing for both services
      */
     async updateNowPlaying(track) {
-        const settings = this.getSettings();
-
-        // Clear any pending scrobble
-        if (this.scrobbleTimeout) {
-            clearTimeout(this.scrobbleTimeout);
-            this.scrobbleTimeout = null;
-        }
-
-        // Check if this is a new track
+        // Check if this is a new track or a repeat
         const isNewTrack = !this.currentTrack ||
             this.currentTrack.artist !== track.artist ||
             this.currentTrack.track !== track.track;
 
-        if (!isNewTrack) {
-            console.log('[Scrobbler] Same track, skipping now playing update');
+        if (!isNewTrack && !track.isRepeat) {
+            // Only skip if it's the same track and NOT a repeat event
             return;
         }
 
         this.currentTrack = track;
         this.trackStartTime = Date.now();
+        this.hasScrobbled = false; // Reset for new track
 
-        console.log('[Scrobbler] Now Playing:', track.artist, '-', track.track);
+        // If it's a repeat, clear the last scrobbled track so it can be scrobbled again
+        if (track.isRepeat) {
+            this.lastScrobbledTrack = null;
+            console.log('[Scrobbler] Track repeat detected, resetting scrobble state');
+        }
+
+        console.log('[Scrobbler] Now Playing:', track.artist, '-', track.track, track.isRepeat ? '(Repeat)' : '');
+
+        const settings = this.getSettings();
 
         // Last.fm Now Playing
         if (settings.lastfm.enabled && settings.lastfm.sessionKey) {
@@ -433,29 +434,41 @@ class Scrobbler {
             listenBrainzSubmit(track, settings.listenbrainz.token, 'playing_now');
         }
 
-        // Schedule scrobble after threshold (50% or 4 minutes, minimum 30 seconds)
-        const duration = track.duration || 180; // Default 3 minutes if unknown
-        const scrobbleDelay = Math.min(
-            Math.max(duration * 0.5, 30), // 50% of track, minimum 30s
-            240 // Maximum 4 minutes
-        ) * 1000;
+        // Timer-based scrobbling removed in favor of progress-based triggering
+    }
 
-        console.log(`[Scrobbler] Will scrobble in ${scrobbleDelay / 1000}s`);
+    /**
+     * Update progress and trigger scrobble if threshold met
+     * @param {number} currentTime - Current track progress in seconds
+     * @param {number} duration - Track duration in seconds
+     */
+    updateProgress(currentTime, duration) {
+        if (!this.currentTrack || this.hasScrobbled) return;
 
-        this.scrobbleTimeout = setTimeout(() => {
+        // Ensure we have a valid duration
+        const trackDuration = duration || this.currentTrack.duration || 180;
+
+        // Scrobble Threshold: 50% or 4 minutes (240s), whichever is smaller.
+        // Also enforce minimum 30s playback.
+        const threshold = Math.min(trackDuration * 0.5, 240);
+
+        // Check if passed threshold (and at least 30s)
+        if (currentTime > threshold && currentTime > 30) {
+            console.log(`[Scrobbler] Threshold reached (${currentTime.toFixed(1)}s > ${threshold.toFixed(1)}s). Scrobbling...`);
             this.scrobbleCurrentTrack();
-        }, scrobbleDelay);
+        }
     }
 
     /**
      * Scrobble the current track
      */
     async scrobbleCurrentTrack() {
-        if (!this.currentTrack) return;
+        if (!this.currentTrack || this.hasScrobbled) return;
 
         // Avoid duplicate scrobbles
-        if (this.isSameTrack(this.currentTrack)) {
+        if (this.isSameTrack(this.currentTrack) && !this.currentTrack.isRepeat) {
             console.log('[Scrobbler] Already scrobbled this track, skipping');
+            this.hasScrobbled = true; // Mark as done to stop checking
             return;
         }
 
@@ -464,6 +477,7 @@ class Scrobbler {
         const track = { ...this.currentTrack, timestamp };
 
         console.log('[Scrobbler] Scrobbling:', track.artist, '-', track.track);
+        this.hasScrobbled = true; // Mark as scrobbled immediately to prevent double submissions
 
         // Last.fm Scrobble
         if (settings.lastfm.enabled && settings.lastfm.sessionKey) {
@@ -495,10 +509,7 @@ class Scrobbler {
      * Handle track end/pause
      */
     onTrackEnd() {
-        if (this.scrobbleTimeout) {
-            clearTimeout(this.scrobbleTimeout);
-            this.scrobbleTimeout = null;
-        }
+        // Nothing needed for progress-based approach
     }
 }
 
