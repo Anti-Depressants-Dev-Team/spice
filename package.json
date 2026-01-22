@@ -35,10 +35,10 @@
   "homepage": "https://github.com/Anti-Depressants-Dev-Team/spice#readme",
   "devDependencies": {
     "electron": "^40.0.0",
-    "electron-builder": "^26.4.0",
-    "electron-store": "^8.1.0"
+    "electron-builder": "^26.4.0"
   },
   "dependencies": {
+    "electron-store": "^8.1.0",
     "@cliqz/adblocker-electron": "^1.34.0",
     "@xhayper/discord-rpc": "^1.3.0",
     "node-fetch": "^2.7.0"
