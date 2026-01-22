@@ -11,4 +11,9 @@ window.spiceReportTrack = function (track) {
     ipcRenderer.send('scrobble-now-playing', track);
 };
 
+window.spiceReportProgress = function (progress) {
+    // progress: { currentTime, duration, paused }
+    ipcRenderer.send('scrobble-track-progress', progress);
+};
+
 console.log('[BrowserView Preload] Loaded - spiceReportTrack available');

@@ -52,6 +52,8 @@ let view;
 let adBlocker = null;
 let scrobbler = null;
 let currentService = null; // Track which service is active for Discord RPC
+let lastTrack = null; // Store last track to send to lyrics on open
+let lyricsWindow = null;
 
 const SERVICES = {
     yt: 'https://music.youtube.com',
@@ -115,6 +117,16 @@ function createWindow() {
             updateViewBounds();
         }
     });
+
+    // Handle Main Window Close - Ensure App Quits
+    mainWindow.on('closed', () => {
+        mainWindow = null;
+        if (lyricsWindow) {
+            lyricsWindow.close();
+        }
+        // Force quit to ensure no background processes remain
+        app.quit();
+    });
 }
 
 function updateViewBounds() {
@@ -122,6 +134,49 @@ function updateViewBounds() {
     const bounds = mainWindow.getBounds();
     // Title bar: 40px. No Top Nav. Total 40px offset.
     view.setBounds({ x: 0, y: 40, width: bounds.width, height: bounds.height - 40 });
+}
+
+const AD_SKIP_SCRIPT = `
+    (function() {
+        console.log('[Spice AdBlocker] Script injected');
+        
+        setInterval(() => {
+            // Skip video ads by clicking skip button
+            const skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button');
+            if (skipBtn) {
+                skipBtn.click();
+                console.log('[Spice AdBlocker] Clicked skip button');
+            }
+            
+            // Fast-forward ads that can't be skipped
+            const adContainer = document.querySelector('.ad-showing');
+            const video = document.querySelector('video');
+            if (adContainer && video && video.duration && !isNaN(video.duration)) {
+                video.currentTime = video.duration;
+                console.log('[Spice AdBlocker] Fast-forwarded ad');
+            }
+            
+            // Close overlay ads
+            const closeBtn = document.querySelector('.ytp-ad-overlay-close-button');
+            if (closeBtn) {
+                closeBtn.click();
+                console.log('[Spice AdBlocker] Closed overlay ad');
+            }
+            
+            // Mute ads (backup if they still play)
+            const adPlaying = document.querySelector('.ad-interrupting');
+            if (adPlaying && video) {
+                video.muted = true;
+            }
+        }, 300);
+    })();
+`;
+
+function injectAdSkipper(targetView) {
+    if (!targetView) return;
+    targetView.webContents.executeJavaScript(AD_SKIP_SCRIPT).catch(err => {
+        console.error('[AdBlocker] Failed to inject script:', err);
+    });
 }
 
 function loadService(serviceKey) {
@@ -147,6 +202,8 @@ function loadService(serviceKey) {
         mainWindow.setBrowserView(view);
         console.log('BrowserView set to mainWindow');
     } else {
+        // Ensure view is attached and correct bounds
+        mainWindow.setBrowserView(view);
         console.log('Reuse logic invoked (should be unreachable if view is destroyed)');
     }
 
@@ -162,41 +219,7 @@ function loadService(serviceKey) {
         view.webContents.insertCSS(AD_CSS);
 
         // Inject Ad-Skip Script
-        view.webContents.executeJavaScript(`
-            (function() {
-                console.log('[Spice AdBlocker] Script injected');
-                
-                setInterval(() => {
-                    // Skip video ads by clicking skip button
-                    const skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button');
-                    if (skipBtn) {
-                        skipBtn.click();
-                        console.log('[Spice AdBlocker] Clicked skip button');
-                    }
-                    
-                    // Fast-forward ads that can't be skipped
-                    const adContainer = document.querySelector('.ad-showing');
-                    const video = document.querySelector('video');
-                    if (adContainer && video && video.duration && !isNaN(video.duration)) {
-                        video.currentTime = video.duration;
-                        console.log('[Spice AdBlocker] Fast-forwarded ad');
-                    }
-                    
-                    // Close overlay ads
-                    const closeBtn = document.querySelector('.ytp-ad-overlay-close-button');
-                    if (closeBtn) {
-                        closeBtn.click();
-                        console.log('[Spice AdBlocker] Closed overlay ad');
-                    }
-                    
-                    // Mute ads (backup if they still play)
-                    const adPlaying = document.querySelector('.ad-interrupting');
-                    if (adPlaying && video) {
-                        video.muted = true;
-                    }
-                }, 300);
-            })();
-        `);
+        injectAdSkipper(view);
 
         // Inject Track Detection Script based on service
         injectTrackDetection(serviceKey);
@@ -281,26 +304,33 @@ ipcMain.on('load-url', (event, url) => {
         const serviceKey = isYtMusic ? 'yt' : 'sc';
         currentService = serviceKey;
 
-        // Create BrowserView if needed
-        if (!view) {
-            console.log('Creating new BrowserView for URL...');
-            view = new BrowserView({
-                webPreferences: {
-                    nodeIntegration: false,
-                    contextIsolation: false,
-                    partition: 'persist:main',
-                    preload: path.join(__dirname, 'preload-view.js')
-                }
-            });
-            mainWindow.setBrowserView(view);
-
-            const viewSession = view.webContents.session;
-            const enabled = store ? store.get('adBlockerEnabled', true) : true;
-            if (enabled && adBlocker) {
-                adBlocker.enableBlockingInSession(viewSession);
-            }
+        // Force recreate BrowserView to ensure clean state (fixes AdBlock/Interactivity issues)
+        if (view) {
+            console.log('Destroying existing BrowserView before loading URL...');
+            mainWindow.setBrowserView(null);
+            view.webContents.destroy();
+            view = null;
         }
 
+        console.log('Creating new BrowserView for URL...');
+        view = new BrowserView({
+            webPreferences: {
+                nodeIntegration: false,
+                contextIsolation: false,
+                partition: 'persist:main',
+                preload: path.join(__dirname, 'preload-view.js')
+            }
+        });
+        mainWindow.setBrowserView(view);
+
+        const viewSession = view.webContents.session;
+        const enabled = store ? store.get('adBlockerEnabled', true) : true;
+        if (enabled && adBlocker) {
+            adBlocker.enableBlockingInSession(viewSession);
+        }
+
+        // Ensure the view is attached (in case it was hidden by modal)
+        mainWindow.setBrowserView(view);
         updateViewBounds();
         mainWindow.webContents.send('service-active', true);
 
@@ -308,6 +338,10 @@ ipcMain.on('load-url', (event, url) => {
         view.webContents.loadURL(url).then(() => {
             console.log(`Successfully loaded URL: ${url}`);
             view.webContents.insertCSS(AD_CSS);
+
+            // Inject Ad-Skip Script (AdBlock Fix)
+            injectAdSkipper(view);
+
             injectTrackDetection(serviceKey);
         }).catch(e => {
             console.error(`Failed to load URL:`, e);
@@ -337,6 +371,7 @@ ipcMain.on('navigate', (event, action) => {
 
 // Hide/Show BrowserView (for modals)
 ipcMain.on('hide-view', () => {
+    console.log('IPC: hide-view received');
     if (view && mainWindow) {
         mainWindow.setBrowserView(null);
         console.log('BrowserView hidden for modal');
@@ -348,6 +383,241 @@ ipcMain.on('show-view', () => {
         mainWindow.setBrowserView(view);
         updateViewBounds();
         console.log('BrowserView shown after modal');
+    }
+});
+
+// Lyrics Window Handler
+ipcMain.on('open-lyrics', () => {
+    if (lyricsWindow) {
+        lyricsWindow.focus();
+        return;
+    }
+
+    lyricsWindow = new BrowserWindow({
+        width: 400,
+        height: 600,
+        title: 'Spice Lyrics',
+        icon: path.join(__dirname, 'icon.png'),
+        frame: false, // Frameless to match main theme
+        autoHideMenuBar: true,
+        backgroundColor: '#121212',
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true, // Must be true for contextBridge in preload.js to work
+            preload: path.join(__dirname, 'preload.js')
+        }
+    });
+
+    lyricsWindow.loadFile(path.join(__dirname, 'lyrics.html'));
+
+    lyricsWindow.once('ready-to-show', () => {
+        lyricsWindow.show();
+        // Send last known track if available
+        if (lastTrack) {
+            lyricsWindow.webContents.send('lyrics-track-update', lastTrack);
+        }
+    });
+
+    lyricsWindow.on('closed', () => {
+        lyricsWindow = null;
+    });
+});
+
+ipcMain.handle('get-now-playing', () => {
+    console.log('[Main] get-now-playing called. Returning:', lastTrack ? lastTrack.title : 'null');
+    return lastTrack;
+});
+
+ipcMain.handle('fetch-lyrics', async (event, args) => {
+    // args can be just {title, artist} (legacy) or {title, artist, provider}
+    const { title, artist, album, provider = 'lrclib' } = args;
+    console.log(`[Main] Fetching lyrics from [${provider}] for: ${title} - ${artist}`);
+
+    try {
+        if (provider === 'genius') {
+            return await fetchGeniusLyrics(title, artist);
+        } else if (provider === 'musixmatch') {
+            return await fetchMusixMatchLyrics(title, artist);
+        } else {
+            // Default: LRCLIB
+            return await fetchLrcLibLyrics(title, artist, album);
+        }
+    } catch (e) {
+        console.error(`[Main] Error fetching from ${provider}:`, e);
+        return null;
+    }
+});
+
+// LRCLIB Implementation
+async function fetchLrcLibLyrics(title, artist, album) {
+    const query = new URLSearchParams({
+        track_name: title,
+        artist_name: artist,
+        album_name: album || ''
+    });
+    const url = `https://lrclib.net/api/get?${query.toString()}`;
+
+    let res = await fetch(url);
+    if (!res.ok) {
+        console.log('[Main] LRCLIB direct fetch failed, trying search...');
+        const searchUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(title + ' ' + artist)}`;
+        res = await fetch(searchUrl);
+        if (res.ok) {
+            const searchData = await res.json();
+            if (searchData && searchData.length > 0) return searchData[0];
+        }
+        return null;
+    }
+    return await res.json();
+}
+
+// GENIUS Implementation
+async function fetchGeniusLyrics(title, artist) {
+    // 1. Search Genius API
+    const searchUrl = `https://genius.com/api/search/multi?per_page=1&q=${encodeURIComponent(title + ' ' + artist)}`;
+    const searchRes = await fetch(searchUrl);
+    if (!searchRes.ok) throw new Error('Genius search failed');
+
+    const searchJson = await searchRes.json();
+    const hit = searchJson?.response?.sections?.[0]?.hits?.[0]?.result;
+
+    if (!hit || !hit.url) return null;
+    console.log('[Main] Found Genius URL:', hit.url);
+
+    // 2. Fetch Page HTML
+    const pageRes = await fetch(hit.url);
+    if (!pageRes.ok) throw new Error('Genius page fetch failed');
+    const html = await pageRes.text();
+
+    // 3. Parse HTML (Regex)
+    // Genius puts lyrics in <div data-lyrics-container="true"...>
+    const containerRegex = /<div data-lyrics-container="true"[^>]*>(.*?)<\/div>/gs;
+    let lyricsHtml = '';
+    let match;
+
+    while ((match = containerRegex.exec(html)) !== null) {
+        lyricsHtml += match[1] + '<br/>'; // Join multiple containers
+    }
+
+    if (!lyricsHtml) {
+        console.log('[Main] Could not extract lyrics from Genius HTML');
+        return null;
+    }
+
+    // Clean up HTML to Plain Text
+    let plainText = lyricsHtml
+        .replace(/<br\s*\/?>/gi, '\n') // br to newline
+        .replace(/<[^>]+>/g, '') // remove other tags
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&#x27;/g, "'")
+        .replace(/&quot;/g, '"');
+
+    return {
+        plainLyrics: plainText.trim(),
+        syncedLyrics: null // Genius is text only
+    };
+}
+
+// MUSIXMATCH Implementation (Experimental)
+async function fetchMusixMatchLyrics(title, artist) {
+    // MusixMatch is very hard to scrape. We will try a search via google pattern or direct site search.
+    // NOTE: This usually hits Captcha. This is a "Best Effort".
+
+    const searchUrl = `https://www.musixmatch.com/search/${encodeURIComponent(title + ' ' + artist)}`;
+    console.log('[Main] Searching MusixMatch:', searchUrl);
+
+    const res = await fetch(searchUrl, {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+    });
+
+    if (res.status === 403 || res.status === 503) {
+        return { plainLyrics: "MusixMatch blocked access (Captcha/Cloudflare). Please use Genius or LRCLIB." };
+    }
+
+    const html = await res.text();
+
+    // Find song link in search results
+    // <a class="title" href="/lyrics/..."
+    const linkRegex = /href="(\/lyrics\/[^"]+)"/;
+    const linkMatch = linkRegex.exec(html);
+
+    if (!linkMatch) return null;
+
+    const trackUrl = `https://www.musixmatch.com${linkMatch[1]}`;
+    console.log('[Main] Found MusixMatch Track URL:', trackUrl);
+
+    const trackRes = await fetch(trackUrl, {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+    });
+
+    const trackHtml = await trackRes.text();
+
+    // Extract lyrics: <span class="lyrics__content__ok">...</span> or similar class
+    const lyricRegex = /<span class="lyrics__content__ok"[^>]*>(.*?)<\/span>/gs;
+    let fullLyrics = '';
+    let m;
+    while ((m = lyricRegex.exec(trackHtml)) !== null) {
+        fullLyrics += m[1] + '\n';
+    }
+
+    if (!fullLyrics) {
+        // Fallback for restricted lyrics
+        return { plainLyrics: "Could not extract full lyrics from MusixMatch (Restricted/Login Required)." };
+    }
+
+    return {
+        plainLyrics: fullLyrics.replace(/<[^>]+>/g, '').trim(),
+        syncedLyrics: null
+    };
+}
+
+// Main process receiving track info from Renderer (which got it from BrowserView)
+ipcMain.on('scrobble-now-playing', (event, track) => {
+    console.log('[Main] RAW track received:', JSON.stringify(track));
+
+    // Normalize track object (fix mismatch where injection uses 'track' but we expect 'title')
+    if (track && track.track && !track.title) {
+        track.title = track.track;
+    }
+
+    // Check if valid track
+    if (!track || !track.title) {
+        console.log('[Main] Invalid track, ignoring.');
+        return;
+    }
+
+    lastTrack = track; // Save immediately
+    console.log(`[Main] lastTrack UPDATED: ${lastTrack.title}`);
+
+    // Enhance track object
+    if (currentService === 'yt') {
+        // Album art fix for YT Music (high res)
+        if (track.artwork && track.artwork.includes('ggpht.com')) {
+            track.artwork = track.artwork.replace(/w\d+-h\d+/, 'w1200-h1200');
+            // Update lastTrack with enhanced artwork too
+            lastTrack.artwork = track.artwork;
+        }
+    }
+
+    // Update Discord Presence
+    if (discordRpc) {
+        discordRpc.updatePresence(track);
+    }
+
+    // Scrobble (Last.fm / ListenBrainz)
+    if (scrobbler) {
+        scrobbler.updateNowPlaying(track);
+    }
+
+    // Update Lyrics Window if open
+    if (lyricsWindow) {
+        lyricsWindow.webContents.send('lyrics-track-update', track);
     }
 });
 
@@ -833,6 +1103,13 @@ ipcMain.on('scrobble-now-playing', (event, track) => {
     }
 });
 
+ipcMain.on('scrobble-track-progress', (event, progress) => {
+    // Forward to lyrics window if open
+    if (lyricsWindow) {
+        lyricsWindow.webContents.send('lyrics-progress-update', progress);
+    }
+});
+
 ipcMain.on('scrobble-track-end', () => {
     if (scrobbler) {
         scrobbler.onTrackEnd();
@@ -899,9 +1176,24 @@ function injectTrackDetection(serviceKey) {
                     }
                 }
                 
-                // Check every 2 seconds
+                // Check every 2 seconds for track change
                 checkInterval = setInterval(checkForTrackChange, 2000);
                 
+                // Check progress more frequently (500ms) for lyrics sync
+                setInterval(() => {
+                    const video = document.querySelector('video');
+                    if (video) {
+                        const progress = {
+                             currentTime: video.currentTime,
+                             duration: video.duration || 0,
+                             paused: video.paused
+                        };
+                        if (typeof window.spiceReportProgress === 'function') {
+                            window.spiceReportProgress(progress);
+                        }
+                    }
+                }, 500);
+
                 // Also check on video play events
                 document.addEventListener('play', (e) => {
                     if (e.target.tagName === 'VIDEO') {

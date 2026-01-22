@@ -13,6 +13,11 @@ contextBridge.exposeInMainWorld('api', {
     setAdBlocker: (enabled) => ipcRenderer.send('set-adblocker', enabled),
     setDefaultService: (service) => ipcRenderer.send('set-default-service', service),
     setDiscordRpc: (enabled) => ipcRenderer.send('set-discord-rpc', enabled),
+    openLyrics: () => ipcRenderer.send('open-lyrics'),
+    getNowPlaying: () => ipcRenderer.invoke('get-now-playing'),
+    fetchLyrics: (data) => ipcRenderer.invoke('fetch-lyrics', data),
+    onLyricsTrackUpdate: (callback) => ipcRenderer.on('lyrics-track-update', (event, track) => callback(track)),
+    onLyricsProgressUpdate: (callback) => ipcRenderer.on('lyrics-progress-update', (event, progress) => callback(progress)),
     onServiceActive: (callback) => ipcRenderer.on('service-active', (event, value) => callback(value)),
     windowControls: {
         minimize: () => ipcRenderer.send('window-minimize'),
