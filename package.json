@@ -5,7 +5,21 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "dist": "electron-builder",
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "build": {
+    "appId": "com.spice.app",
+    "productName": "Spice",
+    "win": {
+      "target": "nsis",
+      "icon": "icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
   },
   "repository": {
     "type": "git",
@@ -21,10 +35,12 @@
   "homepage": "https://github.com/Anti-Depressants-Dev-Team/spice#readme",
   "devDependencies": {
     "electron": "^40.0.0",
-    "electron-store": "^11.0.2"
+    "electron-builder": "^26.4.0",
+    "electron-store": "^8.1.0"
   },
   "dependencies": {
     "@cliqz/adblocker-electron": "^1.34.0",
+    "@xhayper/discord-rpc": "^1.3.0",
     "node-fetch": "^2.7.0"
   }
 }

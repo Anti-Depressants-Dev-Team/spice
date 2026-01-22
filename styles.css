@@ -266,3 +266,110 @@ h1 {
     min-width: 40px;
     text-align: right;
 }
+
+/* Modal Styles */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    backdrop-filter: blur(5px);
+}
+
+.modal-content {
+    background: linear-gradient(145deg, #1e1e1e, #2a2a2a);
+    border-radius: 16px;
+    padding: 24px;
+    min-width: 400px;
+    max-width: 500px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    border: 1px solid #333;
+}
+
+.modal-content h3 {
+    margin: 0 0 8px 0;
+    font-size: 1.3rem;
+    font-weight: 600;
+}
+
+.modal-hint {
+    margin: 0 0 16px 0;
+    color: #888;
+    font-size: 0.85rem;
+}
+
+.modal-content input[type="url"] {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid #333;
+    border-radius: 8px;
+    background: #1a1a1a;
+    color: #fff;
+    font-size: 0.95rem;
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.modal-content input[type="url"]:focus {
+    border-color: #666;
+}
+
+.modal-content input[type="url"]::placeholder {
+    color: #555;
+}
+
+.modal-error {
+    color: #ff4444;
+    font-size: 0.85rem;
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: rgba(255, 68, 68, 0.1);
+    border-radius: 6px;
+    border-left: 3px solid #ff4444;
+}
+
+.modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.modal-btn {
+    padding: 10px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+}
+
+.modal-btn:active {
+    transform: scale(0.98);
+}
+
+.modal-btn.cancel {
+    background: #333;
+    color: #ccc;
+}
+
+.modal-btn.cancel:hover {
+    background: #444;
+}
+
+.modal-btn.primary {
+    background: linear-gradient(135deg, #ff0000, #cc0000);
+    color: #fff;
+}
+
+.modal-btn.primary:hover {
+    background: linear-gradient(135deg, #ff2222, #dd0000);
+}

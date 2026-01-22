@@ -122,6 +122,107 @@
             outline: none;
             border-color: #ba2f2f;
         }
+
+        /* Input Fields */
+        input[type="text"],
+        input[type="password"] {
+            background-color: #222;
+            color: #fff;
+            border: 1px solid #444;
+            padding: 8px 12px;
+            border-radius: 4px;
+            width: 100%;
+            font-size: 14px;
+            margin-top: 5px;
+            box-sizing: border-box;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #ba2f2f;
+        }
+
+        /* Buttons */
+        .btn {
+            background-color: #ba2f2f;
+            color: #fff;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 10px;
+            transition: background-color 0.2s;
+        }
+
+        .btn:hover {
+            background-color: #d43d3d;
+        }
+
+        .btn:disabled {
+            background-color: #444;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background-color: #333;
+        }
+
+        .btn-secondary:hover {
+            background-color: #444;
+        }
+
+        /* Status Indicators */
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+
+        .status-connected {
+            background-color: #2d5a2d;
+            color: #7dff7d;
+        }
+
+        .status-disconnected {
+            background-color: #5a2d2d;
+            color: #ff7d7d;
+        }
+
+        /* Section Divider */
+        .section-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .section-header h3 {
+            margin: 0;
+            font-weight: 400;
+        }
+
+        .credential-fields {
+            padding-left: 10px;
+            border-left: 2px solid #333;
+            margin-top: 10px;
+        }
+
+        .field-group {
+            margin-bottom: 12px;
+        }
+
+        .field-group label {
+            font-size: 13px;
+            color: #999;
+            margin-bottom: 5px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
     </style>
 </head>
 
@@ -173,20 +274,94 @@
                 <option value="sc">SoundCloud</option>
             </select>
         </div>
+
+        <div class="settings-section">
+            <div class="toggle-container">
+                <label for="discord-toggle" style="margin:0; font-size: 16px;">Discord Rich Presence</label>
+                <label class="switch">
+                    <input type="checkbox" id="discord-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <p style="color: #666; font-size: 12px; margin-top: 5px;">Show what you're listening to in your Discord
+                status.
+            </p>
+        </div>
+
+        <!-- Scrobbling Section -->
+        <div class="settings-header" style="margin-top: 30px;">
+            <h2>Scrobbling</h2>
+        </div>
+
+        <!-- Last.fm -->
+        <div class="settings-section">
+            <div class="section-header">
+                <div class="toggle-container" style="flex-grow: 1; padding: 0;">
+                    <label for="lastfm-toggle" style="margin:0; font-size: 16px;">Last.fm</label>
+                    <label class="switch">
+                        <input type="checkbox" id="lastfm-toggle">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <span id="lastfm-status" class="status status-disconnected">Not Connected</span>
+            </div>
+            <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Scrobble your listening history to Last.fm.
+            </p>
+
+            <div id="lastfm-setup-section" class="hidden">
+                <button id="lastfm-auth-btn" class="btn"
+                    style="width: 100%; background: linear-gradient(135deg, #ba2f2f 0%, #d43d3d 100%); font-weight: bold;">
+                    🎵 Connect to Last.fm
+                </button>
+                <button id="lastfm-disconnect-btn" class="btn btn-secondary hidden"
+                    style="width: 100%;">Disconnect</button>
+            </div>
+        </div>
+
+        <!-- ListenBrainz -->
+        <div class="settings-section">
+            <div class="section-header">
+                <div class="toggle-container" style="flex-grow: 1; padding: 0;">
+                    <label for="listenbrainz-toggle" style="margin:0; font-size: 16px;">ListenBrainz</label>
+                    <label class="switch">
+                        <input type="checkbox" id="listenbrainz-toggle">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <span id="listenbrainz-status" class="status status-disconnected">Not Connected</span>
+            </div>
+            <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Scrobble to ListenBrainz. Get your token from
+                your profile settings.</p>
+
+            <div id="listenbrainz-fields" class="credential-fields hidden">
+                <div class="field-group">
+                    <label for="listenbrainz-token">User Token</label>
+                    <input type="password" id="listenbrainz-token" placeholder="Your ListenBrainz Token">
+                </div>
+                <button id="listenbrainz-save-btn" class="btn">Save Token</button>
+                <button id="listenbrainz-disconnect-btn" class="btn btn-secondary hidden">Disconnect</button>
+            </div>
+        </div>
     </div>
 
     <script>
         const adBlockToggle = document.getElementById('adblock-toggle');
         const defaultServiceSelect = document.getElementById('default-service');
+        const discordToggle = document.getElementById('discord-toggle');
 
         // Load settings
         window.api.getSettings().then(settings => {
             adBlockToggle.checked = settings.adBlockerEnabled;
             defaultServiceSelect.value = settings.defaultService;
+            discordToggle.checked = settings.discordRpcEnabled;
         });
 
         adBlockToggle.addEventListener('change', (e) => {
             window.api.setAdBlocker(e.target.checked);
+        });
+
+        discordToggle.addEventListener('change', (e) => {
+            window.api.setDiscordRpc(e.target.checked);
         });
 
         defaultServiceSelect.addEventListener('change', (e) => {
@@ -201,6 +376,126 @@
         });
 
         document.getElementById('btn-close').addEventListener('click', () => window.api.windowControls.close());
+
+        // Scrobbler Settings
+        const lastfmToggle = document.getElementById('lastfm-toggle');
+        const lastfmSetupSection = document.getElementById('lastfm-setup-section');
+        const lastfmAuthBtn = document.getElementById('lastfm-auth-btn');
+        const lastfmDisconnectBtn = document.getElementById('lastfm-disconnect-btn');
+        const lastfmStatus = document.getElementById('lastfm-status');
+
+        const listenbrainzToggle = document.getElementById('listenbrainz-toggle');
+        const listenbrainzFields = document.getElementById('listenbrainz-fields');
+        const listenbrainzToken = document.getElementById('listenbrainz-token');
+        const listenbrainzSaveBtn = document.getElementById('listenbrainz-save-btn');
+        const listenbrainzDisconnectBtn = document.getElementById('listenbrainz-disconnect-btn');
+        const listenbrainzStatus = document.getElementById('listenbrainz-status');
+
+        // Load scrobbler settings
+        async function loadScrobblerSettings() {
+            const settings = await window.api.scrobbler.getSettings();
+            if (!settings) return;
+
+            // Last.fm
+            lastfmToggle.checked = settings.lastfm.enabled;
+            lastfmSetupSection.classList.toggle('hidden', !settings.lastfm.enabled);
+
+            if (settings.lastfm.sessionKey) {
+                lastfmStatus.textContent = 'Connected: ' + (settings.lastfm.username || 'User');
+                lastfmStatus.className = 'status status-connected';
+                lastfmAuthBtn.classList.add('hidden');
+                lastfmDisconnectBtn.classList.remove('hidden');
+            } else {
+                lastfmStatus.textContent = 'Not Connected';
+                lastfmStatus.className = 'status status-disconnected';
+                lastfmAuthBtn.classList.remove('hidden');
+                lastfmDisconnectBtn.classList.add('hidden');
+            }
+
+            // ListenBrainz
+            listenbrainzToggle.checked = settings.listenbrainz.enabled;
+            listenbrainzFields.classList.toggle('hidden', !settings.listenbrainz.enabled);
+
+            if (settings.listenbrainz.token) {
+                listenbrainzToken.value = settings.listenbrainz.token;
+                if (settings.listenbrainz.username) {
+                    listenbrainzStatus.textContent = 'Connected: ' + settings.listenbrainz.username;
+                    listenbrainzStatus.className = 'status status-connected';
+                    listenbrainzDisconnectBtn.classList.remove('hidden');
+                }
+            }
+        }
+
+        // Last.fm handlers
+        lastfmToggle.addEventListener('change', (e) => {
+            window.api.scrobbler.toggleLastFm(e.target.checked);
+            lastfmSetupSection.classList.toggle('hidden', !e.target.checked);
+        });
+
+        lastfmAuthBtn.addEventListener('click', async () => {
+            lastfmAuthBtn.disabled = true;
+            lastfmAuthBtn.textContent = 'Authenticating...';
+
+            const result = await window.api.scrobbler.lastFmAuthenticate();
+
+            if (result.error) {
+                alert('Error: ' + result.error);
+                lastfmAuthBtn.disabled = false;
+                lastfmAuthBtn.textContent = '🎵 Connect to Last.fm';
+            } else if (result.success) {
+                lastfmStatus.textContent = 'Connected: ' + result.username;
+                lastfmStatus.className = 'status status-connected';
+                lastfmAuthBtn.classList.add('hidden');
+                lastfmDisconnectBtn.classList.remove('hidden');
+                lastfmAuthBtn.disabled = false;
+                lastfmAuthBtn.textContent = '🎵 Connect to Last.fm';
+            }
+        });
+
+        lastfmDisconnectBtn.addEventListener('click', () => {
+            window.api.scrobbler.disconnectLastFm();
+            lastfmStatus.textContent = 'Not Connected';
+            lastfmStatus.className = 'status status-disconnected';
+            lastfmAuthBtn.classList.remove('hidden');
+            lastfmDisconnectBtn.classList.add('hidden');
+        });
+
+        // ListenBrainz handlers
+        listenbrainzToggle.addEventListener('change', (e) => {
+            window.api.scrobbler.toggleListenBrainz(e.target.checked);
+            listenbrainzFields.classList.toggle('hidden', !e.target.checked);
+        });
+
+        listenbrainzSaveBtn.addEventListener('click', () => {
+            window.api.scrobbler.saveListenBrainzToken(listenbrainzToken.value.trim());
+        });
+
+        window.api.scrobbler.onListenBrainzValidation((result) => {
+            if (result.valid) {
+                listenbrainzStatus.textContent = 'Connected: ' + (result.username || 'User');
+                listenbrainzStatus.className = 'status status-connected';
+                listenbrainzDisconnectBtn.classList.remove('hidden');
+                alert('Token validated!');
+            } else {
+                listenbrainzStatus.textContent = 'Invalid Token';
+                listenbrainzStatus.className = 'status status-disconnected';
+                listenbrainzDisconnectBtn.classList.add('hidden');
+                alert('Invalid token. Please check and try again.');
+            }
+        });
+
+        listenbrainzDisconnectBtn.addEventListener('click', () => {
+            window.api.scrobbler.disconnectListenBrainz();
+            listenbrainzToken.value = '';
+            listenbrainzStatus.textContent = 'Not Connected';
+            listenbrainzStatus.className = 'status status-disconnected';
+            listenbrainzDisconnectBtn.classList.add('hidden');
+            listenbrainzToggle.checked = false;
+            listenbrainzFields.classList.add('hidden');
+        });
+
+        // Load settings on page load
+        loadScrobblerSettings();
     </script>
 </body>
 

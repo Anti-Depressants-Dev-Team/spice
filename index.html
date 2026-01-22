@@ -25,6 +25,12 @@
                         d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
                 </svg>
             </button>
+            <button id="btn-url" class="nav-btn" title="Open URL">
+                <svg viewBox="0 0 24 24">
+                    <path fill="currentColor"
+                        d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" />
+                </svg>
+            </button>
             <button id="btn-home" class="nav-btn" title="Home">
                 <svg viewBox="0 0 24 24">
                     <path fill="currentColor" d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" />
@@ -74,6 +80,21 @@
         </div>
     </div>
 
+    <!-- URL Input Modal -->
+    <div id="url-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Open URL</h3>
+            <p class="modal-hint">Only YouTube Music and SoundCloud links are allowed</p>
+            <input type="url" id="url-input" placeholder="https://music.youtube.com/... or https://soundcloud.com/..."
+                autocomplete="off">
+            <div class="modal-error hidden" id="url-error">Invalid URL. Only YouTube Music and SoundCloud links are
+                allowed.</div>
+            <div class="modal-buttons">
+                <button id="url-cancel" class="modal-btn cancel">Cancel</button>
+                <button id="url-go" class="modal-btn primary">Go</button>
+            </div>
+        </div>
+    </div>
 
 
     <!-- Homepage Selection -->
@@ -118,6 +139,76 @@
         document.getElementById('btn-reload').addEventListener('click', () => window.api.navigate('reload'));
         document.getElementById('btn-home').addEventListener('click', () => window.api.navigate('home'));
         document.getElementById('btn-settings').addEventListener('click', () => window.api.openSettings());
+
+        // URL Modal
+        const btnUrl = document.getElementById('btn-url');
+        const urlModal = document.getElementById('url-modal');
+        const urlInput = document.getElementById('url-input');
+        const urlError = document.getElementById('url-error');
+        const urlCancel = document.getElementById('url-cancel');
+        const urlGo = document.getElementById('url-go');
+
+        function isValidUrl(url) {
+            try {
+                const parsed = new URL(url);
+                const host = parsed.hostname.toLowerCase();
+                return host === 'music.youtube.com' ||
+                    host === 'www.music.youtube.com' ||
+                    host === 'soundcloud.com' ||
+                    host === 'www.soundcloud.com' ||
+                    host === 'm.soundcloud.com';
+            } catch {
+                return false;
+            }
+        }
+
+        function openUrlModal() {
+            // Hide browser view so modal is visible
+            if (window.api.hideView) window.api.hideView();
+            urlModal.classList.remove('hidden');
+            urlInput.value = '';
+            urlError.classList.add('hidden');
+            setTimeout(() => urlInput.focus(), 100);
+        }
+
+        function closeUrlModal() {
+            urlModal.classList.add('hidden');
+            urlInput.value = '';
+            urlError.classList.add('hidden');
+            // Show browser view again
+            if (window.api.showView) window.api.showView();
+        }
+
+        function goToUrl() {
+            const url = urlInput.value.trim();
+            if (!url) return;
+
+            if (isValidUrl(url)) {
+                window.api.loadUrl(url);
+                closeUrlModal();
+            } else {
+                urlError.classList.remove('hidden');
+            }
+        }
+
+        btnUrl.addEventListener('click', openUrlModal);
+        urlCancel.addEventListener('click', closeUrlModal);
+        urlGo.addEventListener('click', goToUrl);
+
+        // Close on backdrop click
+        urlModal.addEventListener('click', (e) => {
+            if (e.target === urlModal) closeUrlModal();
+        });
+
+        // Enter key to submit
+        urlInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') goToUrl();
+        });
+
+        // Clear error on input
+        urlInput.addEventListener('input', () => {
+            urlError.classList.add('hidden');
+        });
 
         // Volume Controls
         const btnVolume = document.getElementById('btn-volume');

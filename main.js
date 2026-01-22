@@ -1,22 +1,70 @@
-const { app, BrowserWindow, BrowserView, ipcMain, shell, session } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, shell, session, dialog } = require('electron');
 const path = require('path');
-const { ElectronBlocker } = require('@cliqz/adblocker-electron');
-const fetch = require('node-fetch');
+const fs = require('fs');
+
+// Simple File Logger for Production Debugging - INITIALIZE FIRST
+const logFile = path.join(app.getPath('userData'), 'debug.log');
+function logToFile(msg) {
+    try {
+        const timestamp = new Date().toISOString();
+        fs.appendFileSync(logFile, `[${timestamp}] ${msg}\n`);
+    } catch (e) { }
+}
+
+// Override console methods to log to file in production
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+console.log = (...args) => {
+    originalConsoleLog(...args);
+    try { logToFile(`INFO: ${args.join(' ')}`); } catch (e) { }
+};
+console.error = (...args) => {
+    originalConsoleError(...args);
+    try { logToFile(`ERROR: ${args.join(' ')}`); } catch (e) { }
+};
+
+// Handle uncaught exceptions immediately
+process.on('uncaughtException', (error) => {
+    logToFile(`CRITICAL ERROR: ${error.stack}`);
+    try {
+        dialog.showErrorBox('Critical Error', `A critical error occurred:\n${error.message}\nCheck debug.log for details.`);
+    } catch (e) { }
+});
+
+console.log('App Starting...');
+
+let ElectronBlocker, fetch, Scrobbler, validateListenBrainzToken, discordRpc;
+
+try {
+    console.log('Loading dependencies...');
+    ({ ElectronBlocker } = require('@cliqz/adblocker-electron'));
+    fetch = require('node-fetch');
+    ({ Scrobbler, validateListenBrainzToken } = require('./scrobbler'));
+    discordRpc = require('./discord-rpc');
+    console.log('Dependencies loaded successfully.');
+} catch (err) {
+    console.error('FAILED TO LOAD DEPENDENCIES:', err);
+}
 
 let store;
 let mainWindow;
 let view;
 let adBlocker = null;
+let scrobbler = null;
+let currentService = null; // Track which service is active for Discord RPC
 
 const SERVICES = {
     yt: 'https://music.youtube.com',
     sc: 'https://soundcloud.com'
 };
 
-async function initStore() {
+function initStore() { // Synchronous init with CJS electron-store
     try {
-        const { default: Store } = await import('electron-store');
+        const Store = require('electron-store');
         store = new Store();
+        // Initialize scrobbler after store
+        scrobbler = new Scrobbler(store);
+        console.log('Scrobbler initialized');
     } catch (error) {
         console.error('Failed to initialize electron-store:', error);
     }
@@ -31,6 +79,7 @@ function createWindow() {
         width: 1200,
         height: 800,
         backgroundColor: '#121212', // Match CSS bg
+        icon: path.join(__dirname, 'icon.png'), // App icon for taskbar/desktop
         frame: false, // Frameless window
         titleBarStyle: 'hidden', // Hide default title bar, but keep traffic lights on macOS (we'll implement custom anyway)
         titleBarOverlay: false,
@@ -46,7 +95,7 @@ function createWindow() {
     mainWindow.setMenuBarVisibility(false);
 
     // Initial load
-    mainWindow.loadFile('index.html').then(() => {
+    mainWindow.loadFile(path.join(__dirname, 'index.html')).then(() => {
         mainWindow.show();
 
         // Check for Default Service Startup
@@ -78,6 +127,9 @@ function updateViewBounds() {
 function loadService(serviceKey) {
     if (!SERVICES[serviceKey]) return;
 
+    // Track current service for Discord RPC
+    currentService = serviceKey;
+
     // Save state - DISABLE for now to favor explicit Default Setting
     // if (store) store.set('lastService', serviceKey);
 
@@ -87,20 +139,13 @@ function loadService(serviceKey) {
         view = new BrowserView({
             webPreferences: {
                 nodeIntegration: false,
-                contextIsolation: true,
-                partition: 'persist:main' // Use a named partition
+                contextIsolation: false, // Disabled so preload can receive window messages
+                partition: 'persist:main', // Use a named partition
+                preload: path.join(__dirname, 'preload-view.js')
             }
         });
         mainWindow.setBrowserView(view);
         console.log('BrowserView set to mainWindow');
-
-        // Apply library adblocker to the BrowserView's session
-        const viewSession = view.webContents.session;
-        const enabled = store ? store.get('adBlockerEnabled', true) : true;
-        if (enabled && adBlocker) {
-            adBlocker.enableBlockingInSession(viewSession);
-            console.log('Library AdBlocker applied to BrowserView session');
-        }
     } else {
         console.log('Reuse logic invoked (should be unreachable if view is destroyed)');
     }
@@ -152,6 +197,9 @@ function loadService(serviceKey) {
                 }, 300);
             })();
         `);
+
+        // Inject Track Detection Script based on service
+        injectTrackDetection(serviceKey);
     }).catch(e => {
         console.error(`Failed to load ${serviceKey}:`, e);
     });
@@ -167,32 +215,34 @@ function goHome() {
         console.log('BrowserView destroyed');
     }
     if (store) store.delete('lastService');
+    currentService = null;
+    // Clear Discord RPC
+    discordRpc.clearPresence();
     mainWindow.webContents.send('service-active', false);
 }
 
 
 
-app.whenReady().then(async () => {
-    await initStore();
+app.whenReady().then(() => {
+    initStore();
 
-    // Initialize Library AdBlocker with cosmetic filtering DISABLED
-    const enabled = store ? store.get('adBlockerEnabled', true) : true;
-    if (enabled) {
-        try {
-            console.log('Initializing Library AdBlocker...');
-            adBlocker = await ElectronBlocker.fromPrebuiltAdsAndTracking(fetch, {
-                enableCompression: true
-            });
-            // Enable blocking but WITHOUT cosmetic filtering to prevent black screen
-            adBlocker.enableBlockingInSession(session.defaultSession);
-            console.log('Library AdBlocker ENABLED - adBlocker object ready:', !!adBlocker);
-        } catch (err) {
-            console.error('Failed to initialize library blocker:', err);
-        }
+    // Library AdBlocker DISABLED - causes black screen on YouTube Music
+    // Using manual ad-skip script instead (injected in loadService)
+    const adBlockerEnabled = store ? store.get('adBlockerEnabled', true) : true;
+    if (adBlockerEnabled) {
+        console.log('Ad blocking: Using manual script method (library blocker disabled due to black screen issues)');
+        // The manual ad-skip script in loadService() handles ad blocking
+        // It clicks skip buttons and fast-forwards unskippable ads
     }
 
     console.log('Creating window - adBlocker status:', !!adBlocker);
     createWindow();
+
+    // Initialize Discord RPC if enabled
+    const discordEnabled = store ? store.get('discordRpcEnabled', true) : true;
+    if (discordEnabled) {
+        discordRpc.connect();
+    }
 
     // Register media keys if possible (global shortcuts might conflict, but requested "if possible")
     // Better needed: BrowserView usually handles media keys automatically if focused.
@@ -212,6 +262,61 @@ ipcMain.on('load-service', (event, service) => {
     loadService(service);
 });
 
+// Load a specific URL (only YT Music or SoundCloud allowed)
+ipcMain.on('load-url', (event, url) => {
+    try {
+        const parsed = new URL(url);
+        const host = parsed.hostname.toLowerCase();
+
+        // Validate URL
+        const isYtMusic = host === 'music.youtube.com' || host === 'www.music.youtube.com';
+        const isSoundCloud = host === 'soundcloud.com' || host === 'www.soundcloud.com' || host === 'm.soundcloud.com';
+
+        if (!isYtMusic && !isSoundCloud) {
+            console.log('Invalid URL rejected:', url);
+            return;
+        }
+
+        // Determine service for track detection
+        const serviceKey = isYtMusic ? 'yt' : 'sc';
+        currentService = serviceKey;
+
+        // Create BrowserView if needed
+        if (!view) {
+            console.log('Creating new BrowserView for URL...');
+            view = new BrowserView({
+                webPreferences: {
+                    nodeIntegration: false,
+                    contextIsolation: false,
+                    partition: 'persist:main',
+                    preload: path.join(__dirname, 'preload-view.js')
+                }
+            });
+            mainWindow.setBrowserView(view);
+
+            const viewSession = view.webContents.session;
+            const enabled = store ? store.get('adBlockerEnabled', true) : true;
+            if (enabled && adBlocker) {
+                adBlocker.enableBlockingInSession(viewSession);
+            }
+        }
+
+        updateViewBounds();
+        mainWindow.webContents.send('service-active', true);
+
+        console.log(`Loading URL: ${url}`);
+        view.webContents.loadURL(url).then(() => {
+            console.log(`Successfully loaded URL: ${url}`);
+            view.webContents.insertCSS(AD_CSS);
+            injectTrackDetection(serviceKey);
+        }).catch(e => {
+            console.error(`Failed to load URL:`, e);
+        });
+    } catch (e) {
+        console.error('Invalid URL:', e.message);
+    }
+});
+
 ipcMain.on('navigate', (event, action) => {
     if (!view) return;
     switch (action) {
@@ -227,6 +332,22 @@ ipcMain.on('navigate', (event, action) => {
         case 'home':
             goHome();
             break;
+    }
+});
+
+// Hide/Show BrowserView (for modals)
+ipcMain.on('hide-view', () => {
+    if (view && mainWindow) {
+        mainWindow.setBrowserView(null);
+        console.log('BrowserView hidden for modal');
+    }
+});
+
+ipcMain.on('show-view', () => {
+    if (view && mainWindow) {
+        mainWindow.setBrowserView(view);
+        updateViewBounds();
+        console.log('BrowserView shown after modal');
     }
 });
 
@@ -368,7 +489,8 @@ ipcMain.on('set-volume', async (event, gainValue) => {
 ipcMain.handle('get-settings', () => {
     return {
         adBlockerEnabled: store ? store.get('adBlockerEnabled', true) : true,
-        defaultService: store ? store.get('defaultService', 'yt') : 'yt'
+        defaultService: store ? store.get('defaultService', 'yt') : 'yt',
+        discordRpcEnabled: store ? store.get('discordRpcEnabled', true) : true
     };
 });
 
@@ -383,6 +505,487 @@ ipcMain.on('set-default-service', (event, service) => {
     app.relaunch();
     app.exit();
 });
+
+ipcMain.on('set-discord-rpc', (event, enabled) => {
+    if (store) store.set('discordRpcEnabled', enabled);
+    if (enabled) {
+        discordRpc.connect();
+        console.log('Discord RPC: ENABLED');
+    } else {
+        discordRpc.clearPresence();
+        discordRpc.disconnect();
+        console.log('Discord RPC: DISABLED');
+    }
+});
+
+// Scrobbler IPC Handlers
+ipcMain.handle('get-scrobble-settings', () => {
+    if (!scrobbler) return null;
+    return scrobbler.getSettings();
+});
+
+ipcMain.on('save-lastfm-credentials', (event, { apiKey, secret }) => {
+    if (scrobbler) {
+        scrobbler.saveLastFmCredentials(apiKey, secret);
+        console.log('Last.fm credentials saved');
+    }
+});
+
+ipcMain.on('save-listenbrainz-token', async (event, token) => {
+    if (scrobbler) {
+        const result = await scrobbler.saveListenBrainzToken(token);
+        event.sender.send('listenbrainz-validation', result);
+        console.log('ListenBrainz token saved, valid:', result.valid);
+    }
+});
+
+ipcMain.on('toggle-lastfm', (event, enabled) => {
+    if (scrobbler) {
+        scrobbler.setLastFmEnabled(enabled);
+        console.log('Last.fm enabled:', enabled);
+    }
+});
+
+ipcMain.on('toggle-listenbrainz', (event, enabled) => {
+    if (scrobbler) {
+        scrobbler.setListenBrainzEnabled(enabled);
+        console.log('ListenBrainz enabled:', enabled);
+    }
+});
+
+ipcMain.handle('lastfm-authenticate', async (event) => {
+    if (!scrobbler) return { error: 'Scrobbler not initialized' };
+
+    try {
+        const authUrl = await scrobbler.startLastFmAuth();
+
+        // Create auth window
+        const authWindow = new BrowserWindow({
+            width: 500,
+            height: 700,
+            backgroundColor: '#121212',
+            parent: mainWindow,
+            modal: true,
+            webPreferences: {
+                nodeIntegration: false,
+                contextIsolation: true
+            }
+        });
+
+        authWindow.setMenuBarVisibility(false);
+        authWindow.loadURL(authUrl);
+
+        return new Promise((resolve) => {
+            let authCompleted = false;
+
+            // Monitor URL changes - Last.fm redirects after auth
+            const checkAuth = async () => {
+                if (authCompleted) return;
+
+                try {
+                    const currentUrl = authWindow.webContents.getURL();
+
+                    // After authorization, Last.fm shows a page saying "you can close this window"
+                    // or redirects to a confirmation page. We detect this and complete auth.
+                    if (currentUrl.includes('last.fm') &&
+                        (currentUrl.includes('token=') ||
+                            currentUrl.includes('/api/auth') ||
+                            !currentUrl.includes('/api/auth/?api_key'))) {
+
+                        // Try to complete the auth
+                        try {
+                            const session = await scrobbler.completeLastFmAuth();
+                            authCompleted = true;
+                            authWindow.close();
+                            resolve({ success: true, username: session.username });
+                        } catch (e) {
+                            // Not ready yet, keep waiting
+                        }
+                    }
+                } catch (e) {
+                    // Window might be closing
+                }
+            };
+
+            // Check periodically and on navigation
+            authWindow.webContents.on('did-navigate', checkAuth);
+            authWindow.webContents.on('did-navigate-in-page', checkAuth);
+            const checkInterval = setInterval(checkAuth, 1000);
+
+            // Handle window close
+            authWindow.on('closed', async () => {
+                clearInterval(checkInterval);
+
+                if (!authCompleted) {
+                    // User closed window - try to complete auth one more time
+                    // (they may have authorized but we didn't catch the redirect)
+                    try {
+                        const session = await scrobbler.completeLastFmAuth();
+                        resolve({ success: true, username: session.username });
+                    } catch (e) {
+                        resolve({ error: 'Authentication cancelled or failed' });
+                    }
+                }
+            });
+        });
+
+    } catch (err) {
+        return { error: err.message };
+    }
+});
+
+// Keep for backwards compatibility, but primary flow is now automatic
+ipcMain.handle('lastfm-complete-auth', async () => {
+    if (!scrobbler) return { error: 'Scrobbler not initialized' };
+    try {
+        const session = await scrobbler.completeLastFmAuth();
+        return { success: true, username: session.username };
+    } catch (err) {
+        return { error: err.message };
+    }
+});
+
+// Last.fm API Wizard - Automates API credential setup
+ipcMain.handle('lastfm-api-wizard', async () => {
+    return new Promise((resolve) => {
+        const wizardWindow = new BrowserWindow({
+            width: 900,
+            height: 700,
+            backgroundColor: '#1a1a1a',
+            parent: mainWindow,
+            modal: false,
+            title: 'Last.fm API Setup',
+            webPreferences: {
+                nodeIntegration: false,
+                contextIsolation: true
+            }
+        });
+
+        wizardWindow.setMenuBarVisibility(false);
+        wizardWindow.loadURL('https://www.last.fm/api/account/create');
+
+        let credentialsFound = false;
+
+        // Function to check for credentials on the current page
+        const checkForCredentials = async () => {
+            if (credentialsFound) return;
+
+            try {
+                const url = wizardWindow.webContents.getURL();
+                console.log('[API Wizard] Current URL:', url);
+
+                // After form submission, Last.fm shows the API account page with credentials
+                // The URL pattern is typically /api/account or shows the created app
+                if (url.includes('last.fm/api/account') && !url.includes('/create')) {
+                    // Try to extract credentials from the page
+                    const result = await wizardWindow.webContents.executeJavaScript(`
+                        (function() {
+                            try {
+                                // Look for the API Key and Secret in the page
+                                // Last.fm typically shows these in a definition list or similar structure
+                                const pageText = document.body.innerText;
+                                
+                                // Try multiple extraction methods
+                                let apiKey = null;
+                                let secret = null;
+                                
+                                // Method 1: Look for labeled elements
+                                const allElements = document.querySelectorAll('*');
+                                for (const el of allElements) {
+                                    const text = el.innerText || '';
+                                    
+                                    // Check for API Key pattern (32 hex characters)
+                                    if (!apiKey) {
+                                        const keyMatch = text.match(/API\\s*[Kk]ey[:\\s]*([a-f0-9]{32})/i);
+                                        if (keyMatch) apiKey = keyMatch[1];
+                                    }
+                                    
+                                    // Check for Shared Secret pattern
+                                    if (!secret) {
+                                        const secretMatch = text.match(/[Ss]hared\\s*[Ss]ecret[:\\s]*([a-f0-9]{32})/i);
+                                        if (secretMatch) secret = secretMatch[1];
+                                    }
+                                }
+                                
+                                // Method 2: Look for code/pre elements with 32-char hex strings
+                                if (!apiKey || !secret) {
+                                    const codeElements = document.querySelectorAll('code, pre, input[type="text"], .api-key, .secret');
+                                    const hexStrings = [];
+                                    
+                                    for (const el of codeElements) {
+                                        const val = el.value || el.textContent || '';
+                                        const match = val.match(/[a-f0-9]{32}/gi);
+                                        if (match) hexStrings.push(...match);
+                                    }
+                                    
+                                    // Also scan for any 32-char hex in the page
+                                    const allHex = pageText.match(/[a-f0-9]{32}/gi) || [];
+                                    hexStrings.push(...allHex);
+                                    
+                                    // Dedupe and take first two unique as key and secret
+                                    const unique = [...new Set(hexStrings)];
+                                    if (unique.length >= 2) {
+                                        if (!apiKey) apiKey = unique[0];
+                                        if (!secret) secret = unique[1];
+                                    } else if (unique.length === 1 && !apiKey) {
+                                        apiKey = unique[0];
+                                    }
+                                }
+                                
+                                // Method 3: Look for specific Last.fm page structure
+                                const dtElements = document.querySelectorAll('dt');
+                                for (const dt of dtElements) {
+                                    const label = dt.textContent.toLowerCase();
+                                    const dd = dt.nextElementSibling;
+                                    if (dd && dd.tagName === 'DD') {
+                                        const value = dd.textContent.trim();
+                                        if (label.includes('api key') && /^[a-f0-9]{32}$/i.test(value)) {
+                                            apiKey = value;
+                                        }
+                                        if (label.includes('secret') && /^[a-f0-9]{32}$/i.test(value)) {
+                                            secret = value;
+                                        }
+                                    }
+                                }
+                                
+                                if (apiKey && secret) {
+                                    return { success: true, apiKey, secret };
+                                }
+                                
+                                return { success: false, found: { apiKey: !!apiKey, secret: !!secret } };
+                            } catch (e) {
+                                return { success: false, error: e.message };
+                            }
+                        })();
+                    `);
+
+                    console.log('[API Wizard] Extraction result:', result);
+
+                    if (result.success && result.apiKey && result.secret) {
+                        credentialsFound = true;
+
+                        // Save credentials via scrobbler
+                        if (scrobbler) {
+                            scrobbler.saveLastFmCredentials(result.apiKey, result.secret);
+                            console.log('[API Wizard] Credentials saved!');
+                        }
+
+                        wizardWindow.close();
+                        resolve({ success: true, apiKey: result.apiKey, secret: result.secret });
+                    }
+                }
+            } catch (e) {
+                console.error('[API Wizard] Check error:', e);
+            }
+        };
+
+        // Monitor navigation
+        wizardWindow.webContents.on('did-navigate', () => {
+            setTimeout(checkForCredentials, 1000);
+        });
+
+        wizardWindow.webContents.on('did-navigate-in-page', () => {
+            setTimeout(checkForCredentials, 1000);
+        });
+
+        // Also check periodically in case of SPA-style updates
+        const checkInterval = setInterval(() => {
+            if (!wizardWindow.isDestroyed()) {
+                checkForCredentials();
+            } else {
+                clearInterval(checkInterval);
+            }
+        }, 2000);
+
+        // Handle window close
+        wizardWindow.on('closed', () => {
+            clearInterval(checkInterval);
+            if (!credentialsFound) {
+                resolve({ cancelled: true });
+            }
+        });
+    });
+});
+
+ipcMain.on('disconnect-lastfm', () => {
+    if (scrobbler) {
+        scrobbler.disconnectLastFm();
+        console.log('Last.fm disconnected');
+    }
+});
+
+ipcMain.on('disconnect-listenbrainz', () => {
+    if (scrobbler) {
+        scrobbler.disconnectListenBrainz();
+        console.log('ListenBrainz disconnected');
+    }
+});
+
+ipcMain.on('scrobble-now-playing', (event, track) => {
+    console.log('[Main] Now playing received:', track.track, 'by', track.artist);
+    if (scrobbler) {
+        scrobbler.updateNowPlaying(track);
+    }
+    // Update Discord RPC if enabled
+    const discordEnabled = store ? store.get('discordRpcEnabled', true) : true;
+    if (discordEnabled) {
+        discordRpc.updatePresence({ ...track, service: currentService });
+    }
+});
+
+ipcMain.on('scrobble-track-end', () => {
+    if (scrobbler) {
+        scrobbler.onTrackEnd();
+    }
+});
+
+// Track Detection Script Injection
+function injectTrackDetection(serviceKey) {
+    if (!view) return;
+
+    let script = '';
+
+    if (serviceKey === 'yt') {
+        // YouTube Music track detection
+        script = `
+            (function() {
+                console.log('[Spice Scrobbler] YouTube Music track detection injected');
+                
+                let lastTrack = null;
+                let checkInterval = null;
+                
+                function getTrackInfo() {
+                    const titleEl = document.querySelector('.content-info-wrapper .title, ytmusic-player-bar .title');
+                    const artistEl = document.querySelector('.content-info-wrapper .byline a, ytmusic-player-bar .byline a');
+                    const albumEl = document.querySelector('ytmusic-player-bar .subtitle .yt-formatted-string[href*="browse"]');
+                    const video = document.querySelector('video');
+                    
+                    // Get album art - YouTube Music uses the thumbnail in the player bar
+                    const albumArtEl = document.querySelector('ytmusic-player-bar .image img, .thumbnail-image-wrapper img, img.ytmusic-player-bar');
+                    let albumArt = albumArtEl?.src || '';
+                    // Get higher resolution version if possible (replace size params)
+                    if (albumArt) {
+                        albumArt = albumArt.replace(/w\d+-h\d+/, 'w1200-h1200').replace(/=w\d+-h\d+/, '=w1200-h1200').replace(/s\d+-/, 's1200-');
+                    }
+                    
+                    if (!titleEl || !artistEl) return null;
+                    
+                    const title = titleEl.textContent?.trim();
+                    const artist = artistEl.textContent?.trim();
+                    const album = albumEl?.textContent?.trim() || '';
+                    const duration = video?.duration || 0;
+                    
+                    if (!title || !artist) return null;
+                    
+                    return { track: title, artist, album, duration, albumArt };
+                }
+                
+                function checkForTrackChange() {
+                    const video = document.querySelector('video');
+                    if (!video || video.paused) return;
+                    
+                    const track = getTrackInfo();
+                    if (!track) return;
+                    
+                    const trackKey = track.artist + ' - ' + track.track;
+                    if (lastTrack !== trackKey) {
+                        lastTrack = trackKey;
+                        console.log('[Spice Scrobbler] Now Playing:', trackKey);
+                        
+                        // Send to main process via global function exposed by preload
+                        if (typeof window.spiceReportTrack === 'function') {
+                            window.spiceReportTrack(track);
+                        }
+                    }
+                }
+                
+                // Check every 2 seconds
+                checkInterval = setInterval(checkForTrackChange, 2000);
+                
+                // Also check on video play events
+                document.addEventListener('play', (e) => {
+                    if (e.target.tagName === 'VIDEO') {
+                        setTimeout(checkForTrackChange, 500);
+                    }
+                }, true);
+            })();
+        `;
+    } else if (serviceKey === 'sc') {
+        // SoundCloud track detection
+        script = `
+            (function() {
+                console.log('[Spice Scrobbler] SoundCloud track detection injected');
+                
+                let lastTrack = null;
+                
+                function getTrackInfo() {
+                    const titleEl = document.querySelector('.playbackSoundBadge__titleLink span:last-child');
+                    const artistEl = document.querySelector('.playbackSoundBadge__lightLink');
+                    
+                    if (!titleEl || !artistEl) return null;
+                    
+                    const title = titleEl.textContent?.trim();
+                    const artist = artistEl.textContent?.trim();
+                    
+                    if (!title || !artist) return null;
+                    
+                    // Get album art from SoundCloud player
+                    const albumArtEl = document.querySelector('.playbackSoundBadge__avatar .image span');
+                    let albumArt = '';
+                    if (albumArtEl) {
+                        // SoundCloud uses background-image style
+                        const bgImage = getComputedStyle(albumArtEl).backgroundImage;
+                        const match = bgImage.match(/url\\(["']?([^"')]+)["']?\\)/);
+                        if (match) {
+                            albumArt = match[1].replace(/-t\d+x\d+/, '-t500x500');
+                        }
+                    }
+                    
+                    // SoundCloud doesn't always have duration easily accessible
+                    const progressEl = document.querySelector('.playbackTimeline__duration span[aria-hidden="true"]');
+                    let duration = 0;
+                    if (progressEl) {
+                        const parts = progressEl.textContent.split(':');
+                        if (parts.length === 2) {
+                            duration = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+                        } else if (parts.length === 3) {
+                            duration = parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
+                        }
+                    }
+                    
+                    return { track: title, artist, album: '', duration, albumArt };
+                }
+                
+                function checkForTrackChange() {
+                    const playBtn = document.querySelector('.playControl');
+                    if (!playBtn || !playBtn.classList.contains('playing')) return;
+                    
+                    const track = getTrackInfo();
+                    if (!track) return;
+                    
+                    const trackKey = track.artist + ' - ' + track.track;
+                    if (lastTrack !== trackKey) {
+                        lastTrack = trackKey;
+                        console.log('[Spice Scrobbler] Now Playing:', trackKey);
+                        
+                        if (typeof window.spiceReportTrack === 'function') {
+                            window.spiceReportTrack(track);
+                        }
+                    }
+                }
+                
+                // Check every 2 seconds
+                setInterval(checkForTrackChange, 2000);
+            })();
+        `;
+    }
+
+    if (script) {
+        view.webContents.executeJavaScript(script).catch(err => {
+            console.error('[Scrobbler] Failed to inject track detection:', err);
+        });
+    }
+}
 
 // Enhanced Native AdBlocker
 const AD_DOMAINS = [
