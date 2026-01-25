@@ -124,6 +124,10 @@ function createWindow() {
         if (lyricsWindow) {
             lyricsWindow.close();
         }
+        // Properly disconnect Discord RPC before quitting
+        if (discordRpc) {
+            discordRpc.disconnect();
+        }
         // Force quit to ensure no background processes remain
         app.quit();
     });
@@ -215,6 +219,10 @@ function loadService(serviceKey) {
     console.log(`Loading service URL: ${SERVICES[serviceKey]}`);
     view.webContents.loadURL(SERVICES[serviceKey]).then(() => {
         console.log(`Successfully loaded ${serviceKey}`);
+
+        // Open DevTools for debugging (User Request)
+        view.webContents.openDevTools({ mode: 'detach' });
+
         // Inject CSS for Cosmetic Blocking
         view.webContents.insertCSS(AD_CSS);
 
@@ -246,16 +254,70 @@ function goHome() {
 
 
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
     initStore();
 
-    // Library AdBlocker DISABLED - causes black screen on YouTube Music
-    // Using manual ad-skip script instead (injected in loadService)
+    // NUCLEAR OPTION: Clear Cache on Startup
+    // This prevents serving stored ads or tracking scripts from previous sessions
+    if (session.defaultSession) {
+        try {
+            await session.defaultSession.clearCache();
+            console.log('Session cache CLEARED (Nuclear Option)');
+        } catch (e) {
+            console.error('Failed to clear cache:', e);
+        }
+    }
+
+    // Initialize AdBlocker STRICTLY before window creation
     const adBlockerEnabled = store ? store.get('adBlockerEnabled', true) : true;
     if (adBlockerEnabled) {
-        console.log('Ad blocking: Using manual script method (library blocker disabled due to black screen issues)');
-        // The manual ad-skip script in loadService() handles ad blocking
-        // It clicks skip buttons and fast-forwards unskippable ads
+        try {
+            console.log('Initializing AdBlocker (Strict Mode + uBlock Lists)...');
+
+            const enginePath = path.join(app.getPath('userData'), 'adblock-engine.bin');
+
+            if (fs.existsSync(enginePath)) {
+                console.log('Loading AdBlocker engine from cache...');
+                try {
+                    const buffer = fs.readFileSync(enginePath);
+                    adBlocker = ElectronBlocker.deserialize(buffer);
+                    console.log('AdBlocker loaded from cache.');
+                } catch (e) {
+                    console.error('Failed to load cached engine, falling back to network fetch:', e);
+                }
+            }
+
+            if (!adBlocker) {
+                console.log('Fetching comprehensive blocklists (This may take a few seconds)...');
+                // uBlock Origin, EasyList, EasyPrivacy, AdGuard
+                const lists = [
+                    'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/filters.txt',
+                    'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/privacy.txt',
+                    'https://easylist.to/easylist/easylist.txt',
+                    'https://easylist.to/easylist/easyprivacy.txt',
+                    'https://filters.adtidy.org/extension/ublock/filters/2.txt' // AdGuard Base
+                ];
+
+                const fetchPromises = lists.map(url => fetch(url).then(r => r.text()));
+                const listContents = await Promise.all(fetchPromises);
+
+                console.log('Parsing blocklists...');
+                adBlocker = ElectronBlocker.parse(listContents.join('\n'));
+
+                // Save to cache
+                console.log('Saving AdBlocker engine to cache...');
+                const buffer = adBlocker.serialize();
+                fs.writeFileSync(enginePath, buffer);
+                console.log('AdBlocker engine saved.');
+            }
+
+            if (session.defaultSession) {
+                adBlocker.enableBlockingInSession(session.defaultSession);
+                console.log('AdBlocker initialized and blocking enabled in default session.');
+            }
+        } catch (err) {
+            console.error('Failed to initialize AdBlocker:', err);
+        }
     }
 
     console.log('Creating window - adBlocker status:', !!adBlocker);
@@ -337,6 +399,10 @@ ipcMain.on('load-url', (event, url) => {
         console.log(`Loading URL: ${url}`);
         view.webContents.loadURL(url).then(() => {
             console.log(`Successfully loaded URL: ${url}`);
+
+            // Open DevTools for debugging
+            view.webContents.openDevTools({ mode: 'detach' });
+
             view.webContents.insertCSS(AD_CSS);
 
             // Inject Ad-Skip Script (AdBlock Fix)
@@ -361,7 +427,10 @@ ipcMain.on('navigate', (event, action) => {
             if (view.webContents.canGoForward()) view.webContents.goForward();
             break;
         case 'reload':
-            view.webContents.reload();
+            // NUCLEAR RELOAD: User requested full app restart to fix breakage
+            console.log('User requested Reload - Relaunching App...');
+            app.relaunch();
+            app.exit();
             break;
         case 'home':
             goHome();
@@ -1446,52 +1515,22 @@ const AD_CSS = `
     }
 `;
 
-function applyAdBlockerToSession(targetSession) {
-    const filter = {
-        urls: ["<all_urls>"]
-    };
-
-    targetSession.webRequest.onBeforeRequest(filter, (details, callback) => {
-        const url = details.url.toLowerCase();
-
-        // Block known ad domains
-        if (
-            url.includes('doubleclick') ||
-            url.includes('googleadservices') ||
-            url.includes('googlesyndication') ||
-            url.includes('moatads')
-        ) {
-            console.log('BLOCKED (Domain):', details.url.substring(0, 80));
-            return callback({ cancel: true });
-        }
-
-        // Block YouTube/Google ad patterns
-        if (
-            url.includes('/pagead/') ||
-            url.includes('/api/stats/ads') ||
-            url.includes('/ptracking') ||
-            url.includes('&adformat=') ||
-            url.includes('?adformat=') ||
-            url.includes('pltype=adhost') ||
-            url.includes('ctier=a')
-        ) {
-            console.log('BLOCKED (Pattern):', details.url.substring(0, 80));
-            return callback({ cancel: true });
-        }
-
-        callback({ cancel: false });
-    });
-    console.log('AdBlocker applied to session');
-}
-
 function setupAdBlocker(enable) {
     if (enable) {
-        applyAdBlockerToSession(session.defaultSession);
-        console.log('Native AdBlocker: ENABLED');
+        if (adBlocker) {
+            adBlocker.enableBlockingInSession(session.defaultSession);
+            console.log('Library AdBlocker: ENABLED');
+        } else {
+            ElectronBlocker.fromPrebuiltAdsAndTracking(fetch).then((blocker) => {
+                adBlocker = blocker;
+                adBlocker.enableBlockingInSession(session.defaultSession);
+                console.log('Library AdBlocker: ENABLED (Lazy Init)');
+            });
+        }
     } else {
-        session.defaultSession.webRequest.onBeforeRequest({ urls: [] }, (details, callback) => {
-            callback({ cancel: false });
-        });
-        console.log('Native AdBlocker: DISABLED');
+        if (adBlocker) {
+            adBlocker.disableBlockingInSession(session.defaultSession);
+            console.log('Library AdBlocker: DISABLED');
+        }
     }
 }
