@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('api', {
     setDefaultService: (service) => ipcRenderer.send('set-default-service', service),
     setDiscordRpc: (enabled) => ipcRenderer.send('set-discord-rpc', enabled),
     openLyrics: () => ipcRenderer.send('open-lyrics'),
+    openDevTools: () => ipcRenderer.send('open-devtools'),
     getNowPlaying: () => ipcRenderer.invoke('get-now-playing'),
     fetchLyrics: (data) => ipcRenderer.invoke('fetch-lyrics', data),
     onLyricsTrackUpdate: (callback) => ipcRenderer.on('lyrics-track-update', (event, track) => callback(track)),

@@ -342,6 +342,19 @@
                 <button id="listenbrainz-disconnect-btn" class="btn btn-secondary hidden">Disconnect</button>
             </div>
         </div>
+        <!-- Developer Tools -->
+        <div class="settings-header" style="margin-top: 30px;">
+            <h2>Advanced</h2>
+        </div>
+        <div class="settings-section">
+            <div class="section-header">
+                <div>
+                    <label style="margin:0; font-size: 16px;">Developer Tools</label>
+                    <p style="color: #666; font-size: 12px; margin: 0;">Open the developer console for debugging.</p>
+                </div>
+                <button id="open-devtools-btn" class="btn" style="margin-left: auto;">Open Console</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -492,6 +505,11 @@
             listenbrainzDisconnectBtn.classList.add('hidden');
             listenbrainzToggle.checked = false;
             listenbrainzFields.classList.add('hidden');
+        });
+
+        // Developer Tools
+        document.getElementById('open-devtools-btn').addEventListener('click', () => {
+            window.api.openDevTools();
         });
 
         // Load settings on page load

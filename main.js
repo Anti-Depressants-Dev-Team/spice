@@ -96,6 +96,14 @@ function createWindow() {
     // Remove default menu
     mainWindow.setMenuBarVisibility(false);
 
+    // Block default DevTools shortcuts (F12, Ctrl+Shift+I)
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+        if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
+            event.preventDefault();
+            console.log('Blocked DevTools shortcut');
+        }
+    });
+
     // Initial load
     mainWindow.loadFile(path.join(__dirname, 'index.html')).then(() => {
         mainWindow.show();
@@ -220,8 +228,8 @@ function loadService(serviceKey) {
     view.webContents.loadURL(SERVICES[serviceKey]).then(() => {
         console.log(`Successfully loaded ${serviceKey}`);
 
-        // Open DevTools for debugging (User Request)
-        view.webContents.openDevTools({ mode: 'detach' });
+        // Open DevTools for debugging (User Request) - REMOVED for "Settings Only" restriction
+        // view.webContents.openDevTools({ mode: 'detach' });
 
         // Inject CSS for Cosmetic Blocking
         view.webContents.insertCSS(AD_CSS);
@@ -400,8 +408,8 @@ ipcMain.on('load-url', (event, url) => {
         view.webContents.loadURL(url).then(() => {
             console.log(`Successfully loaded URL: ${url}`);
 
-            // Open DevTools for debugging
-            view.webContents.openDevTools({ mode: 'detach' });
+            // Open DevTools for debugging - REMOVED for "Settings Only" restriction
+            // view.webContents.openDevTools({ mode: 'detach' });
 
             view.webContents.insertCSS(AD_CSS);
 
@@ -495,6 +503,17 @@ ipcMain.on('open-lyrics', () => {
 ipcMain.handle('get-now-playing', () => {
     console.log('[Main] get-now-playing called. Returning:', lastTrack ? lastTrack.title : 'null');
     return lastTrack;
+});
+
+ipcMain.on('open-devtools', () => {
+    console.log('[Main] open-devtools received');
+    if (view) {
+        view.webContents.openDevTools({ mode: 'detach' });
+        console.log('Opening DevTools for BrowserView');
+    } else if (mainWindow) {
+        mainWindow.webContents.openDevTools({ mode: 'detach' });
+        console.log('Opening DevTools for MainWindow');
+    }
 });
 
 ipcMain.handle('fetch-lyrics', async (event, args) => {
