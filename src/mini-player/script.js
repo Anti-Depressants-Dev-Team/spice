@@ -117,7 +117,6 @@ const updateVol = (val) => {
 els.vol.addEventListener('mousedown', () => isDraggingVol = true);
 els.vol.addEventListener('mouseup', () => {
     isDraggingVol = false;
-    updateVol(els.vol.value);
 });
 els.vol.addEventListener('input', (e) => {
     isDraggingVol = true;
@@ -125,7 +124,7 @@ els.vol.addEventListener('input', (e) => {
 });
 els.vol.addEventListener('change', (e) => {
     isDraggingVol = false;
-    updateVol(val);
+    updateVol(els.vol.value);
 });
 
 // Scroll to change volume

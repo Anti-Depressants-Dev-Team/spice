@@ -54,6 +54,7 @@ let scrobbler = null;
 let currentService = null; // Track which service is active for Discord RPC
 let lastTrack = null; // Store last track to send to lyrics on open
 let lyricsWindow = null;
+let currentVolume = 1.0; // Volume gain value (0.0 - 10.0), shared across scopes
 
 const SERVICES = {
     yt: 'https://music.youtube.com',
@@ -222,9 +223,7 @@ app.whenReady().then(() => {
                     else click('.skipControl__previous');
                 }
                 else if ('${action.action}' === 'volume') {
-                    const video = document.querySelector('video');
-                    const vol = ${action.value}; // Allow 0
-                    if (video && vol !== undefined) video.volume = vol;
+                    // Handled in main process below
                 }
                 else if ('${action.action}' === 'shuffle') {
                     console.log('[MiniPlayer] Shuffle requested');
@@ -294,6 +293,16 @@ app.whenReady().then(() => {
             })();
         `;
         view.webContents.executeJavaScript(code).catch(e => console.error(e));
+
+        // Handle volume separately in main process (uses AudioContext gain, not video.volume)
+        if (action.action === 'volume' && action.value !== undefined) {
+            // Emit internally — picked up by ipcMain.on('set-volume') which calls applyVolume
+            ipcMain.emit('set-volume', { sender: mainWindow?.webContents }, action.value);
+            // Immediately update mini player server state so slider doesn't reset on next poll
+            miniPlayerServer.updateState({ volume: action.value });
+            // Sync the main app's volume slider
+            if (mainWindow) mainWindow.webContents.send('volume-changed', action.value);
+        }
     });
 });
 
@@ -448,7 +457,25 @@ function startTrackPolling() {
                     const video = document.querySelector('video');
                     const albumArtEl = document.querySelector('ytmusic-player-bar .image img, .thumbnail-image-wrapper img');
                     
-                    if (!playerBar || !video) return null;
+                    // Get shuffle/repeat state from the DOM
+                    let shuffle = false;
+                    let repeat = 'off';
+                    const shuffleBtn = document.querySelector('.shuffle.ytmusic-player-bar, tp-yt-paper-icon-button.shuffle');
+                    if (shuffleBtn) {
+                        const ariaLabel = (shuffleBtn.getAttribute('aria-label') || '').toLowerCase();
+                        const title = (shuffleBtn.getAttribute('title') || '').toLowerCase();
+                        // "Shuffle off" means shuffle is currently ON (clicking turns it off)
+                        shuffle = ariaLabel.includes('shuffle off') || title.includes('shuffle off') || shuffleBtn.getAttribute('aria-pressed') === 'true';
+                    }
+                    const repeatBtn = document.querySelector('.repeat.ytmusic-player-bar, tp-yt-paper-icon-button.repeat');
+                    if (repeatBtn) {
+                        const ariaLabel = (repeatBtn.getAttribute('aria-label') || '').toLowerCase();
+                        const title = (repeatBtn.getAttribute('title') || '').toLowerCase();
+                        if (ariaLabel.includes('repeat one') || title.includes('repeat one')) repeat = 'one';
+                        else if (ariaLabel.includes('repeat all') || title.includes('repeat all') || ariaLabel.includes('repeat off') || title.includes('repeat off')) repeat = 'all';
+                    }
+                    
+                    if (!playerBar || !video) return { videoOnly: true, paused: video ? video.paused : true, shuffle: shuffle, repeat: repeat };
                     
                     // Get all the text from player bar
                     const rawText = playerBar.innerText;
@@ -463,7 +490,9 @@ function startTrackPolling() {
                         albumArt: albumArtEl ? albumArtEl.src : '',
                         duration: video.duration || 0,
                         paused: video.paused,
-                        currentTime: video.currentTime
+                        currentTime: video.currentTime,
+                        shuffle: shuffle,
+                        repeat: repeat
                     };
                 })();
             `);
@@ -565,8 +594,11 @@ function startTrackPolling() {
                         art: track.albumArt || track.artwork,
                         duration: track.duration
                     },
-                    isPaused: track.paused,
-                    currentTime: track.currentTime
+                    paused: track.paused,
+                    currentTime: track.currentTime,
+                    volume: currentVolume,
+                    shuffle: rawData.shuffle || false,
+                    repeat: rawData.repeat || 'off'
                 });
 
                 // Update Discord RPC with current progress
@@ -593,6 +625,17 @@ function startTrackPolling() {
                 if (scrobbler && !track.paused) {
                     scrobbler.updateProgress(track.currentTime, track.duration);
                 }
+            }
+
+            // ALWAYS send basic playback state to mini player, even when track is null
+            // This ensures play/pause, shuffle, repeat, and volume stay in sync
+            if (!track && rawData) {
+                miniPlayerServer.updateState({
+                    paused: rawData.paused,
+                    volume: currentVolume,
+                    shuffle: rawData.shuffle || false,
+                    repeat: rawData.repeat || 'off'
+                });
             }
         } catch (e) {
             console.log('[Main Poll] Error:', e.message);
@@ -1494,8 +1537,6 @@ app.whenReady().then(async () => {
 
     // Apply volume to current view
     // Volume Logic
-    let currentVolume = DEFAULT_VOL;
-
     function applyVolume(vol) {
         if (vol !== undefined) currentVolume = vol;
         if (!view) return;
@@ -1944,7 +1985,8 @@ app.whenReady().then(async () => {
                 art: track.artwork || track.albumArt, // Use artwork (enhanced) or albumArt
                 duration: track.duration
             },
-            isPaused: false
+            paused: false,
+            volume: currentVolume
         });
 
         // Update Discord RPC if enabled
@@ -2046,8 +2088,8 @@ app.whenReady().then(async () => {
                 currentTime: currentTime,
                 paused: isPaused,
                 shuffle: progress.shuffle,
-                repeat: progress.repeat
-                // duration is already in lastTrack
+                repeat: progress.repeat,
+                volume: currentVolume
             });
         }
     });

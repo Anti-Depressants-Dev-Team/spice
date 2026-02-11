@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('api', {
     onLyricsTrackUpdate: (callback) => ipcRenderer.on('lyrics-track-update', (event, track) => callback(track)),
     onLyricsProgressUpdate: (callback) => ipcRenderer.on('lyrics-progress-update', (event, progress) => callback(progress)),
     onServiceActive: (callback) => ipcRenderer.on('service-active', (event, value) => callback(value)),
+    onVolumeChanged: (callback) => ipcRenderer.on('volume-changed', (event, value) => callback(value)),
     windowControls: {
         minimize: () => ipcRenderer.send('window-minimize'),
         maximize: () => ipcRenderer.send('window-maximize'),

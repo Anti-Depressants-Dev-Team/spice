@@ -294,6 +294,16 @@
             updateVolume(val);
         });
 
+        // Sync volume when changed externally (e.g. from mini player)
+        if (window.api && window.api.onVolumeChanged) {
+            window.api.onVolumeChanged((gainValue) => {
+                // gainValue is 0.0 - 10.0, slider is 0 - 1000
+                const sliderVal = Math.round(gainValue * 100);
+                volRange.value = sliderVal;
+                volText.innerText = sliderVal + '%';
+            });
+        }
+
         // Double click to type volume
         volRange.parentElement.addEventListener('dblclick', () => {
             const input = prompt('Enter volume (0-1000):', volRange.value);
