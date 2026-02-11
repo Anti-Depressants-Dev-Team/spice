@@ -253,15 +253,15 @@
         </div>
 
         <div class="settings-section">
-            <div class="toggle-container">
-                <label for="adblock-toggle" style="margin:0; font-size: 16px;">Enable AdBlocker</label>
-                <label class="switch">
-                    <input type="checkbox" id="adblock-toggle">
-                    <span class="slider"></span>
-                </label>
-            </div>
-            <p style="color: #666; font-size: 12px; margin-top: 5px;">Blocks audio and visual ads on supported services.
-            </p>
+            <label for="adblock-type" style="font-size: 16px;">AdBlocker Type</label>
+            <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Select which adblocking solution to use.
+                Changing this requires a restart.</p>
+            <select id="adblock-type">
+                <option value="spice">Spice (Built-in)</option>
+                <option value="ublock">uBlock Origin (Best Protection)</option>
+                <option value="ublock_lite">uBlock Origin Lite (Faster)</option>
+                <option value="none">Disabled</option>
+            </select>
         </div>
 
         <div class="settings-section">
@@ -358,19 +358,36 @@
     </div>
 
     <script>
-        const adBlockToggle = document.getElementById('adblock-toggle');
+        const adBlockTypeSelect = document.getElementById('adblock-type');
         const defaultServiceSelect = document.getElementById('default-service');
         const discordToggle = document.getElementById('discord-toggle');
 
         // Load settings
         window.api.getSettings().then(settings => {
-            adBlockToggle.checked = settings.adBlockerEnabled;
+            // Migration: if adBlockerType is undefined, map boolean to 'spice' or 'none'
+            if (settings.adBlockerType) {
+                adBlockTypeSelect.value = settings.adBlockerType;
+            } else {
+                adBlockTypeSelect.value = settings.adBlockerEnabled ? 'spice' : 'none';
+            }
+
             defaultServiceSelect.value = settings.defaultService;
             discordToggle.checked = settings.discordRpcEnabled;
         });
 
-        adBlockToggle.addEventListener('change', (e) => {
-            window.api.setAdBlocker(e.target.checked);
+        adBlockTypeSelect.addEventListener('change', (e) => {
+            if (confirm('Changing the adblocker requires a restart. Continue?')) {
+                window.api.setAdBlocker(e.target.value);
+            } else {
+                // Revert
+                window.api.getSettings().then(settings => {
+                    if (settings.adBlockerType) {
+                        adBlockTypeSelect.value = settings.adBlockerType;
+                    } else {
+                        adBlockTypeSelect.value = settings.adBlockerEnabled ? 'spice' : 'none';
+                    }
+                });
+            }
         });
 
         discordToggle.addEventListener('change', (e) => {

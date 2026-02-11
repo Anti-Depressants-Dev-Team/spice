@@ -49,7 +49,7 @@
             <!-- Volume Slider Popup -->
             <div id="volume-popup" class="volume-popup hidden">
                 <div class="volume-slider-container">
-                    <input type="range" min="1" max="10" step="0.1" value="1" class="volume-slider" id="volume-range"
+                    <input type="range" min="0" max="1000" step="10" value="100" class="volume-slider" id="volume-range"
                         title="Volume Boost">
                 </div>
                 <div class="volume-value" id="volume-text">100%</div>
@@ -61,6 +61,12 @@
                         d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
                     <path fill="currentColor"
                         d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+                </svg>
+            </button>
+            <button class="nav-btn" id="mini-player-btn" title="Mini Player">
+                <svg viewBox="0 0 24 24">
+                    <path fill="currentColor"
+                        d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zm-10-7h9v6h-9z" />
                 </svg>
             </button>
             <button id="btn-settings" class="nav-btn" title="Settings">
@@ -153,6 +159,10 @@
             if (window.api.openLyrics) window.api.openLyrics();
         });
 
+        document.getElementById('mini-player-btn').addEventListener('click', () => {
+            if (window.api.openMiniPlayer) window.api.openMiniPlayer();
+        });
+
         document.getElementById('btn-settings').addEventListener('click', () => window.api.openSettings());
 
         // URL Modal
@@ -234,6 +244,15 @@
         const volRange = document.getElementById('volume-range');
         const volText = document.getElementById('volume-text');
 
+        // Initialize Volume
+        (async () => {
+            if (window.api && window.api.getVolume) {
+                const vol = await window.api.getVolume();
+                volRange.value = vol * 100; // Convert 1.0 -> 100
+                volText.innerText = Math.round(vol * 100) + '%';
+            }
+        })();
+
         btnVolume.addEventListener('click', (e) => {
             e.stopPropagation();
             volPopup.classList.toggle('hidden');
@@ -246,10 +265,46 @@
             }
         });
 
+        // Volume Change Handler
+        function updateVolume(val) {
+            // val is 0-1000
+            // Backend expects gain (0.0 - 10.0)
+            const gain = val / 100;
+            window.api.setVolume(gain);
+            volText.innerText = Math.round(val) + '%';
+            volRange.value = val;
+        }
+
         volRange.addEventListener('input', (e) => {
-            const val = e.target.value;
-            window.api.setVolume(val);
-            volText.innerText = Math.round(val * 100) + '%';
+            updateVolume(e.target.value);
+        });
+
+        // Scroll to change volume
+        volRange.parentElement.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            let val = parseInt(volRange.value);
+            // Sensitivity: 10 per step (1% of 1000, which matches 10% of normal 100 range)
+            if (e.deltaY < 0) val += 10;
+            else val -= 10;
+
+            // Clamp
+            if (val > 1000) val = 1000;
+            if (val < 0) val = 0;
+
+            updateVolume(val);
+        });
+
+        // Double click to type volume
+        volRange.parentElement.addEventListener('dblclick', () => {
+            const input = prompt('Enter volume (0-1000):', volRange.value);
+            if (input !== null) {
+                let val = parseInt(input);
+                if (isNaN(val)) return;
+                if (val < 0) val = 0;
+                if (val > 1000) val = 1000;
+
+                updateVolume(val);
+            }
         });
 
         // Window Controls

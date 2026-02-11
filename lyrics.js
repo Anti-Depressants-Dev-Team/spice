@@ -202,7 +202,8 @@ function syncLyrics(time) {
     if (!currentLyrics || currentLyrics.length === 0) return;
     if (isStaticMode) return; // Double check
 
-    const adjustedTime = time;
+    // Add small offset to compensate for polling/processing delay
+    const adjustedTime = time + 0.3;  // Show lyrics 0.3s ahead
 
     // Find the current line
     // We want the *last* line where time >= line.time

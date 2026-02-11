@@ -5,18 +5,63 @@
 
 const { ipcRenderer, webFrame } = require('electron');
 
-// Expose a global function that injected scripts can call
+// Forward console logs to main process for debugging
+const originalLog = console.log;
+const originalWarn = console.warn;
+const originalError = console.error;
+
+console.log = (...args) => {
+    try {
+        const safeArgs = args.map(a => {
+            if (typeof a === 'object') {
+                try {
+                    return JSON.stringify(a);
+                } catch (e) {
+                    return String(a);
+                }
+            }
+            return String(a);
+        });
+        ipcRenderer.send('renderer-log', { level: 'INFO', args: safeArgs });
+    } catch (e) {
+        // ignore logging errors
+    }
+    originalLog(...args);
+};
+
+console.warn = (...args) => {
+    try {
+        const safeArgs = args.map(a => String(a));
+        ipcRenderer.send('renderer-log', { level: 'WARN', args: safeArgs });
+    } catch (e) { }
+    originalWarn(...args);
+};
+
+console.error = (...args) => {
+    try {
+        const safeArgs = args.map(a => String(a));
+        ipcRenderer.send('renderer-log', { level: 'ERROR', args: safeArgs });
+    } catch (e) { }
+    originalError(...args);
+};
+
 window.spiceReportTrack = function (track) {
-    console.log('[BrowserView Preload] Track reported:', track.track);
-    ipcRenderer.send('scrobble-now-playing', track);
+    console.log('[BrowserView Preload] spiceReportTrack CALLED:', track?.track, 'by', track?.artist);
+    console.log('[BrowserView Preload] ipcRenderer available:', typeof ipcRenderer);
+    console.log('[BrowserView Preload] ipcRenderer.send available:', typeof ipcRenderer?.send);
+    try {
+        console.log('[BrowserView Preload] Sending IPC: scrobble-now-playing');
+        ipcRenderer.send('scrobble-now-playing', track);
+        console.log('[BrowserView Preload] IPC SENT SUCCESSFULLY');
+    } catch (e) {
+        console.error('[BrowserView Preload] IPC SEND FAILED:', e.message);
+        originalError('[BrowserView Preload] Failed to send IPC:', e);
+    }
 };
 
 window.spiceReportProgress = function (progress) {
-    // progress: { currentTime, duration, paused }
     ipcRenderer.send('scrobble-track-progress', progress);
 };
-
-console.log('[BrowserView Preload] Loaded - spiceReportTrack available');
 
 // NUCLEAR OPTION 1: Inject CSS Synchronously via webFrame
 const AD_CSS = `
