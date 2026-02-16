@@ -40,7 +40,7 @@
         </div>
         <!-- Right Side Controls (Settings + Window Ops) -->
         <div class="title-right">
-            <button id="btn-volume" class="nav-btn" title="Boost Volume 1000%">
+            <button id="btn-volume" class="nav-btn" title="Volume">
                 <svg viewBox="0 0 24 24">
                     <path fill="currentColor"
                         d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
@@ -49,10 +49,11 @@
             <!-- Volume Slider Popup -->
             <div id="volume-popup" class="volume-popup hidden">
                 <div class="volume-slider-container">
-                    <input type="range" min="0" max="1000" step="10" value="100" class="volume-slider" id="volume-range"
-                        title="Volume Boost">
+                    <input type="range" min="0" max="200" step="10" value="100" class="volume-slider" id="volume-range"
+                        title="Volume">
                 </div>
                 <div class="volume-value" id="volume-text">100%</div>
+                <button id="btn-boost" class="boost-btn" title="Unlock 1000% Volume">Boost</button>
             </div>
             <!-- Lyrics Button -->
             <button class="nav-btn" id="lyrics-btn" title="Lyrics">
@@ -243,13 +244,25 @@
         const volPopup = document.getElementById('volume-popup');
         const volRange = document.getElementById('volume-range');
         const volText = document.getElementById('volume-text');
+        const btnBoost = document.getElementById('btn-boost');
+
+        // Boost state
+        let boostEnabled = false;
+        function getMaxVolume() { return boostEnabled ? 1000 : 200; }
 
         // Initialize Volume
         (async () => {
             if (window.api && window.api.getVolume) {
                 const vol = await window.api.getVolume();
-                volRange.value = vol * 100; // Convert 1.0 -> 100
-                volText.innerText = Math.round(vol * 100) + '%';
+                const sliderVal = Math.round(vol * 100);
+                // Auto-enable boost if stored volume exceeds 200%
+                if (sliderVal > 200) {
+                    boostEnabled = true;
+                    btnBoost.classList.add('active');
+                    volRange.max = 1000;
+                }
+                volRange.value = sliderVal;
+                volText.innerText = sliderVal + '%';
             }
         })();
 
@@ -267,7 +280,7 @@
 
         // Volume Change Handler
         function updateVolume(val) {
-            // val is 0-1000
+            // val is 0-1000 (or 0-200 when boost is off)
             // Backend expects gain (0.0 - 10.0)
             const gain = val / 100;
             window.api.setVolume(gain);
@@ -279,16 +292,44 @@
             updateVolume(e.target.value);
         });
 
-        // Scroll to change volume
+        // Boost toggle
+        btnBoost.addEventListener('click', (e) => {
+            e.stopPropagation();
+            boostEnabled = !boostEnabled;
+            btnBoost.classList.toggle('active', boostEnabled);
+            volRange.max = boostEnabled ? 1000 : 200;
+
+            // Clamp volume down if turning boost off while above 200
+            if (!boostEnabled && parseInt(volRange.value) > 200) {
+                updateVolume(200);
+            }
+        });
+
+        // Scroll to change volume (on slider)
         volRange.parentElement.addEventListener('wheel', (e) => {
             e.preventDefault();
             let val = parseInt(volRange.value);
-            // Sensitivity: 10 per step (1% of 1000, which matches 10% of normal 100 range)
             if (e.deltaY < 0) val += 10;
             else val -= 10;
 
-            // Clamp
-            if (val > 1000) val = 1000;
+            // Clamp to current max
+            const max = getMaxVolume();
+            if (val > max) val = max;
+            if (val < 0) val = 0;
+
+            updateVolume(val);
+        });
+
+        // Scroll to change volume (on volume icon)
+        btnVolume.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            let val = parseInt(volRange.value);
+            if (e.deltaY < 0) val += 10;
+            else val -= 10;
+
+            const max = getMaxVolume();
+            if (val > max) val = max;
             if (val < 0) val = 0;
 
             updateVolume(val);
@@ -297,8 +338,14 @@
         // Sync volume when changed externally (e.g. from mini player)
         if (window.api && window.api.onVolumeChanged) {
             window.api.onVolumeChanged((gainValue) => {
-                // gainValue is 0.0 - 10.0, slider is 0 - 1000
+                // gainValue is 0.0 - 10.0, slider is 0-1000
                 const sliderVal = Math.round(gainValue * 100);
+                // Auto-enable boost if external volume exceeds 200%
+                if (sliderVal > 200 && !boostEnabled) {
+                    boostEnabled = true;
+                    btnBoost.classList.add('active');
+                    volRange.max = 1000;
+                }
                 volRange.value = sliderVal;
                 volText.innerText = sliderVal + '%';
             });
@@ -306,12 +353,13 @@
 
         // Double click to type volume
         volRange.parentElement.addEventListener('dblclick', () => {
-            const input = prompt('Enter volume (0-1000):', volRange.value);
+            const max = getMaxVolume();
+            const input = prompt(`Enter volume (0-${max}):`, volRange.value);
             if (input !== null) {
                 let val = parseInt(input);
                 if (isNaN(val)) return;
                 if (val < 0) val = 0;
-                if (val > 1000) val = 1000;
+                if (val > max) val = max;
 
                 updateVolume(val);
             }

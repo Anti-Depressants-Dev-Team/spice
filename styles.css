@@ -267,6 +267,34 @@ h1 {
     text-align: right;
 }
 
+/* Boost Button */
+.boost-btn {
+    background: none;
+    border: 1px solid #444;
+    border-radius: 12px;
+    color: #888;
+    font-size: 0.75em;
+    padding: 2px 8px;
+    margin-left: 8px;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.boost-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: #666;
+    color: #ccc;
+}
+
+.boost-btn.active {
+    background: rgba(255, 0, 0, 0.15);
+    border-color: var(--accent-yt);
+    color: var(--accent-yt);
+    box-shadow: 0 0 6px rgba(255, 0, 0, 0.3);
+}
+
 /* Modal Styles */
 .modal {
     position: fixed;
