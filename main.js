@@ -58,6 +58,7 @@ let currentVolume = 1.0; // Volume gain value (0.0 - 10.0), shared across scopes
 
 const SERVICES = {
     yt: 'https://music.youtube.com',
+    yt_vk: 'https://music.youtube.com',
     sc: 'https://soundcloud.com'
 };
 
@@ -199,7 +200,8 @@ app.whenReady().then(() => {
             return;
         }
 
-        if (!view) return;
+        const playerView = getActiveBackendView();
+        if (!playerView) return;
 
         // Execute actions on the main player view
         const code = `
@@ -292,7 +294,7 @@ app.whenReady().then(() => {
                 }
             })();
         `;
-        view.webContents.executeJavaScript(code).catch(e => console.error(e));
+        playerView.webContents.executeJavaScript(code).catch(e => console.error(e));
 
         // Handle volume separately in main process (uses AudioContext gain, not video.volume)
         if (action.action === 'volume' && action.value !== undefined) {
@@ -356,11 +358,573 @@ function injectAdSkipper(targetView) {
     });
 }
 
+// =============== VK PROXY ARCHITECTURE ===============
+let ytBackendView = null;  // Hidden BrowserView running YouTube Music
+let vkProgressInterval = null;
+
+function loadVKService() {
+    console.log('[VK] Loading VK proxy architecture...');
+    currentService = 'yt_vk';
+
+    // === 1. Create hidden YT Music backend ===
+    if (ytBackendView) {
+        try { ytBackendView.webContents.destroy(); } catch (e) { }
+        ytBackendView = null;
+    }
+
+    ytBackendView = new BrowserView({
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: false,
+            partition: 'persist:main',
+            preload: path.join(__dirname, 'preload-view.js')
+        }
+    });
+
+    // Add to window but make invisible (1x1 off-screen)
+    mainWindow.addBrowserView(ytBackendView);
+    ytBackendView.setBounds({ x: -1, y: -1, width: 1, height: 1 });
+    ytBackendView.webContents.setMaxListeners(30); // Prevent listener leak from preload re-attaching
+    console.log('[VK] Hidden YT Music backend created');
+
+    // Load YouTube Music in the hidden backend
+    ytBackendView.webContents.loadURL('https://music.youtube.com').then(() => {
+        console.log('[VK] YouTube Music loaded in hidden backend');
+
+        // Inject ad-blocking
+        ytBackendView.webContents.insertCSS(AD_CSS);
+        injectAdSkipper(ytBackendView);
+
+        // Inject track detection for scrobbler/Discord RPC
+        injectTrackDetection('yt');
+
+        // Start main process polling for Discord RPC / Scrobbler
+        startTrackPolling();
+
+        // Start VK progress polling 
+        startVKProgressPolling();
+    }).catch(e => {
+        console.error('[VK] Failed to load YT Music backend:', e);
+    });
+
+    // === 2. Create visible VK UI ===
+    if (view) {
+        mainWindow.setBrowserView(null);
+        try { view.webContents.destroy(); } catch (e) { }
+        view = null;
+    }
+
+    view = new BrowserView({
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: false,
+            preload: path.join(__dirname, 'preload-vk.js')
+        }
+    });
+    mainWindow.setBrowserView(view);
+
+    // Position VK UI to fill the window (below title bar)
+    const bounds = mainWindow.getBounds();
+    view.setBounds({ x: 0, y: 40, width: bounds.width, height: bounds.height - 40 });
+
+    // Listen for window resize
+    mainWindow.on('resize', () => {
+        if (view && currentService === 'yt_vk') {
+            const b = mainWindow.getBounds();
+            view.setBounds({ x: 0, y: 40, width: b.width, height: b.height - 40 });
+        }
+    });
+
+    view.webContents.loadFile(path.join(__dirname, 'vk-music.html')).then(() => {
+        console.log('[VK] VK Music UI loaded');
+    }).catch(e => {
+        console.error('[VK] Failed to load VK UI:', e);
+    });
+
+    mainWindow.webContents.send('service-active', true);
+    console.log('[VK] VK proxy architecture ready');
+}
+
+// --- VK IPC Command Handlers ---
+ipcMain.on('vk-command', (event, cmd, data) => {
+    console.log('[VK IPC] Received command:', cmd, data ? JSON.stringify(data) : '');
+    if (!ytBackendView || !ytBackendView.webContents) {
+        console.error('[VK] No backend view for command:', cmd);
+        return;
+    }
+    const wc = ytBackendView.webContents;
+
+    switch (cmd) {
+        case 'play-pause':
+            wc.executeJavaScript(`
+                (function() {
+                    const v = document.querySelector('video');
+                    if (v) { v.paused ? v.play() : v.pause(); }
+                    else { 
+                        const btn = document.querySelector('#play-pause-button, [aria-label="Play"], [aria-label="Pause"]');
+                        if (btn) btn.click();
+                    }
+                })();
+            `).catch(e => console.error('[VK] play-pause error:', e));
+            break;
+
+        case 'next':
+            wc.executeJavaScript(`
+                (function() {
+                    const btn = document.querySelector('.next-button, [aria-label="Next"], tp-yt-paper-icon-button.next-button');
+                    if (btn) btn.click();
+                })();
+            `).catch(e => console.error('[VK] next error:', e));
+            break;
+
+        case 'prev':
+            wc.executeJavaScript(`
+                (function() {
+                    const btn = document.querySelector('.previous-button, [aria-label="Previous"], tp-yt-paper-icon-button.previous-button');
+                    if (btn) btn.click();
+                })();
+            `).catch(e => console.error('[VK] prev error:', e));
+            break;
+
+        case 'shuffle':
+            wc.executeJavaScript(`
+                (function() {
+                    const btn = document.querySelector('[aria-label*="shuffle" i], .shuffle');
+                    if (btn) btn.click();
+                })();
+            `).catch(e => console.error('[VK] shuffle error:', e));
+            break;
+
+        case 'repeat':
+            wc.executeJavaScript(`
+                (function() {
+                    const btn = document.querySelector('[aria-label*="repeat" i], .repeat');
+                    if (btn) btn.click();
+                })();
+            `).catch(e => console.error('[VK] repeat error:', e));
+            break;
+
+        case 'like':
+            wc.executeJavaScript(`
+                (function() {
+                    const btn = document.querySelector('.like.ytmusic-like-button-renderer, [aria-label="Like"]');
+                    if (btn) btn.click();
+                })();
+            `).catch(e => console.error('[VK] like error:', e));
+            break;
+
+        case 'toggle-mute':
+            wc.executeJavaScript(`
+                (function() {
+                    const v = document.querySelector('video');
+                    if (v) v.muted = !v.muted;
+                })();
+            `).catch(e => console.error('[VK] mute error:', e));
+            break;
+
+        case 'volume':
+            if (data && data.value !== undefined) {
+                wc.executeJavaScript(`
+                    (function() {
+                        const v = document.querySelector('video');
+                        if (v) v.volume = ${data.value};
+                    })();
+                `).catch(e => console.error('[VK] volume error:', e));
+            }
+            break;
+
+        case 'seek':
+            if (data && data.percent !== undefined) {
+                wc.executeJavaScript(`
+                    (function() {
+                        const v = document.querySelector('video');
+                        if (v && v.duration) v.currentTime = v.duration * ${data.percent};
+                    })();
+                `).catch(e => console.error('[VK] seek error:', e));
+            }
+            break;
+
+        case 'navigate':
+            if (data && data.path) {
+                const navUrl = 'https://music.youtube.com' + data.path;
+                console.log('[VK] Navigating backend to:', navUrl);
+                wc.executeJavaScript(`window.location.href = ${JSON.stringify(navUrl)};`)
+                    .catch(e => console.error('[VK] navigate error:', e));
+            }
+            break;
+
+        case 'search':
+            if (data && data.query) {
+                console.log('[VK] Searching via Innertube API:', data.query);
+                // Use Innertube API via fetch — doesn't navigate away from current page
+                wc.executeJavaScript(`
+                    (async function() {
+                        try {
+                            const apiKey = window.ytcfg && window.ytcfg.get ? window.ytcfg.get('INNERTUBE_API_KEY') : null;
+                            const context = window.ytcfg && window.ytcfg.get ? window.ytcfg.get('INNERTUBE_CONTEXT') : null;
+                            if (!apiKey || !context) {
+                                console.error('[VK Search] No API key or context');
+                                return [];
+                            }
+                            
+                            const resp = await fetch('https://music.youtube.com/youtubei/v1/search?key=' + apiKey + '&prettyPrint=false', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    context: context,
+                                    query: ${JSON.stringify(data.query)},
+                                    params: 'EgWKAQIIAWoKEAMQBBAKEAkQBQ%3D%3D'
+                                })
+                            });
+                            const json = await resp.json();
+                            
+                            // Parse results from the Innertube response
+                            const results = [];
+                            const contents = json?.contents?.tabbedSearchResultsRenderer?.tabs?.[0]
+                                ?.tabRenderer?.content?.sectionListRenderer?.contents || [];
+                            
+                            for (const section of contents) {
+                                const items = section?.musicShelfRenderer?.contents || 
+                                              section?.musicCardShelfRenderer?.contents || [];
+                                
+                                // Handle top result card
+                                const topResult = section?.musicCardShelfRenderer;
+                                if (topResult) {
+                                    const title = topResult?.title?.runs?.[0]?.text || '';
+                                    const subtitle = topResult?.subtitle?.runs?.map(r => r.text).join('') || '';
+                                    const navEp = topResult?.title?.runs?.[0]?.navigationEndpoint;
+                                    const videoId = navEp?.watchEndpoint?.videoId || '';
+                                    const thumbs = topResult?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails || [];
+                                    const art = thumbs.length > 0 ? thumbs[thumbs.length - 1].url : '';
+                                    if (title && videoId) {
+                                        results.push({ title, artist: subtitle, art: art || 'https://i.ytimg.com/vi/' + videoId + '/mqdefault.jpg', videoId });
+                                    }
+                                }
+                                
+                                for (const item of items) {
+                                    const renderer = item?.musicResponsiveListItemRenderer;
+                                    if (!renderer) continue;
+                                    
+                                    // Title
+                                    const titleRuns = renderer?.flexColumns?.[0]
+                                        ?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || [];
+                                    const title = titleRuns.map(r => r.text).join('');
+                                    
+                                    // Artist
+                                    const artistRuns = renderer?.flexColumns?.[1]
+                                        ?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || [];
+                                    const artist = artistRuns.length > 0 ? artistRuns[0].text : '';
+                                    
+                                    // Video ID
+                                    const overlay = renderer?.overlay?.musicItemThumbnailOverlayRenderer
+                                        ?.content?.musicPlayButtonRenderer;
+                                    const videoId = overlay?.playNavigationEndpoint?.watchEndpoint?.videoId || 
+                                        titleRuns?.[0]?.navigationEndpoint?.watchEndpoint?.videoId || '';
+                                    
+                                    // Thumbnail
+                                    const thumbs = renderer?.thumbnail?.musicThumbnailRenderer
+                                        ?.thumbnail?.thumbnails || [];
+                                    let art = thumbs.length > 0 ? thumbs[thumbs.length - 1].url : '';
+                                    if ((!art || art.startsWith('data:')) && videoId) {
+                                        art = 'https://i.ytimg.com/vi/' + videoId + '/mqdefault.jpg';
+                                    }
+                                    
+                                    if (title && videoId) {
+                                        results.push({ title, artist, art, videoId });
+                                    }
+                                    if (results.length >= 20) break;
+                                }
+                                if (results.length >= 20) break;
+                            }
+                            
+                            return results;
+                        } catch (e) {
+                            console.error('[VK Search] Innertube error:', e);
+                            return [];
+                        }
+                    })();
+                `).then(results => {
+                    console.log('[VK] Innertube search returned', results ? results.length : 0, 'results');
+                    if (results && results.length > 0) {
+                        results.slice(0, 5).forEach((r, i) => console.log(`  [${i}] ${r.title} - ${r.artist} (vid:${r.videoId})`));
+                    }
+                    if (view && view.webContents) {
+                        view.webContents.send('vk-content-update', { type: 'search', results: results || [] });
+                    }
+                }).catch(e => console.error('[VK] search error:', e));
+            }
+            break;
+
+        case 'play-result':
+            if (data && data.videoId) {
+                const watchUrl = 'https://music.youtube.com/watch?v=' + data.videoId;
+                console.log('[VK] Playing video:', data.videoId);
+                wc.executeJavaScript(`window.location.href = ${JSON.stringify(watchUrl)};`)
+                    .catch(e => console.error('[VK] play-result error:', e));
+            }
+            break;
+
+        case 'load-playlists':
+            console.log('[VK] Loading playlists via Innertube...');
+            wc.executeJavaScript(`
+                (async function() {
+                    try {
+                        const apiKey = window.ytcfg && window.ytcfg.get ? window.ytcfg.get('INNERTUBE_API_KEY') : null;
+                        const context = window.ytcfg && window.ytcfg.get ? window.ytcfg.get('INNERTUBE_CONTEXT') : null;
+                        if (!apiKey || !context) return [];
+                        
+                        const resp = await fetch('https://music.youtube.com/youtubei/v1/browse?key=' + apiKey + '&prettyPrint=false', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                context: context,
+                                browseId: 'FEmusic_liked_playlists'
+                            })
+                        });
+                        const json = await resp.json();
+                        
+                        const playlists = [];
+                        const grids = json?.contents?.singleColumnBrowseResultsRenderer?.tabs?.[0]
+                            ?.tabRenderer?.content?.sectionListRenderer?.contents || [];
+                        
+                        for (const section of grids) {
+                            const items = section?.gridRenderer?.items || 
+                                          section?.musicShelfRenderer?.contents || [];
+                            for (const item of items) {
+                                const renderer = item?.musicTwoRowItemRenderer || item?.musicResponsiveListItemRenderer;
+                                if (!renderer) continue;
+                                
+                                const titleRuns = renderer?.title?.runs || [];
+                                const title = titleRuns.map(r => r.text).join('');
+                                
+                                const navEp = titleRuns?.[0]?.navigationEndpoint;
+                                const playlistId = navEp?.browseEndpoint?.browseId || '';
+                                
+                                const subtitleRuns = renderer?.subtitle?.runs || [];
+                                const subtitle = subtitleRuns.map(r => r.text).join('');
+                                
+                                const thumbs = renderer?.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails ||
+                                               renderer?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails || [];
+                                const art = thumbs.length > 0 ? thumbs[thumbs.length - 1].url : '';
+                                
+                                if (title && playlistId) {
+                                    playlists.push({ title, subtitle, art, playlistId });
+                                }
+                            }
+                        }
+                        
+                        return playlists;
+                    } catch (e) {
+                        console.error('[VK] playlist browse error:', e);
+                        return [];
+                    }
+                })();
+            `).then(playlists => {
+                console.log('[VK] Loaded', playlists ? playlists.length : 0, 'playlists');
+                if (view && view.webContents) {
+                    view.webContents.send('vk-content-update', { type: 'playlists', playlists: playlists || [] });
+                }
+            }).catch(e => console.error('[VK] load-playlists error:', e));
+            break;
+
+        case 'play-playlist':
+            if (data && data.playlistId) {
+                const plUrl = 'https://music.youtube.com/playlist?list=' + data.playlistId.replace('VL', '');
+                console.log('[VK] Opening playlist:', data.playlistId);
+                wc.executeJavaScript(`window.location.href = ${JSON.stringify(plUrl)};`)
+                    .catch(e => console.error('[VK] play-playlist error:', e));
+            }
+            break;
+
+        default:
+            console.log('[VK] Unknown command:', cmd);
+    }
+});
+
+// --- VK Progress Polling ---
+function startVKProgressPolling() {
+    stopVKProgressPolling();
+    console.log('[VK] Starting progress polling...');
+
+    vkProgressInterval = setInterval(() => {
+        if (!ytBackendView || !ytBackendView.webContents || !view || !view.webContents) return;
+
+        // Get progress data from hidden backend
+        ytBackendView.webContents.executeJavaScript(`
+            (function() {
+                const v = document.querySelector('video');
+                const bar = document.querySelector('ytmusic-player-bar');
+                let title = '', artist = '', art = '';
+                
+                if (bar) {
+                    const tEl = bar.querySelector('.title');
+                    const aEl = bar.querySelector('.byline a') || bar.querySelector('.byline .yt-formatted-string') || bar.querySelector('.subtitle a') || bar.querySelector('.byline');
+                    const iEl = bar.querySelector('.image img') || bar.querySelector('.thumbnail img') || bar.querySelector('img.image');
+                    if (tEl) title = tEl.textContent?.trim() || '';
+                    if (aEl) {
+                        artist = aEl.textContent?.trim() || '';
+                        if (artist.includes('\u2022')) artist = artist.split('\u2022')[0].trim();
+                    }
+                    if (iEl && iEl.src) art = iEl.src;
+                }
+
+                return {
+                    playing: v ? !v.paused : false,
+                    currentTime: v ? v.currentTime : 0,
+                    duration: v ? v.duration : 0,
+                    volume: v ? v.volume : 1,
+                    muted: v ? v.muted : false,
+                    title: title,
+                    artist: artist,
+                    art: art,
+                    shuffle: (() => {
+                        const btn = document.querySelector('.shuffle.ytmusic-player-bar, tp-yt-paper-icon-button.shuffle');
+                        if (!btn) return false;
+                        const al = (btn.getAttribute('aria-label') || '').toLowerCase();
+                        const tt = (btn.getAttribute('title') || '').toLowerCase();
+                        return al.includes('shuffle off') || tt.includes('shuffle off') || btn.getAttribute('aria-pressed') === 'true';
+                    })(),
+                    repeat: (() => {
+                        const btn = document.querySelector('.repeat.ytmusic-player-bar, tp-yt-paper-icon-button.repeat');
+                        if (!btn) return 'off';
+                        const al = (btn.getAttribute('aria-label') || '').toLowerCase();
+                        const tt = (btn.getAttribute('title') || '').toLowerCase();
+                        if (al.includes('repeat one') || tt.includes('repeat one')) return 'one';
+                        if (al.includes('repeat all') || tt.includes('repeat all') || al.includes('repeat off') || tt.includes('repeat off')) return 'all';
+                        return 'off';
+                    })()
+                };
+            })();
+        `).then(data => {
+            if (!data || !view || !view.webContents) return;
+
+            // Send progress to VK UI
+            view.webContents.send('vk-progress-update', {
+                playing: data.playing,
+                currentTime: data.currentTime,
+                duration: data.duration,
+                volume: data.muted ? 0 : data.volume,
+                shuffle: data.shuffle,
+                repeat: data.repeat,
+            });
+
+            // Send track info if title changed
+            if (data.title) {
+                view.webContents.send('vk-track-update', {
+                    title: data.title,
+                    artist: data.artist,
+                    art: data.art,
+                });
+
+                // Feed into main track system (for lyrics, Discord RPC, scrobbling)
+                const trackKey = data.artist + ' - ' + data.title;
+                if (!lastTrack || (lastTrack.artist + ' - ' + lastTrack.title) !== trackKey) {
+                    let artUrl = data.art || '';
+                    if (artUrl && artUrl.includes('ggpht.com')) {
+                        artUrl = artUrl.replace(/w\d+-h\d+/, 'w1200-h1200');
+                    }
+                    lastTrack = {
+                        track: data.title,
+                        title: data.title,
+                        artist: data.artist,
+                        album: '',
+                        duration: data.duration || 0,
+                        albumArt: artUrl,
+                        artwork: artUrl,
+                        paused: !data.playing,
+                        currentTime: data.currentTime
+                    };
+                    console.log('[VK Poll] Track:', data.title, 'by', data.artist);
+
+                    // Update scrobbler
+                    if (scrobbler) scrobbler.updateNowPlaying(lastTrack);
+
+                    // Update lyrics window
+                    if (lyricsWindow) {
+                        lyricsWindow.webContents.send('lyrics-track-update', lastTrack);
+                    }
+
+                    // Update Discord RPC
+                    const discordEnabled = store ? store.get('discordRpcEnabled', true) : true;
+                    if (discordEnabled) {
+                        discordRpc.updatePresence({
+                            ...lastTrack,
+                            service: currentService,
+                            currentTime: data.currentTime,
+                            duration: data.duration
+                        });
+                    }
+
+                    // Update Mini Player
+                    miniPlayerServer.updateState({
+                        track: {
+                            title: data.title,
+                            artist: data.artist,
+                            art: artUrl,
+                            duration: data.duration
+                        },
+                        paused: !data.playing,
+                        currentTime: data.currentTime,
+                        volume: data.muted ? 0 : data.volume,
+                        shuffle: data.shuffle || false,
+                        repeat: data.repeat || 'off'
+                    });
+                } else if (lastTrack) {
+                    // Same track, just update progress
+                    lastTrack.paused = !data.playing;
+                    lastTrack.currentTime = data.currentTime;
+
+                    // Keep mini player in sync with progress
+                    miniPlayerServer.updateState({
+                        paused: !data.playing,
+                        currentTime: data.currentTime,
+                        volume: data.muted ? 0 : data.volume,
+                        shuffle: data.shuffle || false,
+                        repeat: data.repeat || 'off'
+                    });
+                }
+
+                // Always send lyrics progress for synced lyrics
+                if (lyricsWindow) {
+                    lyricsWindow.webContents.send('lyrics-progress-update', {
+                        currentTime: data.currentTime,
+                        duration: data.duration,
+                        paused: !data.playing
+                    });
+                }
+            }
+        }).catch(() => { /* ignore polling errors */ });
+    }, 500);
+}
+
+function stopVKProgressPolling() {
+    if (vkProgressInterval) {
+        clearInterval(vkProgressInterval);
+        vkProgressInterval = null;
+    }
+}
+
+// Helper: returns the correct backend view for track detection/polling
+function getActiveBackendView() {
+    if (currentService === 'yt_vk' && ytBackendView) return ytBackendView;
+    return view;
+}
+
+
 function loadService(serviceKey) {
     if (!SERVICES[serviceKey]) return;
 
+    // Route VK service to proxy architecture
+    if (serviceKey === 'yt_vk') {
+        loadVKService();
+        return;
+    }
+
     // Track current service for Discord RPC
     currentService = serviceKey;
+
+    // Resolve the track detection key
+    const trackDetectionKey = serviceKey;
 
     // Save state - DISABLE for now to favor explicit Default Setting
     // if (store) store.set('lastService', serviceKey);
@@ -403,7 +967,7 @@ function loadService(serviceKey) {
         injectAdSkipper(view);
 
         // Inject Track Detection Script based on service
-        injectTrackDetection(serviceKey);
+        injectTrackDetection(trackDetectionKey);
 
         // Start main process polling (bypasses broken preload IPC)
         startTrackPolling();
@@ -416,6 +980,18 @@ function loadService(serviceKey) {
 function goHome() {
     console.log('goHome() called');
     stopTrackPolling(); // Stop polling when navigating away
+    stopVKProgressPolling(); // Stop VK polling
+
+    // Clean up VK backend view
+    if (ytBackendView) {
+        try {
+            mainWindow.removeBrowserView(ytBackendView);
+            ytBackendView.webContents.destroy();
+        } catch (e) { }
+        ytBackendView = null;
+        console.log('VK backend view destroyed');
+    }
+
     if (view) {
         mainWindow.setBrowserView(null);
         view.webContents.destroy();
@@ -443,15 +1019,17 @@ function startTrackPolling() {
     console.log('[Main] Starting track polling...');
 
     trackPollingInterval = setInterval(async () => {
-        if (!view || !view.webContents) {
-            console.log('[Main Poll] No view available');
+        // Skip main polling in VK mode — VK progress polling handles track detection
+        if (currentService === 'yt_vk') return;
+
+        const activeView = getActiveBackendView();
+        if (!activeView || !activeView.webContents) {
             return;
         }
 
         try {
-            console.log('[Main Poll] Executing JavaScript for track info...');
             // Query track info directly from the page - simplified to return raw text
-            const rawData = await view.webContents.executeJavaScript(`
+            const rawData = await activeView.webContents.executeJavaScript(`
                 (function() {
                     const playerBar = document.querySelector('ytmusic-player-bar');
                     const video = document.querySelector('video');
@@ -656,7 +1234,8 @@ function stopTrackPolling() {
 // Track Detection Script Injection
 function injectTrackDetection(serviceKey) {
     console.log(`[Main] injectTrackDetection called for: ${serviceKey}`);
-    if (!view) {
+    const targetView = getActiveBackendView();
+    if (!targetView) {
         console.log('[Main] injectTrackDetection ABORTED: No view');
         return;
     }
@@ -957,9 +1536,12 @@ function injectTrackDetection(serviceKey) {
     }
 
     if (script) {
-        view.webContents.executeJavaScript(script).catch(err => {
-            console.error('[Scrobbler] Failed to inject track detection:', err);
-        });
+        const targetView = getActiveBackendView();
+        if (targetView) {
+            targetView.webContents.executeJavaScript(script).catch(err => {
+                console.error('[Scrobbler] Failed to inject track detection:', err);
+            });
+        }
     }
 }
 
@@ -1238,6 +1820,54 @@ app.whenReady().then(async () => {
         lyricsWindow.on('closed', () => {
             lyricsWindow = null;
         });
+    });
+
+    // Get current track for lyrics window
+    ipcMain.handle('get-now-playing', () => {
+        return lastTrack || null;
+    });
+
+    // Fetch lyrics from lrclib.net
+    ipcMain.handle('fetch-lyrics', async (event, data) => {
+        if (!data || !data.title) return null;
+        try {
+            const params = new URLSearchParams({
+                track_name: data.title,
+                artist_name: data.artist || ''
+            });
+            if (data.album) params.append('album_name', data.album);
+
+            const { net } = require('electron');
+            const resp = await net.fetch(`https://lrclib.net/api/get?${params.toString()}`, {
+                headers: { 'User-Agent': 'Spice Music v1.0' }
+            });
+
+            if (!resp.ok) {
+                // Try search endpoint as fallback
+                const searchResp = await net.fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(data.title + ' ' + (data.artist || ''))}`, {
+                    headers: { 'User-Agent': 'Spice Music v1.0' }
+                });
+                if (searchResp.ok) {
+                    const results = await searchResp.json();
+                    if (results && results.length > 0) {
+                        return {
+                            syncedLyrics: results[0].syncedLyrics || null,
+                            plainLyrics: results[0].plainLyrics || null
+                        };
+                    }
+                }
+                return null;
+            }
+
+            const result = await resp.json();
+            return {
+                syncedLyrics: result.syncedLyrics || null,
+                plainLyrics: result.plainLyrics || null
+            };
+        } catch (e) {
+            console.error('[Lyrics] Fetch error:', e);
+            return null;
+        }
     });
 
     ipcMain.on('open-mini-player', () => {
@@ -1539,8 +2169,9 @@ app.whenReady().then(async () => {
     // Volume Logic
     function applyVolume(vol) {
         if (vol !== undefined) currentVolume = vol;
-        if (!view) return;
-        view.webContents.executeJavaScript(getVolumeScript(currentVolume)).catch(() => { });
+        const targetView = getActiveBackendView();
+        if (!targetView) return;
+        targetView.webContents.executeJavaScript(getVolumeScript(currentVolume)).catch(() => { });
     }
 
     // Get Volume IPC
