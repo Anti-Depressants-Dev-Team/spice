@@ -113,6 +113,41 @@
         </div>
     </div>
 
+    <!-- VK Player Bar (between title bar and BrowserView) -->
+    <div id="vk-player-bar" class="hidden">
+        <button class="vk-ctrl-btn" id="vk-btn-prev"><svg viewBox="0 0 24 24">
+                <path fill="currentColor" d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
+            </svg></button>
+        <button class="vk-play-btn" id="vk-btn-play"><svg viewBox="0 0 24 24">
+                <path fill="currentColor" d="M8 5v14l11-7z" />
+            </svg></button>
+        <button class="vk-ctrl-btn" id="vk-btn-next"><svg viewBox="0 0 24 24">
+                <path fill="currentColor" d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+            </svg></button>
+        <button class="vk-ctrl-btn" id="vk-btn-shuffle"><svg viewBox="0 0 24 24">
+                <path fill="currentColor"
+                    d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
+            </svg></button>
+        <button class="vk-ctrl-btn" id="vk-btn-repeat"><svg viewBox="0 0 24 24">
+                <path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
+            </svg></button>
+
+        <div class="vk-track-info">
+            <img class="vk-track-art" id="vk-track-art" src="" style="display:none;">
+            <div class="vk-track-text">
+                <div class="vk-track-title" id="vk-track-title">No track playing</div>
+                <div class="vk-track-artist" id="vk-track-artist">Select a song</div>
+            </div>
+        </div>
+
+        <div class="vk-progress-wrap">
+            <span class="vk-time" id="vk-time-current">0:00</span>
+            <div class="vk-progress-bg">
+                <div class="vk-progress-fill" id="vk-progress-fill"></div>
+            </div>
+            <span class="vk-time" id="vk-time-total">0:00</span>
+        </div>
+    </div>
 
     <!-- Homepage Selection -->
     <div id="home-container">
@@ -404,8 +439,93 @@
             } else {
                 homeContainer.classList.remove('hidden');
                 document.body.style.backgroundColor = '';
+                // Hide VK player when going home
+                document.getElementById('vk-player-bar').classList.add('hidden');
             }
         });
+
+        // VK Player Bar
+        if (window.api.onVkPlayerVisibility) {
+            window.api.onVkPlayerVisibility((visible) => {
+                const vkBar = document.getElementById('vk-player-bar');
+                if (visible) {
+                    vkBar.classList.remove('hidden');
+                } else {
+                    vkBar.classList.add('hidden');
+                }
+            });
+        }
+
+        function fmtTime(s) {
+            if (!s || isNaN(s)) return '0:00';
+            const m = Math.floor(s / 60);
+            const sec = Math.floor(s % 60);
+            return m + ':' + (sec < 10 ? '0' : '') + sec;
+        }
+
+        if (window.api.onVkTrackUpdate) {
+            window.api.onVkTrackUpdate((info) => {
+                const vkBar = document.getElementById('vk-player-bar');
+                if (vkBar.classList.contains('hidden')) return;
+
+                // Track info
+                const titleEl = document.getElementById('vk-track-title');
+                const artistEl = document.getElementById('vk-track-artist');
+                const artEl = document.getElementById('vk-track-art');
+                const playBtn = document.getElementById('vk-btn-play');
+                const progressFill = document.getElementById('vk-progress-fill');
+                const timeCurrent = document.getElementById('vk-time-current');
+                const timeTotal = document.getElementById('vk-time-total');
+
+                if (info.title && titleEl) titleEl.textContent = info.title;
+                if (info.artist && artistEl) artistEl.textContent = info.artist;
+                if (info.albumArt && artEl) {
+                    artEl.src = info.albumArt;
+                    artEl.style.display = 'block';
+                }
+
+                // Play/Pause icon
+                if (playBtn) {
+                    playBtn.innerHTML = info.paused
+                        ? '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>'
+                        : '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+                }
+
+                // Progress
+                if (info.duration && info.duration > 0) {
+                    vkCurrentDuration = info.duration;
+                    const pct = (info.currentTime / info.duration) * 100;
+                    if (progressFill) progressFill.style.width = pct + '%';
+                    if (timeCurrent) timeCurrent.textContent = fmtTime(info.currentTime);
+                    if (timeTotal) timeTotal.textContent = fmtTime(info.duration);
+                }
+            });
+        }
+
+        // Click-to-seek on VK progress bar
+        let vkCurrentDuration = 0;
+        const vkProgressBg = document.querySelector('#vk-player-bar .vk-progress-bg');
+        if (vkProgressBg) {
+            vkProgressBg.addEventListener('click', (e) => {
+                if (!vkCurrentDuration || vkCurrentDuration <= 0) return;
+                const rect = vkProgressBg.getBoundingClientRect();
+                const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                const seekTime = pct * vkCurrentDuration;
+                window.api.vkCommand({ action: 'seek', time: seekTime });
+                // Immediate visual feedback
+                const fill = document.getElementById('vk-progress-fill');
+                if (fill) fill.style.width = (pct * 100) + '%';
+                const timeCur = document.getElementById('vk-time-current');
+                if (timeCur) timeCur.textContent = fmtTime(seekTime);
+            });
+        }
+
+        // VK Player control buttons
+        document.getElementById('vk-btn-prev').addEventListener('click', () => window.api.vkCommand('prev'));
+        document.getElementById('vk-btn-play').addEventListener('click', () => window.api.vkCommand('playpause'));
+        document.getElementById('vk-btn-next').addEventListener('click', () => window.api.vkCommand('next'));
+        document.getElementById('vk-btn-shuffle').addEventListener('click', () => window.api.vkCommand('shuffle'));
+        document.getElementById('vk-btn-repeat').addEventListener('click', () => window.api.vkCommand('repeat'));
     </script>
 </body>
 

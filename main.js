@@ -73,7 +73,7 @@ let currentVolume = 1.0; // Volume gain value (0.0 - 10.0), shared across scopes
 
 const SERVICES = {
   yt: "https://music.youtube.com",
-  yt_vk: "https://music.youtube.com",
+  yt_vk: "https://music.youtube.com", // VK layout uses same URL, just injects VK player UI
   sc: "https://soundcloud.com",
 };
 
@@ -370,16 +370,24 @@ app.whenReady().then(() => {
   });
 });
 
+const TITLE_BAR_HEIGHT = 40;
+const VK_PLAYER_HEIGHT = 50;
+
 function updateViewBounds() {
   if (!view || !mainWindow) return;
-  const bounds = mainWindow.getBounds();
-  // Title bar: 40px. No Top Nav. Total 40px offset.
+  const bounds = mainWindow.getContentBounds();
+  const vkEnabled = store ? store.get("vkPlayerEnabled", false) : false;
+  const topOffset = TITLE_BAR_HEIGHT + (vkEnabled ? VK_PLAYER_HEIGHT : 0);
+
   view.setBounds({
     x: 0,
-    y: 40,
+    y: topOffset,
     width: bounds.width,
-    height: bounds.height - 40,
+    height: bounds.height - topOffset,
   });
+
+  // Tell renderer to show/hide the VK player bar
+  mainWindow.webContents.send("vk-player-visibility", vkEnabled);
 }
 
 const AD_SKIP_SCRIPT = `
@@ -425,716 +433,49 @@ function injectAdSkipper(targetView) {
   });
 }
 
-// =============== VK PROXY ARCHITECTURE ===============
-let ytBackendView = null; // Hidden BrowserView running YouTube Music
-let vkProgressInterval = null;
-
-function loadVKService() {
-  console.log("[VK] Loading VK proxy architecture...");
-  currentService = "yt_vk";
-
-  // === 1. Create hidden YT Music backend ===
-  if (ytBackendView) {
-    try {
-      ytBackendView.webContents.destroy();
-    } catch (e) { }
-    ytBackendView = null;
-  }
-
-  ytBackendView = new BrowserView({
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: false,
-      preload: path.join(__dirname, "preload-view.js"),
-    },
-  });
-
-  // Add to window but make invisible (1x1 off-screen)
-  mainWindow.addBrowserView(ytBackendView);
-  ytBackendView.setBounds({ x: -1, y: -1, width: 1, height: 1 });
-  ytBackendView.webContents.setMaxListeners(30); // Prevent listener leak from preload re-attaching
-  console.log("[VK] Hidden YT Music backend created");
-
-  // Bridge console.logs from backend to main process
-  ytBackendView.webContents.on(
-    "console-message",
-    (event, level, message, line, sourceId) => {
-      if (message.includes("[Inner]")) {
-        console.log(`[YT Backend] ${message}`);
-      }
-    },
-  );
-
-  // Open DevTools for debugging Backend API requests
-  ytBackendView.webContents.openDevTools({ mode: "detach" });
-
-  // Load YouTube Music in the hidden backend
-  ytBackendView.webContents
-    .loadURL("https://music.youtube.com")
-    .then(() => {
-      console.log("[VK] YouTube Music loaded in hidden backend");
-
-      // Inject ad-blocking
-      ytBackendView.webContents.insertCSS(AD_CSS);
-      injectAdSkipper(ytBackendView);
-
-      // Inject track detection for scrobbler/Discord RPC
-      injectTrackDetection("yt");
-
-      // Start main process polling for Discord RPC / Scrobbler
-      startTrackPolling();
-
-      // Start VK progress polling
-      startVKProgressPolling();
-    })
-    .catch((e) => {
-      console.error("[VK] Failed to load YT Music backend:", e);
-    });
-
-  // === 2. Create visible VK UI ===
-  if (view) {
-    mainWindow.setBrowserView(null);
-    try {
-      view.webContents.destroy();
-    } catch (e) { }
-    view = null;
-  }
-
-  view = new BrowserView({
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: false,
-      preload: path.join(__dirname, "preload-vk.js"),
-    },
-  });
-  mainWindow.setBrowserView(view);
-
-  // Position VK UI to fill the window (below title bar)
-  const bounds = mainWindow.getBounds();
-  view.setBounds({
-    x: 0,
-    y: 40,
-    width: bounds.width,
-    height: bounds.height - 40,
-  });
-
-  // Listen for window resize
-  mainWindow.on("resize", () => {
-    if (view && currentService === "yt_vk") {
-      const b = mainWindow.getBounds();
-      view.setBounds({ x: 0, y: 40, width: b.width, height: b.height - 40 });
-    }
-  });
-
-  view.webContents
-    .loadFile(path.join(__dirname, "vk-music.html"))
-    .then(() => {
-      console.log("[VK] VK Music UI loaded");
-    })
-    .catch((e) => {
-      console.error("[VK] Failed to load VK UI:", e);
-    });
-
-  mainWindow.webContents.send("service-active", true);
-  console.log("[VK] VK proxy architecture ready");
+// Helper: returns the correct backend view for track detection/polling
+function getActiveBackendView() {
+  return view;
 }
 
-// --- VK IPC Command Handlers ---
-ipcMain.on("vk-command", (event, cmd, data) => {
-  console.log(
-    "[VK IPC] Received command:",
-    cmd,
-    data ? JSON.stringify(data) : "",
-  );
-  if (!ytBackendView || !ytBackendView.webContents) {
-    console.error("[VK] No backend view for command:", cmd);
+// Send VK track info to the main window's renderer (for the app-frame player bar)
+function sendVkTrackUpdate(trackInfo) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("vk-track-update", trackInfo);
+  }
+}
+
+// Handle VK player commands from the app-frame player bar
+ipcMain.on("vk-player-command", (event, cmd) => {
+  if (!view) return;
+
+  // Handle seek command (object: {action: 'seek', time: seconds})
+  if (typeof cmd === 'object' && cmd.action === 'seek') {
+    const seekCode = `(function(){ const v = document.querySelector('video'); if(v && v.duration) v.currentTime = ${Number(cmd.time)}; })()`;
+    view.webContents.executeJavaScript(seekCode).catch(() => { });
     return;
   }
-  const wc = ytBackendView.webContents;
 
-  switch (cmd) {
-    case "play-pause":
-      wc.executeJavaScript(
-        `
-                (function() {
-                    const v = document.querySelector('video');
-                    if (v) { v.paused ? v.play() : v.pause(); }
-                    else {
-                        const btn = document.querySelector('#play-pause-button, [aria-label="Play"], [aria-label="Pause"]');
-                        if (btn) btn.click();
-                    }
-                })();
-            `,
-      ).catch((e) => console.error("[VK] play-pause error:", e));
-      break;
-
-    case "next":
-      wc.executeJavaScript(
-        `
-                (function() {
-                    const btn = document.querySelector('.next-button, [aria-label="Next"], tp-yt-paper-icon-button.next-button');
-                    if (btn) btn.click();
-                })();
-            `,
-      ).catch((e) => console.error("[VK] next error:", e));
-      break;
-
-    case "prev":
-      wc.executeJavaScript(
-        `
-                (function() {
-                    const btn = document.querySelector('.previous-button, [aria-label="Previous"], tp-yt-paper-icon-button.previous-button');
-                    if (btn) btn.click();
-                })();
-            `,
-      ).catch((e) => console.error("[VK] prev error:", e));
-      break;
-
-    case "shuffle":
-      wc.executeJavaScript(
-        `
-                (function() {
-                    const btn = document.querySelector('[aria-label*="shuffle" i], .shuffle');
-                    if (btn) btn.click();
-                })();
-            `,
-      ).catch((e) => console.error("[VK] shuffle error:", e));
-      break;
-
-    case "repeat":
-      wc.executeJavaScript(
-        `
-                (function() {
-                    const btn = document.querySelector('[aria-label*="repeat" i], .repeat');
-                    if (btn) btn.click();
-                })();
-            `,
-      ).catch((e) => console.error("[VK] repeat error:", e));
-      break;
-
-    case "like":
-      wc.executeJavaScript(
-        `
-                (function() {
-                    const btn = document.querySelector('.like.ytmusic-like-button-renderer, [aria-label="Like"]');
-                    if (btn) btn.click();
-                })();
-            `,
-      ).catch((e) => console.error("[VK] like error:", e));
-      break;
-
-    case "toggle-mute":
-      wc.executeJavaScript(
-        `
-                (function() {
-                    const v = document.querySelector('video');
-                    if (v) v.muted = !v.muted;
-                })();
-            `,
-      ).catch((e) => console.error("[VK] mute error:", e));
-      break;
-
-    case "volume":
-      if (data && data.value !== undefined) {
-        wc.executeJavaScript(
-          `
-                    (function() {
-                        const v = document.querySelector('video');
-                        if (v) v.volume = ${data.value};
-                    })();
-                `,
-        ).catch((e) => console.error("[VK] volume error:", e));
-      }
-      break;
-
-    case "seek":
-      if (data && data.percent !== undefined) {
-        wc.executeJavaScript(
-          `
-                    (function() {
-                        const v = document.querySelector('video');
-                        if (v && v.duration) v.currentTime = v.duration * ${data.percent};
-                    })();
-                `,
-        ).catch((e) => console.error("[VK] seek error:", e));
-      }
-      break;
-
-    case "navigate":
-      if (data && data.path) {
-        const navUrl = "https://music.youtube.com" + data.path;
-        console.log("[VK] Navigating backend to:", navUrl);
-        wc.executeJavaScript(
-          `window.location.href = ${JSON.stringify(navUrl)};`,
-        ).catch((e) => console.error("[VK] navigate error:", e));
-      }
-      break;
-
-    case "search":
-      if (data && data.query) {
-        console.log("[VK] Searching via Innertube API:", data.query);
-        // Use Innertube API via fetch — doesn't navigate away from current page
-        wc.executeJavaScript(
-          `
-                    (async function() {
-                        // Use hardcoded Web Remix API key and context since relying on DOM extraction is unstable
-                        const apiKey = 'AIzaSyA4QqwK_G5QcXYPrtD09U1E1K2XwE_lZ9Q';
-                        const context = {
-                            client: {
-                                clientName: "WEB_REMIX",
-                                clientVersion: "1.20231214.01.00",
-                                hl: "en",
-                                gl: "US"
-                            }
-                        };
-
-                        const resp = await fetch('https://music.youtube.com/youtubei/v1/search?key=' + apiKey + '&prettyPrint=false', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            credentials: 'include',
-                            body: JSON.stringify({
-                                context: context,
-                                    query: ${JSON.stringify(data.query)},
-                                    params: 'EgWKAQIIAWoKEAMQBBAKEAkQBQ%3D%3D'
-                                })
-                            });
-                            const json = await resp.json();
-
-                            // Parse results from the Innertube response
-                            const results = [];
-                            const contents = json?.contents?.tabbedSearchResultsRenderer?.tabs?.[0]
-                                ?.tabRenderer?.content?.sectionListRenderer?.contents || [];
-
-                            for (const section of contents) {
-                                const items = section?.musicShelfRenderer?.contents ||
-                                              section?.musicCardShelfRenderer?.contents || [];
-
-                                // Handle top result card
-                                const topResult = section?.musicCardShelfRenderer;
-                                if (topResult) {
-                                    const title = topResult?.title?.runs?.[0]?.text || '';
-                                    const subtitle = topResult?.subtitle?.runs?.map(r => r.text).join('') || '';
-                                    const navEp = topResult?.title?.runs?.[0]?.navigationEndpoint;
-                                    const videoId = navEp?.watchEndpoint?.videoId || '';
-                                    const thumbs = topResult?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails || [];
-                                    const art = thumbs.length > 0 ? thumbs[thumbs.length - 1].url : '';
-                                    if (title && videoId) {
-                                        results.push({ title, artist: subtitle, art: art || 'https://i.ytimg.com/vi/' + videoId + '/mqdefault.jpg', videoId });
-                                    }
-                                }
-
-                                for (const item of items) {
-                                    const renderer = item?.musicResponsiveListItemRenderer;
-                                    if (!renderer) continue;
-
-                                    // Title
-                                    const titleRuns = renderer?.flexColumns?.[0]
-                                        ?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || [];
-                                    const title = titleRuns.map(r => r.text).join('');
-
-                                    // Artist
-                                    const artistRuns = renderer?.flexColumns?.[1]
-                                        ?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || [];
-                                    const artist = artistRuns.length > 0 ? artistRuns[0].text : '';
-
-                                    // Video ID
-                                    const overlay = renderer?.overlay?.musicItemThumbnailOverlayRenderer
-                                        ?.content?.musicPlayButtonRenderer;
-                                    const videoId = overlay?.playNavigationEndpoint?.watchEndpoint?.videoId ||
-                                        titleRuns?.[0]?.navigationEndpoint?.watchEndpoint?.videoId || '';
-
-                                    // Thumbnail
-                                    const thumbs = renderer?.thumbnail?.musicThumbnailRenderer
-                                        ?.thumbnail?.thumbnails || [];
-                                    let art = thumbs.length > 0 ? thumbs[thumbs.length - 1].url : '';
-                                    if ((!art || art.startsWith('data:')) && videoId) {
-                                        art = 'https://i.ytimg.com/vi/' + videoId + '/mqdefault.jpg';
-                                    }
-
-                                    if (title && videoId) {
-                                        results.push({ title, artist, art, videoId });
-                                    }
-                                    if (results.length >= 20) break;
-                                }
-                                if (results.length >= 20) break;
-                            }
-
-                            return results;
-                        } catch (e) {
-                            console.error('[VK Search] Innertube error:', e);
-                            return [];
-                        }
-                    })();
-                `,
-        )
-          .then((results) => {
-            console.log(
-              "[VK] Innertube search returned",
-              results ? results.length : 0,
-              "results",
-            );
-            if (results && results.length > 0) {
-              results
-                .slice(0, 5)
-                .forEach((r, i) =>
-                  console.log(
-                    `  [${i}] ${r.title} - ${r.artist} (vid:${r.videoId})`,
-                  ),
-                );
-            }
-            if (view && view.webContents) {
-              view.webContents.send("vk-content-update", {
-                type: "search",
-                results: results || [],
-              });
-            }
-          })
-          .catch((e) => console.error("[VK] search error:", e));
-      }
-      break;
-
-    case "play-result":
-      if (data && data.videoId) {
-        const watchUrl = "https://music.youtube.com/watch?v=" + data.videoId;
-        console.log("[VK] Playing video:", data.videoId);
-        wc.executeJavaScript(
-          `window.location.href = ${JSON.stringify(watchUrl)};`,
-        ).catch((e) => console.error("[VK] play-result error:", e));
-      }
-      break;
-    case "load-playlists":
-      (async () => {
-        console.log("[VK] Loading playlists via Innertube Browse API...");
-
-        // Execute script inside the hidden YT Music view
-        ytBackendView.webContents
-          .executeJavaScript(
-            `
-                    (async function() {
-                        try {
-                            console.log('[Inner] Starting Innertube playlist extraction...');
-
-                            // Use hardcoded Web Remix API key and context since relying on DOM extraction is unstable
-                            const apiKey = 'AIzaSyA4QqwK_G5QcXYPrtD09U1E1K2XwE_lZ9Q';
-                            const context = {
-                                client: {
-                                    clientName: "WEB_REMIX",
-                                    clientVersion: "1.20231214.01.00",
-                                    hl: "en",
-                                    gl: "US"
-                                }
-                            };
-
-                            console.log('[Inner] Spoofing Innertube context, fetching library playlists via browse...');
-
-                            const resp = await fetch('https://music.youtube.com/youtubei/v1/browse?key=' + apiKey + '&prettyPrint=false', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                credentials: 'include',
-                                body: JSON.stringify({
-                                    context: context,
-                                    browseId: 'FEmusic_liked_playlists'
-                                })
-                            });
-
-                            if (!resp.ok) {
-                                console.error('[Inner] Browse API returned', resp.status);
-                                return { success: false, error: 'API returned ' + resp.status };
-                            }
-
-                            const json = await resp.json();
-                            
-                            const items = [];
-                            const seen = new Set();
-                            
-                            // Recursively find playlist renderers
-                            function extract(obj) {
-                                if (!obj || typeof obj !== 'object') return;
-                                if (Array.isArray(obj)) {
-                                    for (const item of obj) extract(item);
-                                    return;
-                                }
-
-                                const renderer = obj.musicTwoRowItemRenderer || obj.musicResponsiveListItemRenderer;
-                                if (renderer) {
-                                    const titleRuns = renderer.title?.runs || [];
-                                    const title = titleRuns.map(r => r.text).join('');
-
-                                    const navEp = titleRuns[0]?.navigationEndpoint || renderer.navigationEndpoint;
-                                    const playlistId = navEp?.browseEndpoint?.browseId || '';
-
-                                    const subtitleRuns = renderer.subtitle?.runs || [];
-                                    const subtitle = subtitleRuns.map(r => r.text).join('');
-
-                                    const thumbs = renderer.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails ||
-                                                   renderer.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails || [];
-                                    const art = thumbs.length > 0 ? thumbs[thumbs.length - 1].url : '';
-
-                                    if (title && playlistId && !seen.has(playlistId)) {
-                                        seen.add(playlistId);
-                                        items.push({ title, subtitle, art, playlistId });
-                                    }
-                                }
-
-                                for (const key in obj) {
-                                    extract(obj[key]);
-                                }
-                            }
-
-                            extract(json);
-                            console.log('[Inner] Extracted playlists:', items.length);
-                            return { success: true, count: items.length, items: items, _debugJSON: json };
-                        } catch (e) {
-                            console.error('[Inner] Playlist extraction error:', e);
-                            return { success: false, error: e.message || String(e) };
-                        }
-                    })();
-                `,
-          )
-          .then((result) => {
-            if (result && result._debugJSON) {
-              console.log("[VK] Dumping playlist JSON to disk...");
-              require('fs').writeFileSync(require('path').join(__dirname, 'playlist-dump.json'), JSON.stringify(result._debugJSON, null, 2));
-              delete result._debugJSON;
-            }
-            if (result && result.error) {
-              console.error("[VK] Playlist extraction failed:", result.error);
-              // Send error state to frontend
-              if (view && view.webContents) {
-                view.webContents.send("vk-content-update", {
-                  type: "playlists",
-                  playlists: [],
-                });
-              }
-            } else if (result && result.success) {
-              console.log("[VK] Extracted playlists:", result.count);
-              if (view && view.webContents) {
-                view.webContents.send("vk-content-update", {
-                  type: "playlists",
-                  playlists: result.items || [],
-                });
-              }
-            } else {
-              console.log("[VK] Unexpected playlist result:", result);
-            }
-          })
-          .catch((e) => {
-            console.error("[VK] playlist execution error:", e);
-          });
-      })();
-      break;
-
-    case "play-playlist":
-      if (data && data.playlistId) {
-        const plUrl =
-          "https://music.youtube.com/playlist?list=" +
-          data.playlistId.replace("VL", "");
-        console.log("[VK] Opening playlist:", data.playlistId);
-        wc.executeJavaScript(
-          `window.location.href = ${JSON.stringify(plUrl)};`,
-        ).catch((e) => console.error("[VK] play-playlist error:", e));
-      }
-      break;
-
-    default:
-      console.log("[VK] Unknown command:", cmd);
+  const code = {
+    playpause: `(function(){ const v = document.querySelector('video'); if(v) v.paused ? v.play() : v.pause(); })()`,
+    next: `document.querySelector('.next-button')?.click() || document.querySelector('[aria-label="Next"]')?.click()`,
+    prev: `document.querySelector('.previous-button')?.click() || document.querySelector('[aria-label="Previous"]')?.click()`,
+    shuffle: `(function(){ const b = document.querySelector('tp-yt-paper-icon-button.shuffle') || document.querySelector('[aria-label*="Shuffle"]'); if(b) b.click(); })()`,
+    repeat: `(function(){ const b = document.querySelector('tp-yt-paper-icon-button.repeat') || document.querySelector('[aria-label*="Repeat"]'); if(b) b.click(); })()`,
+  };
+  if (code[cmd]) {
+    view.webContents.executeJavaScript(code[cmd]).catch(() => { });
   }
 });
 
-// --- VK Progress Polling ---
-function startVKProgressPolling() {
-  stopVKProgressPolling();
-  console.log("[VK] Starting progress polling...");
-
-  vkProgressInterval = setInterval(() => {
-    if (
-      !ytBackendView ||
-      !ytBackendView.webContents ||
-      !view ||
-      !view.webContents
-    )
-      return;
-
-    // Get progress data from hidden backend
-    ytBackendView.webContents
-      .executeJavaScript(
-        `
-                    (function () {
-                        const v = document.querySelector('video');
-                        const bar = document.querySelector('ytmusic-player-bar');
-                        let title = '', artist = '', art = '';
-
-                        if (bar) {
-                            const tEl = bar.querySelector('.title');
-                            const aEl = bar.querySelector('.byline a') || bar.querySelector('.byline .yt-formatted-string') || bar.querySelector('.subtitle a') || bar.querySelector('.byline');
-                            const iEl = bar.querySelector('.image img') || bar.querySelector('.thumbnail img') || bar.querySelector('img.image');
-                            if (tEl) title = tEl.textContent?.trim() || '';
-                            if (aEl) {
-                                artist = aEl.textContent?.trim() || '';
-                                if (artist.includes('\u2022')) artist = artist.split('\u2022')[0].trim();
-                            }
-                            if (iEl && iEl.src) art = iEl.src;
-                        }
-
-                        return {
-                            playing: v ? !v.paused : false,
-                            currentTime: v ? v.currentTime : 0,
-                            duration: v ? v.duration : 0,
-                            volume: v ? v.volume : 1,
-                            muted: v ? v.muted : false,
-                            title: title,
-                            artist: artist,
-                            art: art,
-                            shuffle: (() => {
-                                const btn = document.querySelector('.shuffle.ytmusic-player-bar, tp-yt-paper-icon-button.shuffle');
-                                if (!btn) return false;
-                                const al = (btn.getAttribute('aria-label') || '').toLowerCase();
-                                const tt = (btn.getAttribute('title') || '').toLowerCase();
-                                return al.includes('shuffle off') || tt.includes('shuffle off') || btn.getAttribute('aria-pressed') === 'true';
-                            })(),
-                            repeat: (() => {
-                                const btn = document.querySelector('.repeat.ytmusic-player-bar, tp-yt-paper-icon-button.repeat');
-                                if (!btn) return 'off';
-                                const al = (btn.getAttribute('aria-label') || '').toLowerCase();
-                                const tt = (btn.getAttribute('title') || '').toLowerCase();
-                                if (al.includes('repeat one') || tt.includes('repeat one')) return 'one';
-                                if (al.includes('repeat all') || tt.includes('repeat all') || al.includes('repeat off') || tt.includes('repeat off')) return 'all';
-                                return 'off';
-                            })()
-                        };
-                    })();
-                `,
-      )
-      .then((data) => {
-        if (!data || !view || !view.webContents) return;
-
-        // Send progress to VK UI
-        view.webContents.send("vk-progress-update", {
-          playing: data.playing,
-          currentTime: data.currentTime,
-          duration: data.duration,
-          volume: data.muted ? 0 : data.volume,
-          shuffle: data.shuffle,
-          repeat: data.repeat,
-        });
-
-        // Send track info if title changed
-        if (data.title) {
-          view.webContents.send("vk-track-update", {
-            title: data.title,
-            artist: data.artist,
-            art: data.art,
-          });
-
-          // Feed into main track system (for lyrics, Discord RPC, scrobbling)
-          const trackKey = data.artist + " - " + data.title;
-          if (
-            !lastTrack ||
-            lastTrack.artist + " - " + lastTrack.title !== trackKey
-          ) {
-            let artUrl = data.art || "";
-            if (artUrl && artUrl.includes("ggpht.com")) {
-              artUrl = artUrl.replace(/w\d+-h\d+/, "w1200-h1200");
-            }
-            lastTrack = {
-              track: data.title,
-              title: data.title,
-              artist: data.artist,
-              album: "",
-              duration: data.duration || 0,
-              albumArt: artUrl,
-              artwork: artUrl,
-              paused: !data.playing,
-              currentTime: data.currentTime,
-            };
-            console.log("[VK Poll] Track:", data.title, "by", data.artist);
-
-            // Update scrobbler
-            if (scrobbler) scrobbler.updateNowPlaying(lastTrack);
-
-            // Update lyrics window
-            if (lyricsWindow) {
-              lyricsWindow.webContents.send("lyrics-track-update", lastTrack);
-            }
-
-            // Update Discord RPC
-            const discordEnabled = store
-              ? store.get("discordRpcEnabled", true)
-              : true;
-            if (discordEnabled) {
-              discordRpc.updatePresence({
-                ...lastTrack,
-                service: currentService,
-                currentTime: data.currentTime,
-                duration: data.duration,
-              });
-            }
-
-            // Update Mini Player
-            miniPlayerServer.updateState({
-              track: {
-                title: data.title,
-                artist: data.artist,
-                art: artUrl,
-                duration: data.duration,
-              },
-              paused: !data.playing,
-              currentTime: data.currentTime,
-              volume: data.muted ? 0 : data.volume,
-              shuffle: data.shuffle || false,
-              repeat: data.repeat || "off",
-            });
-          } else if (lastTrack) {
-            // Same track, just update progress
-            lastTrack.paused = !data.playing;
-            lastTrack.currentTime = data.currentTime;
-
-            // Keep mini player in sync with progress
-            miniPlayerServer.updateState({
-              paused: !data.playing,
-              currentTime: data.currentTime,
-              volume: data.muted ? 0 : data.volume,
-              shuffle: data.shuffle || false,
-              repeat: data.repeat || "off",
-            });
-          }
-
-          // Always send lyrics progress for synced lyrics
-          if (lyricsWindow) {
-            lyricsWindow.webContents.send("lyrics-progress-update", {
-              currentTime: data.currentTime,
-              duration: data.duration,
-              paused: !data.playing,
-            });
-          }
-        }
-      })
-      .catch(() => {
-        /* ignore polling errors */
-      });
-  }, 500);
-}
-
-function stopVKProgressPolling() {
-  if (vkProgressInterval) {
-    clearInterval(vkProgressInterval);
-    vkProgressInterval = null;
-  }
-}
-
-// Helper: returns the correct backend view for track detection/polling
-function getActiveBackendView() {
-  if (currentService === "yt_vk" && ytBackendView) return ytBackendView;
-  return view;
-}
 
 function loadService(serviceKey) {
   if (!SERVICES[serviceKey]) return;
 
-  // Route VK service to proxy architecture
+  // VK layout uses the same YT Music URL, but force-enables VK player
   if (serviceKey === "yt_vk") {
-    loadVKService();
-    return;
+    if (store) store.set("vkPlayerEnabled", true);
+    serviceKey = "yt"; // load YT Music normally, injection handles the UI
   }
 
   // Track current service for Discord RPC
@@ -1172,14 +513,18 @@ function loadService(serviceKey) {
   // Notify renderer that a service is active (to show top bar)
   mainWindow.webContents.send("service-active", true);
 
+  // Send VK player config once DOM is ready
+  view.webContents.on('dom-ready', () => {
+    const vkPlayerEnabled = store ? store.get("vkPlayerEnabled", false) : false;
+    console.log(`[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`);
+    view.webContents.send("vk-player-config", vkPlayerEnabled);
+  });
+
   console.log(`Loading service URL: ${SERVICES[serviceKey]} `);
   view.webContents
     .loadURL(SERVICES[serviceKey])
     .then(() => {
       console.log(`Successfully loaded ${serviceKey} `);
-
-      // Open DevTools for debugging (User Request) - REMOVED for "Settings Only" restriction
-      // view.webContents.openDevTools({ mode: 'detach' });
 
       // Inject CSS for Cosmetic Blocking
       view.webContents.insertCSS(AD_CSS);
@@ -1198,20 +543,84 @@ function loadService(serviceKey) {
     });
 }
 
+// Load a specific URL (only YT Music or SoundCloud allowed)
+ipcMain.on("load-url", (event, url) => {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+
+    const isYtMusic =
+      host === "music.youtube.com" || host === "www.music.youtube.com";
+    const isSoundCloud =
+      host === "soundcloud.com" ||
+      host === "www.soundcloud.com" ||
+      host === "m.soundcloud.com";
+
+    if (!isYtMusic && !isSoundCloud) {
+      console.log("Invalid URL rejected:", url);
+      return;
+    }
+
+    const serviceKey = isYtMusic ? "yt" : "sc";
+    currentService = serviceKey;
+
+    if (view) {
+      console.log("Destroying existing BrowserView before loading URL...");
+      mainWindow.setBrowserView(null);
+      view.webContents.destroy();
+      view = null;
+    }
+
+    console.log("Creating new BrowserView for URL...");
+    view = new BrowserView({
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: false,
+        partition: "persist:main",
+        preload: path.join(__dirname, "preload-view.js"),
+      },
+    });
+    mainWindow.setBrowserView(view);
+
+    const viewSession = view.webContents.session;
+    const enabled = store ? store.get("adBlockerEnabled", true) : true;
+    if (enabled && adBlocker) {
+      adBlocker.enableBlockingInSession(viewSession);
+    }
+
+    mainWindow.setBrowserView(view);
+    updateViewBounds();
+    mainWindow.webContents.send("service-active", true);
+
+    // Send VK player config once DOM is ready
+    view.webContents.on('dom-ready', () => {
+      const vkPlayerEnabled = store ? store.get("vkPlayerEnabled", false) : false;
+      console.log(`[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`);
+      view.webContents.send("vk-player-config", vkPlayerEnabled);
+    });
+
+    console.log(`Loading URL: ${url} `);
+    view.webContents
+      .loadURL(url)
+      .then(() => {
+        console.log(`Successfully loaded URL: ${url} `);
+
+        view.webContents.insertCSS(AD_CSS);
+        injectAdSkipper(view);
+        injectTrackDetection(serviceKey);
+        startTrackPolling();
+      })
+      .catch((e) => {
+        console.error(`Failed to load URL: `, e);
+      });
+  } catch (e) {
+    console.error("Failed to parse URL:", url, e);
+  }
+});
+
 function goHome() {
   console.log("goHome() called");
   stopTrackPolling(); // Stop polling when navigating away
-  stopVKProgressPolling(); // Stop VK polling
-
-  // Clean up VK backend view
-  if (ytBackendView) {
-    try {
-      mainWindow.removeBrowserView(ytBackendView);
-      ytBackendView.webContents.destroy();
-    } catch (e) { }
-    ytBackendView = null;
-    console.log("VK backend view destroyed");
-  }
 
   if (view) {
     mainWindow.setBrowserView(null);
@@ -1240,9 +649,6 @@ function startTrackPolling() {
   console.log("[Main] Starting track polling...");
 
   trackPollingInterval = setInterval(async () => {
-    // Skip main polling in VK mode — VK progress polling handles track detection
-    if (currentService === "yt_vk") return;
-
     const activeView = getActiveBackendView();
     if (!activeView || !activeView.webContents) {
       return;
@@ -1354,6 +760,9 @@ function startTrackPolling() {
         // Always update lastTrack for progress tracking
         lastTrack = track;
 
+        // Send to VK player bar in app frame
+        sendVkTrackUpdate(track);
+
         // Detect repeat: same track but time jumped back significantly
         let isRepeat = false;
         if (
@@ -1462,7 +871,7 @@ function startTrackPolling() {
     } catch (e) {
       console.log("[Main Poll] Error:", e.message);
     }
-  }, 750); // Poll every 750ms for better lyrics sync
+  }, 350); // Poll every 350ms for smooth VK player progress
 }
 
 function stopTrackPolling() {
