@@ -175,7 +175,10 @@
             if (window.api.openMiniPlayer) window.api.openMiniPlayer();
         });
 
-        document.getElementById('btn-settings').addEventListener('click', () => window.api.openSettings());
+        document.getElementById('btn-settings').addEventListener('click', () => {
+            console.log('Renderer: btn-settings clicked');
+            if (window.api && window.api.openSettings) window.api.openSettings();
+        });
 
         // URL Modal
         const btnUrl = document.getElementById('btn-url');
@@ -377,9 +380,18 @@
         });
 
         // Window Controls
-        document.getElementById('btn-min').addEventListener('click', () => window.api.windowControls.minimize());
-        document.getElementById('btn-max').addEventListener('click', () => window.api.windowControls.maximize());
-        document.getElementById('btn-close').addEventListener('click', () => window.api.windowControls.close());
+        document.getElementById('btn-min').addEventListener('click', () => {
+            console.log('Renderer: btn-min clicked');
+            if (window.api && window.api.windowControls) window.api.windowControls.minimize();
+        });
+        document.getElementById('btn-max').addEventListener('click', () => {
+            console.log('Renderer: btn-max clicked');
+            if (window.api && window.api.windowControls) window.api.windowControls.maximize();
+        });
+        document.getElementById('btn-close').addEventListener('click', () => {
+            console.log('Renderer: btn-close clicked');
+            if (window.api && window.api.windowControls) window.api.windowControls.close();
+        });
 
         // Handle Active State
         const homeContainer = document.getElementById('home-container');

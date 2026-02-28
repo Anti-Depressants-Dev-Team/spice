@@ -24,9 +24,18 @@ contextBridge.exposeInMainWorld('api', {
     onServiceActive: (callback) => ipcRenderer.on('service-active', (event, value) => callback(value)),
     onVolumeChanged: (callback) => ipcRenderer.on('volume-changed', (event, value) => callback(value)),
     windowControls: {
-        minimize: () => ipcRenderer.send('window-minimize'),
-        maximize: () => ipcRenderer.send('window-maximize'),
-        close: () => ipcRenderer.send('window-close')
+        minimize: () => {
+            console.log("Renderer (preload): window-minimize sent");
+            ipcRenderer.send('window-minimize');
+        },
+        maximize: () => {
+            console.log("Renderer (preload): window-maximize sent");
+            ipcRenderer.send('window-maximize');
+        },
+        close: () => {
+            console.log("Renderer (preload): window-close sent");
+            ipcRenderer.send('window-close');
+        }
     },
     // Scrobbler API
     scrobbler: {

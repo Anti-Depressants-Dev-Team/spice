@@ -44,8 +44,8 @@ ytmusic-chip-cloud-chip-renderer,
 
 ytmusic-chip-cloud-chip-renderer[chip-style="STYLE_DEFAULT"][selected],
 .chip-cloud-chip[selected] {
-    background: #0077FF !important;
-    border-color: #0077FF !important;
+    background: #a855f7 !important;
+    border-color: #a855f7 !important;
     color: white !important;
 }
 
@@ -121,6 +121,6 @@ ytmusic-player-queue-item[selected] {
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: #0077FF;
+    background: #a855f7;
     cursor: pointer;
 }

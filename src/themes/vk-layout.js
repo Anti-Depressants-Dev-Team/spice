@@ -115,7 +115,7 @@
 
     // ============= COLORS =============
     const C = {
-        blue: '#0077FF',
+        blue: '#a855f7',
         bgSidebar: '#0e0e0e',
         bgTopbar: '#1a1a1a',
         bgPlayer: '#1e1e1e',
@@ -169,7 +169,7 @@
     // VK Logo
     sidebar.appendChild(mk('div', `
         padding: 14px; cursor: pointer; flex-shrink: 0;
-    `, '<svg viewBox="0 0 48 48" width="36" height="36" fill="none"><rect width="48" height="48" rx="12" fill="#0077FF"/><path d="M25.54 34.58c-10.94 0-17.18-7.5-17.44-19.98h5.48c.18 9.24 4.26 13.16 7.48 13.96V14.6h5.16v7.98c3.18-.34 6.52-3.94 7.64-7.98h5.16c-.86 4.96-4.46 8.56-7.02 10.06 2.56 1.22 6.64 4.36 8.2 9.92h-5.68c-1.22-3.82-4.26-6.78-8.3-7.18v7.18h-.68z" fill="#fff"/></svg>'));
+    `, '<svg viewBox="0 0 48 48" width="36" height="36" fill="none"><rect width="48" height="48" rx="12" fill="#a855f7"/><path d="M25.54 34.58c-10.94 0-17.18-7.5-17.44-19.98h5.48c.18 9.24 4.26 13.16 7.48 13.96V14.6h5.16v7.98c3.18-.34 6.52-3.94 7.64-7.98h5.16c-.86 4.96-4.46 8.56-7.02 10.06 2.56 1.22 6.64 4.36 8.2 9.92h-5.68c-1.22-3.82-4.26-6.78-8.3-7.18v7.18h-.68z" fill="#fff"/></svg>'));
     sidebar.querySelector('div').addEventListener('click', () => location.href = 'https://music.youtube.com/');
 
     // Nav items
@@ -378,7 +378,7 @@
     volSlider.max = '100';
     volSlider.value = '100';
     volSlider.id = 'vk-vol-slider';
-    volSlider.style.cssText = 'width:80px;height:4px;cursor:pointer;accent-color:#0077FF;';
+    volSlider.style.cssText = 'width:80px;height:4px;cursor:pointer;accent-color:#a855f7;';
     volSlider.oninput = (e) => { const v = getVideo(); if (v) v.volume = e.target.value / 100; };
     volWrap.appendChild(volSlider);
     player.appendChild(volWrap);
@@ -411,7 +411,7 @@
             padding: 8px 14px; font-size: 13px; font-weight: 500;
             color: ${i === 0 ? C.blue : C.text2};
             cursor: pointer; border-radius: 8px; white-space: nowrap;
-            background: ${i === 0 ? 'rgba(0,119,255,0.12)' : 'transparent'};
+            background: ${i === 0 ? 'rgba(168,119,255,0.12)' : 'transparent'};
             transition: all 0.15s;
         `, label);
         tab.dataset.path = path;
@@ -520,7 +520,7 @@
 
             if (active) {
                 t.style.color = C.blue;
-                t.style.background = 'rgba(0,119,255,0.12)';
+                t.style.background = 'rgba(168,119,255,0.12)';
                 t.dataset.active = '1';
                 any = true;
             } else {
@@ -531,7 +531,7 @@
         });
         if (!any && tabs[0]) {
             tabs[0].style.color = C.blue;
-            tabs[0].style.background = 'rgba(0,119,255,0.12)';
+            tabs[0].style.background = 'rgba(168,119,255,0.12)';
             tabs[0].dataset.active = '1';
         }
     }
