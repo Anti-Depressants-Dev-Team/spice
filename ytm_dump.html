@@ -1,0 +1,944 @@
+<!DOCTYPE html><html lang="ro" dir="ltr"><head><style nonce="t_RruLSZyZmaxTqfUyMZvA">
+a, a:link, a:visited, a:active, a:hover {
+  color: #1a73e8;
+  text-decoration: none;
+}
+body {
+  font-family: Roboto, Helvetica, Arial, sans-serif;
+  text-align: center;
+  -ms-text-size-adjust: 100%;
+  -moz-text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+.youtubeContainerUIModernization,
+.boxUIModernization {
+  box-sizing: border-box;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 800px;
+}
+.signInContainerUIModernization {
+    display: flex;
+    justify-content: flex-end;
+}
+h1 {
+  color: #2c2c2c;
+  font-size: 24px;
+  hyphens: auto;
+  margin: 24px 0;
+}
+.openInNewIcon,
+.openInNewIconYouTube {
+  height: 12px;
+  width: 12px;
+  margin-bottom: -2px;
+  margin-left: 2px;
+
+  
+}
+.openInNewIcon {
+  fill: #0b57d0; // gm3-primary-blue
+}
+.openInNewIconYouTube {
+  fill: #065fd4; // yt-primary-dark-blue
+}
+.icaCallout {
+  background-color: #f8f9fa;
+  padding: 12px 16px;
+  border-radius: 10px;
+  margin-bottom: 10px;
+}
+.icaCalloutGm3 {
+  background-color: #f8fafd;
+  padding: 12px 16px;
+  border-radius: 10px;
+  margin-bottom: 10px;
+}
+.icaCalloutUIModernization,
+.icaCalloutUIModernizationGm3 {
+  color: #0f0f0f;
+  font-family: Roboto, Arial, sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 18px;
+  letter-spacing: 0.2px;
+  background-color: #f8f9fa;
+  padding: 12px 24px;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  text-align: left;
+}
+.icaCalloutUIModernization > a {
+  color: #065fd4;  /* youtube dark-blue color */
+}
+.icaCalloutUIModernizationGm3 > a {
+  color: #065fd4;  /* youtube dark-blue color */
+  text-decoration: underline;
+}
+.subUIModernization,
+.subUIModernizationGm3,
+.contentTextUIModernization,
+.contentTextUIModernization > p {
+  color: #0f0f0f;
+  font-family: Roboto, Arial, sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  letter-spacing: 0;
+  line-height: 18px;
+  text-align: left;
+}
+.contentTextUIModernization > a,
+.contentTextUIModernization > p > a {
+  color: #065fd4;
+}
+.contentTextUIModernization > p {
+  margin: 16px 0;
+}
+.contentTextUIModernization > ul {
+  padding-left: 36px;
+  margin: 16px 0;
+}
+p, .sub, .contentText, .icaCallout {
+  color: #5f6368;;
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: 0.2px;
+  text-align: left;
+}
+.signin {
+  text-align: right;
+}
+.signInIconContainer {
+  width: 24px;
+  height: 24px;
+  margin: 0 6px 0 -6px;
+}
+.signInIcon {
+  fill: #065fd4; /* dark-blue-color */
+}
+.signinUIModernization {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  text-align: right;
+}
+.bulletUIModernization {
+  line-height: 18px;
+  margin: 8px 0;
+}
+.signinButtonDisplayUIModernization {
+  display: flex;
+  box-sizing: border-box;
+  align-items: center;
+  flex-direction: row;
+  justify-content: flex-start;
+}
+.horizontalContainerEndUIModernization {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.cardHeaderUIModernization {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+.logoCenter {
+  justify-content: center;
+}
+.logoUIModernization {
+  margin-right: auto;
+}
+.youTubeHeaderUIModernization {
+ padding: 20px 24px 0;
+}
+.saveButtonContainer,
+.saveButtonContainerNarrowScreen {
+  width: 100%;
+  margin-top: 12px;
+}
+.saveButtonContainerNarrowScreenUIModernization {
+  width: 100%;
+}
+.customButtonContainer {
+  height: 20px;
+  padding: 8px 0;
+  margin-top: 8px;
+}
+.navigationCtasYoutube {
+  text-align: right;
+}
+a.button {
+  color: #fff;
+}
+a.hairlinebutton,
+a.nolinebutton{
+  color: #1a73e8;
+}
+.navigationCtasYoutube a.hairlinebutton {
+  border-color: #1a73e8;
+}
+button, .button {
+  background-color: #1a73e8;
+  border: none;
+  color: #fff;
+}
+input.button {
+  -webkit-appearance: none;
+}
+.basebutton {
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  height: 36px;
+  margin: 12px 4px 0;
+  padding: 8px 24px;
+}
+.hairlinebutton {
+  background-color: #fff;
+  border-width: 1px;
+  border-color: #dadce0;
+  border-style: solid;
+  max-height: 15px;
+}
+.basebuttonUIModernization {
+  outline: none;
+  text-align: center;
+  vertical-align: middle;
+  line-height: 18px;
+  cursor: pointer;
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  font-style: normal;
+  height: 36px;
+  min-width: 72px;
+  border-radius: 18px;
+  padding: 0 16px;
+}
+.basebuttonUIModernization:focus,
+.basebuttonUIModernization:focus-visible,
+.basebuttonUIModernization:hover:focus,
+.basebuttonUIModernization:hover:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+.signInButtonUIModernization {
+  background-color: #fff;
+  border: 1px solid #e5e5e5;
+  color: #065fd4;
+}
+.signInButtonUIModernization:focus-visible {
+  background-color: #fff;
+  border: 1px solid #065fd4;
+  color: #065fd4;
+}
+.signInButtonUIModernization:hover {
+  background-color: #f2f8ff;
+  border: 1px solid transparent;
+  color: #065fd4;
+}
+.signInButtonUIModernization:hover:focus-visible {
+  background-color: #f2f8ff;
+  border: 1px solid #065fd4;
+  color: #065fd4;
+}
+.signInButtonUIModernization:active,
+.signInButtonUIModernization:active:hover,
+.signInButtonUIModernization:active:focus-visible {
+  background-color: #e5e5e5;
+  border: 1px solid transparent;
+  color: #065fd4;
+}
+.signinUIModernization a,
+.signinUIModernization a:link,
+.signinUIModernization a:visited,
+.signinUIModernization a:active,
+.signinUIModernization a:hover,
+.signinUIModernization a:focus-visible {
+  color: #065fd4;
+}
+.hairlinebuttonUIModernization {
+  background-color: #0f0f0f;
+  border: 2px solid transparent;
+  color: #fff;
+  }
+.hairlinebuttonUIModernization:focus-visible {
+  background-color: #fff;
+  border: 2px solid #0f0f0f;
+  color: #0f0f0f;
+}
+.hairlinebuttonUIModernization:hover {
+  background-color: #272727;
+  border: 2px solid transparent;
+  color: #fff;
+}
+.hairlinebuttonUIModernization:hover:focus-visible {
+  background-color: #e7e7e7;
+  border: 2px solid transparent;
+  color: #0f0f0f;
+}
+.hairlinebuttonUIModernization:active,
+.hairlinebuttonUIModernization:active:hover,
+.hairlinebuttonUIModernization:active:focus-visible {
+  background-color: #3f3f3f;
+  border: 2px solid transparent;
+  color: #fff;
+}
+.customizeButtonContainerUIModernization {
+  display: flex;
+  text-align: center;
+}
+.customizeButtonUIModernization {
+  box-sizing: border-box;
+  background-color: #f2f2f2;
+  border: 2px solid transparent;
+  text-align: center;
+}
+.customizeButtonUIModernization:focus-visible {
+  background-color: #fff;
+  border: 2px solid #0f0f0f;
+}
+.customizeButtonUIModernization:hover {
+  background-color: #e6e6e6;
+  border: 2px solid transparent;
+}
+.customizeButtonUIModernization:active,
+.customizeButtonUIModernization:active:hover,
+.customizeButtonUIModernization:active:focus-visible {
+  background-color: #cfcfcf;
+  border: 2px solid transparent;
+}
+a.basebuttonUIModernization.customizeButtonUIModernization,
+a.basebuttonUIModernization.customizeButtonUIModernization:link,
+a.basebuttonUIModernization.customizeButtonUIModernization:visited,
+a.basebuttonUIModernization.customizeButtonUIModernization:active,
+a.basebuttonUIModernization.customizeButtonUIModernization:focus {
+  color: #0f0f0f;
+  text-decoration: none;
+  padding: 8px 16px;
+}
+.saveButtonUIModernization {
+  text-align: center;
+}
+.detailsButtonUIModernization {
+  margin-top: 16px;
+  min-width: 220px;
+}
+.error {
+  border: 2px solid #d93025;
+  border-radius: 5px;
+  color: #d93025;
+  margin: auto;
+  padding: 5px;
+}
+.boxUIModernization a:hover {
+  text-decoration: underline;
+}
+.footerLinks {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.footerUIModernization {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  margin-top: 16px;
+}
+.footerUIModernization a {
+  margin-left: 8px;
+  padding: 0 8px;
+}
+.footerUIModernization a,
+.footerUIModernization input,
+.footerUIModernization select {
+  color: #606060;  /* grey5 color - youtube secondary color */
+  font-family: Roboto;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+}
+.footerUIModernization form {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+#language-form,
+#language-select {
+  margin: 0 2px;
+}
+#language-select {
+  color: #757575;
+}
+.settingUIModernization {
+  border: 1px solid #dadce0;
+  box-sizing: border-box;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  padding: 24px;
+  text-align: right;
+}
+.sub {
+  padding: 24px 0 34px;
+}
+hr {
+  margin: 12px -24px 12px;
+  border: 0;
+  border-top: 1px solid #dadce0;
+}
+fieldset {
+  border: none;
+  padding: 0;
+}
+label {
+  margin: 24px;
+}
+td {
+  vertical-align: top;
+}
+.setting h2, .setting h3, h3 {
+  color: #3c4043;
+  margin: 0;
+  text-align: left;
+}
+.yt-text {
+  color: #5f6368;
+  font-size: 14px;
+  font-weight: 300;
+}
+.subUIModernization > ul > li,
+.subUIModernizationGm3 > ul > li {
+  color: #606060;
+  font-family: Roboto, Arial, sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 18px;
+}
+.settingUIModernization p,
+.subUIModernization > p,
+.subUIModernization > ul,
+.subUIModernizationGm3 > p,
+.subUIModernizationGm3 > ul {
+  margin: 16px 0;
+}
+.subUIModernization p:last-of-type,
+.subUIModernizationGm3 p:last-of-type {
+  margin-bottom: 0;
+}
+.settingUIModernization fieldset {
+  margin: 0;  /* removing the default margin of the fieldset element */
+}
+.subUIModernization > ul,
+.subUIModernizationGm3 > ul {
+  padding-left: 36px;
+}
+.subUIModernization > ul > li,
+.subUIModernizationGm3 > ul > li {
+  line-height: 18px;
+  margin: 8px 0;
+}
+.settingUIModernization h2 {
+  color: #0f0f0f;
+  font-family: Roboto, Arial, sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 22px;
+  margin: 0;
+  text-align: left;
+}
+.subUIModernization > a,
+.subUIModernization > p > a {
+  color: #065fd4;
+}
+.subUIModernization,
+.subUIModernizationGm3 {
+  padding: 0 24px;
+}
+.ytMainHeaderUIModernization {
+  color: #0f0f0f;
+  font-family: Roboto, Arial, sans-serif;
+  font-weight: 700;
+  font-size: 24px;
+  line-height: 30px;
+}
+.ytTextUIModernization {
+  color: #606060;
+  font-family: 'Google Sans';
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 28px;
+  margin-left: 8px;
+  vertical-align: middle;
+  display: inline-block;
+}
+.productLogoContainer {
+  margin: auto;
+  max-width: 360px;
+}
+.ytLogoUIModernization {
+  display: flex;
+  flex-direction: row;
+  justify-content: start;
+  align-items: center;
+}
+.ytLogoImageUIModernization {
+  vertical-align: middle;
+  display: inline-block;
+  margin-bottom: 8px;
+}
+.horizontalSeparator {
+  margin: 12px -24px;
+}
+.horizontalSeparatorUIModernization {
+  margin: 16px -24px;
+}
+.container {
+  align-content: center;
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 716px;
+}
+.box {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #c4c7c5;
+  box-sizing: border-box;
+  border-radius: 8px;
+  margin: 24px 8px 48px;
+  max-width: 700px;
+  padding: 64px 16px;
+  font-family: "Google Sans", Roboto, Helvetica, Arial, sans-serif;
+}
+.cardContentGm3 {
+  max-width: 500px;
+  align-content: center;
+}
+.icaCalloutGm3,
+.contentTextGm3,
+.contentTextGm3 > p,
+.contentTextGm3 > ul > li {
+  color: #1f1f1f; // gm3-text-primary-color
+  line-height: 20px;
+  letter-spacing: 0.2px;
+  font-size: 14px;
+  text-align: left;
+}
+.setting a,
+.icaCalloutGm3 > a,
+.contentTextGm3 > a,
+.contentTextGm3 > p > a {
+  text-decoration: underline;
+  color: #0b57d0; // gm3-primary-blue
+}
+.contentTextUIModernizationGm3,
+.contentTextUIModernizationGm3 > p {
+  color: #0f0f0f;
+  font-family: Roboto, Arial, sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  letter-spacing: 0;
+  line-height: 18px;
+  text-align: left;
+}
+.contentTextUIModernizationGm3 > a,
+.contentTextUIModernizationGm3 > p > a {
+  color: #065fd4;
+  text-decoration: underline;
+}
+.contentTextUIModernizationGm3 > p {
+  margin: 16px 0;
+}
+.contentTextUIModernizationGm3 > ul {
+  padding-left: 36px;
+  margin: 16px 0;
+}
+.baseButtonGm3 {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 20px;
+  cursor: pointer;
+  font-family: "Google Sans", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  height: 40px;
+  margin: 4px;
+  padding: 0 24px;
+  box-sizing: border-box;
+  border: none;
+  outline: none;
+}
+.filledButtonGm3 {
+  background-color: #0b57d0; // gm3-primary-blue
+  color: #fff;
+  border: 1px solid transparent; // Required for high-contrast mode (b/348425836)
+}
+.filledButtonGm3:focus-visible {
+  background-color: #2367d5;
+  color: #fff;
+  outline-offset: 2px;
+  outline: 2px solid #006390;
+}
+.filledButtonGm3:hover {
+  background-color: #1e64d4;
+  color: #fff;
+}
+.filledButtonGm3:hover:focus-visible {
+  background-color: #1e64d4;
+  color: #fff;
+  outline-offset: 2px;
+  outline: 2px solid #006390;
+}
+.filledButtonGm3:active,
+.filledButtonGm3:active:hover,
+.filledButtonGm3:active:focus-visible {
+  background-color: #3474d7;
+  color: #fff;
+}
+a.filledButtonGm3.signInButtonGm3,
+a.filledButtonGm3.signInButtonGm3:link,
+a.filledButtonGm3.signInButtonGm3:visited,
+a.filledButtonGm3.signInButtonGm3:active,
+a.filledButtonGm3.signInButtonGm3:focus {
+  color: #fff;
+  text-decoration: none;
+}
+.outlinedButtonGm3 {
+  background-color: #fff;
+  border: 1px solid #747775; // gm3-border-outline-grey
+  color: #0b57d0; // gm3-primary-blue
+}
+.outlinedButtonGm3:focus-visible {
+  outline-offset: 2px;
+  outline: 2px solid #006390;
+}
+.outlinedButtonGm3:hover {
+  background-color: #ecf2fc;
+  color: #0b57d0; // gm3-primary-blue
+}
+.outlinedButtonGm3:hover:focus-visible {
+  background-color: #ecf2fc;
+  outline-offset: 2px;
+  outline: 2px solid #006390;
+}
+.outlinedButtonGm3:active,
+.outlinedButtonGm3:active:hover,
+.outlinedButtonGm3:active:focus-visible {
+  background-color: #d9e5f7;
+}
+a.outlinedButtonGm3.customizeButtonGm3,
+a.outlinedButtonGm3.customizeButtonGm3:link,
+a.outlinedButtonGm3.customizeButtonGm3:visited,
+a.outlinedButtonGm3.customizeButtonGm3:active,
+a.outlinedButtonGm3.customizeButtonGm3:focus {
+  color: #0b57d0; // gm3-primary-blue
+  text-decoration: none;
+}
+.customButtonContainerGm3 {
+  height: 48px;
+  min-width: 120px;
+}
+
+.detailspage {
+  margin: 24px auto 0 auto;
+  max-width: 704px;
+  font-family: "Google Sans", Roboto, Helvetica, Arial, sans-serif;
+}
+.detailspage h1, .detailspage h2 {
+  font-size: 22px
+}
+.sub > p,
+.sub > ul > li,
+.detailspage > p {
+  color: #1f1f1f;
+}
+.sub > a,
+.sub > p > a,
+.detailspage > a,
+.detailspage > p > a {
+  color: #0b57d0;
+  text-decoration: underline;
+}
+.sub > h3 {
+  font-size: 14px;
+}
+.detailspageYoutube {
+  margin: 0 auto;
+  max-width: 700px;
+}
+.detailspageYoutube p{
+  color: #606060;
+  font-family: Roboto, Arial, sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 18px;
+}
+.detailspageYoutube > p {
+  margin: 16px 0;
+}
+.detailspageYoutube h1{
+  color: #0f0f0f;
+  font-family: Roboto, Arial, sans-serif;
+  font-weight: 700;
+  font-size: 24px;
+  line-height: 30px;
+}
+.detailspageYoutube h3 {
+  color: #0f0f0f;
+  font-family: Roboto, Arial, sans-serif;
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 20px;
+  margin: 0;
+  text-align: left;
+}
+.subUIModernizationGm3 > a,
+.subUIModernizationGm3 > p > a,
+.detailspageYoutube > a,
+.detailspageYoutube > p > a {
+  color: #065fd4;
+  text-decoration: underline;
+}
+.setting {
+  border: 1px solid #c4c7c5;
+  box-sizing: border-box;
+  border-radius: 8px;
+  margin-bottom: 11px;
+  padding: 24px 24px 20px 24px;
+  text-align: right;
+}
+.setting p {
+  color: #1f1f1f;
+}
+.settingContent {
+  width: 100%;
+}
+.settingTitleAndDescription {
+  text-align: left;
+}
+.onOffButtons > label {
+  margin: 24px 16px 24px 0;
+}
+.imgContainer {
+  vertical-align: middle;
+}
+.img {
+  width: 100%;
+  height: auto;
+}
+.footer {
+  margin-top: 48px;
+}
+.footer a {
+  margin-left: 24px;
+  white-space: nowrap;
+}
+.footer a, .footer select, .footer input {
+  color: #444746;
+  font-size: 12px;
+  font-weight: 400;
+  font-family: "Google Sans", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.languagePicker,
+.languagePicker select,
+.languagePicker input,
+.languagePicker #language-select {
+  color: #444746;
+  font-size: 12px;
+  font-weight: 400;
+  font-family: "Google Sans", Roboto, Helvetica, Arial, sans-serif;
+  display: inline-flex;
+  margin: 2px;
+}
+
+.languagePickerYouTube,
+.languagePickerYouTube select,
+.languagePickerYouTube input,
+.languagePickerYouTube #language-select {
+  color: #606060;
+  font-size: 12px;
+  font-weight: 400;
+  display: inline-flex;
+  margin: 2px;
+}
+
+.languageMenuItem {
+  color: #444746;
+  font-size: 12px;
+  font-weight: 400;
+  font-family: "Google Sans", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@media screen and (forced-colors: active) {
+  .signInIcon,
+  .openInNewIcon,
+  .openInNewIconYouTube {
+    fill: LinkText;
+  }
+}
+
+/** Narrow screen (for example a mobile device). */
+@media only screen and (max-width: 480px) {
+  body {
+    margin: 18px 14px;
+  }
+  .bodyUIModernization {
+    margin: 24px 16px;
+  }
+  .ytLogoUIModernization {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .ytLogoImageUIModernization {
+    margin-bottom: 0;
+  }
+  .cardHeaderUIModernization {
+    justify-content: space-between;
+  }
+  .ytTextUIModernization {
+    margin-left: 0;
+    margin-top: -4px;
+  }
+  .settingUIModernization {
+    padding: 16px;
+  }
+  .settingUIModernization p {
+    margin-top: 8px;
+  }
+  .subUIModernization,
+  .subUIModernizationGm3 {
+    padding: 0;
+  }
+  .horizontalSeparatorUIModernization {
+    margin: 16px 0;
+  }
+  .footer form {
+    margin-bottom: 3px;
+    display: block;
+  }
+  .imgContainer {
+    text-align: center;
+    vertical-align: middle;
+    max-width: 232.5px;
+    max-height: 84px;
+  }
+  .img {
+    max-width: 232.5px;
+    max-height: 84px;
+    margin-bottom: 16px;
+  }
+  button, .button {
+    width:100%;
+  }
+  .basebutton {
+    margin: 12px 0 0;
+  }
+  .hideOnSmallWidth {
+    display: none;
+  }
+  .saveButtonContainerNarrowScreen,
+  .saveButtonContainerNarrowScreenUIModernization {
+    display: inline-block;
+  }
+  .saveButtonContainer {
+    display: none;
+  }
+  .saveButtonContainerUIModernization {
+    display: none;
+  }
+  .navigationCtasYoutube a.hairlinebutton {
+    display: block;
+    text-align: center;
+  }
+  .detailsButtonUIModernization,
+  .saveButtonUIModernization {
+    display: block;
+    box-sizing: border-box;
+    width:100%;
+    margin-bottom: 16px;
+  }
+  .customizeButtonUIModernization {
+    display: block;
+    box-sizing: border-box;
+    width:100%;
+  }
+  .box {
+    margin: 0;
+    padding: 20px 16px;
+  }
+  .customButtonContainerGm3 {
+    display: block;
+    box-sizing: border-box;
+    width:100%;
+  }
+}
+
+@media only screen and (max-width: 380px) {
+  .imgContainer {
+    min-width: 72px;
+  }
+}
+
+/** Normal/non-narrow screen. */
+@media not screen and (max-width: 480px) {
+  body {
+    margin: 18px 25px;
+  }
+  .bodyUIModernization {
+    margin: 24px;
+  }
+  .boxUIModernization {
+    border: 1px solid #dadce0; /* grey-300 color */
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .signInContainerUIModernization {
+    margin-bottom: 24px;
+  }
+  .footer form {
+    display: inline;
+  }
+  .imgContainer {
+    width: 50%;
+  }
+  button, .button {
+    width: auto;
+  }
+  .searchButton {
+    min-width: 182px;
+  }
+  .detailsButton,
+  .detailsButtonGm3 {
+    min-width: 220px;
+  }
+  .hideOnNormalWidth {
+    display: none;
+  }
+  .saveButtonContainer {
+    display: inline-block;
+  }
+  .saveButtonContainerNarrowScreen,
+  .saveButtonContainerNarrowScreenUIModernization {
+    display: none;
+  }
+  .saveButtonContainerUIModernization {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-end;
+  }
+  .saveButtonUIModernization {
+    margin-left: 8px;
+  }
+  .box {
+    align-items: center;
+  }
+  .detailspage {
+    padding-top: 48px;
+  }
+}
+</style><title>Înainte de a continua</title><meta name="viewport" content="initial-scale=1, maximum-scale=5, width=device-width"><link rel="shortcut icon" href="//www.google.com/favicon.ico"></head><body class="bodyUIModernization"><div role="main"><div class="signInContainerUIModernization"><div class="signinUIModernization"><a href="https://accounts.google.com/ServiceLogin?hl=ro&amp;continue=https://music.youtube.com/?cbrd%3D1&amp;gae=cb-" class="basebuttonUIModernization signInButtonUIModernization signinButtonDisplayUIModernization hideOnSmallWidth"><div class="signInIconContainer"><svg class="signInIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 1c4.96 0 9 4.04 9 9 0 1.42-.34 2.76-.93 3.96-1.53-1.72-3.98-2.89-7.38-3.03A3.996 3.996 0 0016 9c0-2.21-1.79-4-4-4S8 6.79 8 9c0 1.97 1.43 3.6 3.31 3.93-3.4.14-5.85 1.31-7.38 3.03C3.34 14.76 3 13.42 3 12c0-4.96 4.04-9 9-9zM9 9c0-1.65 1.35-3 3-3s3 1.35 3 3-1.35 3-3 3-3-1.35-3-3zm3 12c-3.16 0-5.94-1.64-7.55-4.12C6.01 14.93 8.61 13.9 12 13.9c3.39 0 5.99 1.03 7.55 2.98C17.94 19.36 15.16 21 12 21z"/></svg></div>Conectează-te</a></div></div><div class="youtubeContainerUIModernization"><div class="boxUIModernization"><div class="cardHeaderUIModernization"><div class="ytLogoUIModernization"><img src="//www.gstatic.com/ac/cb/cb_yt_logo_d_header_118x26_4dfe7c3d17767ffd2294ae90fb54337e.png" srcset="//www.gstatic.com/ac/cb/cb_yt_logo_d_header_236x52_32f50a7f5baad56e4faf48252fbc19d6.png 2x" width="93" height="20" class="ytLogoImageUIModernization" alt="YouTube"> <span class="ytTextUIModernization">o companie Google</span></div><div class="signinUIModernization"><a href="https://accounts.google.com/ServiceLogin?hl=ro&amp;continue=https://music.youtube.com/?cbrd%3D1&amp;gae=cb-" class="basebuttonUIModernization signInButtonUIModernization signinButtonDisplayUIModernization hideOnNormalWidth"><div class="signInIconContainer"><svg class="signInIcon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 1c4.96 0 9 4.04 9 9 0 1.42-.34 2.76-.93 3.96-1.53-1.72-3.98-2.89-7.38-3.03A3.996 3.996 0 0016 9c0-2.21-1.79-4-4-4S8 6.79 8 9c0 1.97 1.43 3.6 3.31 3.93-3.4.14-5.85 1.31-7.38 3.03C3.34 14.76 3 13.42 3 12c0-4.96 4.04-9 9-9zM9 9c0-1.65 1.35-3 3-3s3 1.35 3 3-1.35 3-3 3-3-1.35-3-3zm3 12c-3.16 0-5.94-1.64-7.55-4.12C6.01 14.93 8.61 13.9 12 13.9c3.39 0 5.99 1.03 7.55 2.98C17.94 19.36 15.16 21 12 21z"/></svg></div>Conectează-te</a></div></div><h1><div class="ytMainHeaderUIModernization">Înainte de a accesa YouTube</div></h1><div class=""><div class="contentTextUIModernizationGm3"><p>Folosim <a href="https://policies.google.com/technologies/cookies?hl=ro&utm_source=ucb" target="_blank">cookie-uri<span aria-label=" (Se deschide într-o filă nouă)"><svg class="openInNewIconYouTube" xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960"><path d="M216-144q-29.7 0-50.85-21.15Q144-186.3 144-216v-528q0-29.7 21.15-50.85Q186.3-816 216-816h264v72H216v528h528v-264h72v264q0 29.7-21.15 50.85Q773.7-144 744-144H216Zm171-192-51-51 357-357H576v-72h240v240h-72v-117L387-336Z"/></svg></span></a> și date în următoarele scopuri</p><ul><li class="bulletUIModernization">Pentru a oferi și a menține serviciile Google</li><li class="bulletUIModernization">Pentru a urmări întreruperile și a asigura protecție împotriva spamului, a fraudei și a abuzului</li><li class="bulletUIModernization">Pentru a măsura interacțiunile publicului și a crea statistici privind site-urile pentru a înțelege cum sunt folosite serviciile noastre și a îmbunătăți calitatea acestora</li></ul><p>Dacă alegi Acceptă tot, vom folosi cookie-uri și date și în următoarele scopuri:</p><ul><li class="bulletUIModernization">Pentru a dezvolta și a îmbunătăți servicii noi</li><li class="bulletUIModernization">Pentru a difuza anunțuri și a cuantifica eficiența acestora</li><li class="bulletUIModernization">Pentru a afișa conținut personalizat, în funcție de setările tale</li><li class="bulletUIModernization">Pentru a afișa anunțuri personalizate, în funcție de setările tale</li></ul><p>Dacă alegi Respinge tot, nu vom folosi cookie-uri și date în aceste scopuri suplimentare.</p><p>Conținutul și anunțurile nepersonalizate sunt influențate de elemente cum ar fi conținutul pe care îl vizionezi în momentul respectiv și locația ta (difuzarea anunțurilor se bazează pe locația generală). Conținutul și anunțurile personalizate pot include și elemente cum ar fi recomandări video, o pagină de pornire YouTube personalizată și anunțuri adaptate în funcție de activitatea anterioară, cum ar fi videoclipurile pe care le vizionezi și căutările pe care le faci pe YouTube. În plus, folosim cookie-uri și date pentru a-ți personaliza experiența în funcție de vârstă, dacă este relevant.</p><p>Selectează Mai multe opțiuni pentru a vedea informații suplimentare, inclusiv detalii despre gestionarea setărilor de confidențialitate. Poți să accesezi oricând g.co/privacytools.</p></div></div><div class="navigationCtasYoutube"><div class="saveButtonContainerUIModernization"><div class="customizeButtonContainerUIModernization"><a href="https://consent.youtube.com/dl?continue=https://music.youtube.com/?cbrd%3D1&amp;gl=RO&amp;hl=ro&amp;cm=2&amp;pc=ytm&amp;src=1&amp;escs=AZ8E49AADxqPpFfYj00mGpO_eTX9wM67TCoqYX96IOaWYiMGDdbwcbvgEr2Kh8cudMZah_BzWAVQ6ZFdVAJzHJ1hC8drHQNMZXBV" class="basebuttonUIModernization customizeButtonUIModernization">Mai multe opțiuni</a></div><form action="https://consent.youtube.com/save" method="POST" style="display:inline;"><input type="hidden" name="bl" value="boq_identityfrontenduiserver_20260225.07_p0"><input type="hidden" name="x" value="8"><input type="hidden" name="gl" value="RO"><input type="hidden" name="m" value="0"><input type="hidden" name="app" value="0"><input type="hidden" name="pc" value="ytm"><input type="hidden" name="continue" value="https://music.youtube.com/?cbrd=1"><input type="hidden" name="hl" value="ro"><input type="hidden" name="cm" value="2"><input type="hidden" name="escs" value="AZ8E49AADxqPpFfYj00mGpO_eTX9wM67TCoqYX96IOaWYiMGDdbwcbvgEr2Kh8cudMZah_BzWAVQ6ZFdVAJzHJ1hC8drHQNMZXBV"><input type="hidden" name="set_eom" value="true"><input type="submit" value="Respinge tot" class="basebuttonUIModernization hairlinebuttonUIModernization saveButtonUIModernization" aria-label="Respinge tot"/></form><form action="https://consent.youtube.com/save" method="POST" style="display:inline;"><input type="hidden" name="bl" value="boq_identityfrontenduiserver_20260225.07_p0"><input type="hidden" name="x" value="8"><input type="hidden" name="gl" value="RO"><input type="hidden" name="m" value="0"><input type="hidden" name="app" value="0"><input type="hidden" name="pc" value="ytm"><input type="hidden" name="continue" value="https://music.youtube.com/?cbrd=1"><input type="hidden" name="hl" value="ro"><input type="hidden" name="cm" value="2"><input type="hidden" name="escs" value="AZ8E49AADxqPpFfYj00mGpO_eTX9wM67TCoqYX96IOaWYiMGDdbwcbvgEr2Kh8cudMZah_BzWAVQ6ZFdVAJzHJ1hC8drHQNMZXBV"><input type="hidden" name="set_eom" value="false"><input type="hidden" name="set_ytc" value="true"><input type="hidden" name="set_apyt" value="true"><input type="submit" value="Acceptă tot" class="basebuttonUIModernization hairlinebuttonUIModernization saveButtonUIModernization" aria-label="Acceptă tot"/></form></div><div class="saveButtonContainerNarrowScreenUIModernization"><form action="https://consent.youtube.com/save" method="POST" style="display:block;"><input type="hidden" name="bl" value="boq_identityfrontenduiserver_20260225.07_p0"><input type="hidden" name="x" value="8"><input type="hidden" name="gl" value="RO"><input type="hidden" name="m" value="0"><input type="hidden" name="app" value="0"><input type="hidden" name="pc" value="ytm"><input type="hidden" name="continue" value="https://music.youtube.com/?cbrd=1"><input type="hidden" name="hl" value="ro"><input type="hidden" name="cm" value="2"><input type="hidden" name="escs" value="AZ8E49AADxqPpFfYj00mGpO_eTX9wM67TCoqYX96IOaWYiMGDdbwcbvgEr2Kh8cudMZah_BzWAVQ6ZFdVAJzHJ1hC8drHQNMZXBV"><input type="hidden" name="set_eom" value="false"><input type="hidden" name="set_ytc" value="true"><input type="hidden" name="set_apyt" value="true"><input type="submit" value="Acceptă tot" class="basebuttonUIModernization hairlinebuttonUIModernization saveButtonUIModernization" aria-label="Acceptă tot"/></form><form action="https://consent.youtube.com/save" method="POST" style="display:block;"><input type="hidden" name="bl" value="boq_identityfrontenduiserver_20260225.07_p0"><input type="hidden" name="x" value="8"><input type="hidden" name="gl" value="RO"><input type="hidden" name="m" value="0"><input type="hidden" name="app" value="0"><input type="hidden" name="pc" value="ytm"><input type="hidden" name="continue" value="https://music.youtube.com/?cbrd=1"><input type="hidden" name="hl" value="ro"><input type="hidden" name="cm" value="2"><input type="hidden" name="escs" value="AZ8E49AADxqPpFfYj00mGpO_eTX9wM67TCoqYX96IOaWYiMGDdbwcbvgEr2Kh8cudMZah_BzWAVQ6ZFdVAJzHJ1hC8drHQNMZXBV"><input type="hidden" name="set_eom" value="true"><input type="submit" value="Respinge tot" class="basebuttonUIModernization hairlinebuttonUIModernization saveButtonUIModernization" aria-label="Respinge tot"/></form><a href="https://consent.youtube.com/dl?continue=https://music.youtube.com/?cbrd%3D1&amp;gl=RO&amp;hl=ro&amp;cm=2&amp;pc=ytm&amp;src=1&amp;escs=AZ8E49AADxqPpFfYj00mGpO_eTX9wM67TCoqYX96IOaWYiMGDdbwcbvgEr2Kh8cudMZah_BzWAVQ6ZFdVAJzHJ1hC8drHQNMZXBV" class="basebuttonUIModernization customizeButtonUIModernization" aria-label="Mai multe opțiuni pentru setările de personalizare și cookie-uri">Mai multe opțiuni</a></div></div></div><div class="footerUIModernization"><form action="https://consent.youtube.com/ml" method="get" class="languagePickerYouTube"><select id="language-select" name="hl" aria-label="Limba: română"><option class="" value="af">Afrikaans</option><option class="" value="az">azərbaycan</option><option class="" value="bs">bosanski</option><option class="" value="ca">català</option><option class="" value="cs">Čeština</option><option class="" value="cy">Cymraeg</option><option class="" value="da">Dansk</option><option class="" value="de">Deutsch</option><option class="" value="et">eesti</option><option class="" value="en-GB">English&nbsp;(United Kingdom)</option><option class="" value="en">English&nbsp;(United States)</option><option class="" value="es">Español&nbsp;(España)</option><option class="" value="es-419">Español&nbsp;(Latinoamérica)</option><option class="" value="eu">euskara</option><option class="" value="fil">Filipino</option><option class="" value="fr-CA">Français&nbsp;(Canada)</option><option class="" value="fr">Français&nbsp;(France)</option><option class="" value="ga">Gaeilge</option><option class="" value="gl">galego</option><option class="" value="hr">Hrvatski</option><option class="" value="id">Indonesia</option><option class="" value="zu">isiZulu</option><option class="" value="is">íslenska</option><option class="" value="it">Italiano</option><option class="" value="sw">Kiswahili</option><option class="" value="lv">latviešu</option><option class="" value="lt">lietuvių</option><option class="" value="hu">magyar</option><option class="" value="ms">Melayu</option><option class="" value="nl">Nederlands</option><option class="" value="no">norsk</option><option class="" value="uz">o‘zbek</option><option class="" value="pl">polski</option><option class="" value="pt-BR">Português&nbsp;(Brasil)</option><option class="" value="pt-PT">Português&nbsp;(Portugal)</option><option class="" value="ro" selected>română</option><option class="" value="sq">shqip</option><option class="" value="sk">Slovenčina</option><option class="" value="sl">slovenščina</option><option class="" value="sr-Latn">srpski (latinica)</option><option class="" value="fi">Suomi</option><option class="" value="sv">Svenska</option><option class="" value="vi">Tiếng Việt</option><option class="" value="tr">Türkçe</option><option class="" value="el">Ελληνικά</option><option class="" value="be">беларуская</option><option class="" value="bg">български</option><option class="" value="ky">кыргызча</option><option class="" value="kk">қазақ тілі</option><option class="" value="mk">македонски</option><option class="" value="mn">монгол</option><option class="" value="ru">Русский</option><option class="" value="sr">српски</option><option class="" value="uk">Українська</option><option class="" value="ka">ქართული</option><option class="" value="hy">հայերեն</option><option class="" value="iw">עברית</option><option class="" value="ur">اردو</option><option class="" value="ar">العربية</option><option class="" value="fa">فارسی</option><option class="" value="am">አማርኛ</option><option class="" value="ne">नेपाली</option><option class="" value="mr">मराठी</option><option class="" value="hi">हिन्दी</option><option class="" value="as">অসমীয়া</option><option class="" value="bn">বাংলা</option><option class="" value="pa">ਪੰਜਾਬੀ</option><option class="" value="gu">ગુજરાતી</option><option class="" value="or">ଓଡ଼ିଆ</option><option class="" value="ta">தமிழ்</option><option class="" value="te">తెలుగు</option><option class="" value="kn">ಕನ್ನಡ</option><option class="" value="ml">മലയാളം</option><option class="" value="si">සිංහල</option><option class="" value="th">ไทย</option><option class="" value="lo">ລາວ</option><option class="" value="my">မြန်မာ</option><option class="" value="km">ខ្មែរ</option><option class="" value="ko">한국어</option><option class="" value="ja">日本語</option><option class="" value="zh-CN">简体中文</option><option class="" value="zh-TW">繁體中文</option><option class="" value="zh-HK">繁體中文&nbsp;(香港)</option></select><input type="hidden" name="oldhl" value="ro"><input type="hidden" name="gl" value="RO"><input type="hidden" name="m" value="0"><input type="hidden" name="app" value="0"><input type="hidden" name="pc" value="ytm"><input type="hidden" name="continue" value="https://music.youtube.com/?cbrd=1"><input type="hidden" name="src" value="1"><input type="hidden" name="cm" value="2"><input type="hidden" name="escs" value="AZ8E49AADxqPpFfYj00mGpO_eTX9wM67TCoqYX96IOaWYiMGDdbwcbvgEr2Kh8cudMZah_BzWAVQ6ZFdVAJzHJ1hC8drHQNMZXBV"><input type="submit" value="Schimbă limba"></form><div class="footerLinks"><a href="https://policies.google.com/privacy?hl=ro&utm_source=ucb" target="_blank">Confidențialitate</a><a href="https://policies.google.com/terms?hl=ro&utm_source=ucb" target="_blank">Termeni și condiții</a></div></div></div></div></body></html>

@@ -677,19 +677,23 @@ ipcMain.on("vk-command", (event, cmd, data) => {
         wc.executeJavaScript(
           `
                     (async function() {
-                        try {
-                            const apiKey = window.ytcfg && window.ytcfg.get ? window.ytcfg.get('INNERTUBE_API_KEY') : null;
-                            const context = window.ytcfg && window.ytcfg.get ? window.ytcfg.get('INNERTUBE_CONTEXT') : null;
-                            if (!apiKey || !context) {
-                                console.error('[VK Search] No API key or context');
-                                return [];
+                        // Use hardcoded Web Remix API key and context since relying on DOM extraction is unstable
+                        const apiKey = 'AIzaSyA4QqwK_G5QcXYPrtD09U1E1K2XwE_lZ9Q';
+                        const context = {
+                            client: {
+                                clientName: "WEB_REMIX",
+                                clientVersion: "1.20231214.01.00",
+                                hl: "en",
+                                gl: "US"
                             }
+                        };
 
-                            const resp = await fetch('https://music.youtube.com/youtubei/v1/search?key=' + apiKey + '&prettyPrint=false', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    context: context,
+                        const resp = await fetch('https://music.youtube.com/youtubei/v1/search?key=' + apiKey + '&prettyPrint=false', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify({
+                                context: context,
                                     query: ${JSON.stringify(data.query)},
                                     params: 'EgWKAQIIAWoKEAMQBBAKEAkQBQ%3D%3D'
                                 })
@@ -810,22 +814,18 @@ ipcMain.on("vk-command", (event, cmd, data) => {
                         try {
                             console.log('[Inner] Starting Innertube playlist extraction...');
 
-                            // Wait for ytcfg to be ready
-                            let retries = 0;
-                            while ((!window.ytcfg || !window.ytcfg.get) && retries < 20) {
-                                await new Promise(r => setTimeout(r, 500));
-                                retries++;
-                            }
+                            // Use hardcoded Web Remix API key and context since relying on DOM extraction is unstable
+                            const apiKey = 'AIzaSyA4QqwK_G5QcXYPrtD09U1E1K2XwE_lZ9Q';
+                            const context = {
+                                client: {
+                                    clientName: "WEB_REMIX",
+                                    clientVersion: "1.20231214.01.00",
+                                    hl: "en",
+                                    gl: "US"
+                                }
+                            };
 
-                            const apiKey = window.ytcfg && window.ytcfg.get ? window.ytcfg.get('INNERTUBE_API_KEY') : null;
-                            const context = window.ytcfg && window.ytcfg.get ? window.ytcfg.get('INNERTUBE_CONTEXT') : null;
-
-                            if (!apiKey || !context) {
-                                console.error('[Inner] No API key or context found after waiting');
-                                return { success: false, error: 'No API key/context - YT Music may not be loaded yet' };
-                            }
-
-                            console.log('[Inner] Got API key, fetching library playlists via browse...');
+                            console.log('[Inner] Spoofing Innertube context, fetching library playlists via browse...');
 
                             const resp = await fetch('https://music.youtube.com/youtubei/v1/browse?key=' + apiKey + '&prettyPrint=false', {
                                 method: 'POST',
@@ -843,9 +843,10 @@ ipcMain.on("vk-command", (event, cmd, data) => {
                             }
 
                             const json = await resp.json();
+                            
                             const items = [];
                             const seen = new Set();
-
+                            
                             // Recursively find playlist renderers
                             function extract(obj) {
                                 if (!obj || typeof obj !== 'object') return;
@@ -882,7 +883,7 @@ ipcMain.on("vk-command", (event, cmd, data) => {
 
                             extract(json);
                             console.log('[Inner] Extracted playlists:', items.length);
-                            return { success: true, count: items.length, items: items };
+                            return { success: true, count: items.length, items: items, _debugJSON: json };
                         } catch (e) {
                             console.error('[Inner] Playlist extraction error:', e);
                             return { success: false, error: e.message || String(e) };
@@ -891,6 +892,11 @@ ipcMain.on("vk-command", (event, cmd, data) => {
                 `,
           )
           .then((result) => {
+            if (result && result._debugJSON) {
+              console.log("[VK] Dumping playlist JSON to disk...");
+              require('fs').writeFileSync(require('path').join(__dirname, 'playlist-dump.json'), JSON.stringify(result._debugJSON, null, 2));
+              delete result._debugJSON;
+            }
             if (result && result.error) {
               console.error("[VK] Playlist extraction failed:", result.error);
               // Send error state to frontend
@@ -1979,6 +1985,13 @@ app.whenReady().then(async () => {
       updateViewBounds();
       mainWindow.webContents.send("service-active", true);
 
+      // Dispatch settings once DOM is interactive
+      view.webContents.on('dom-ready', () => {
+        const vkPlayerEnabled = store ? store.get("vkPlayerEnabled", false) : false;
+        console.log(`[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`);
+        view.webContents.send("vk-player-config", vkPlayerEnabled);
+      });
+
       console.log(`Loading URL: ${url} `);
       view.webContents
         .loadURL(url)
@@ -2400,7 +2413,15 @@ app.whenReady().then(async () => {
       adBlockerType: store ? store.get("adBlockerType", "spice") : "spice",
       defaultService: store ? store.get("defaultService", "yt") : "yt",
       discordRpcEnabled: store ? store.get("discordRpcEnabled", true) : true,
+      vkPlayerEnabled: store ? store.get("vkPlayerEnabled", false) : false,
     };
+  });
+
+  ipcMain.on("set-vk-player", (event, enabled) => {
+    if (store) store.set("vkPlayerEnabled", enabled);
+    console.log(`VK Player on YT Music set to ${enabled}. Restarting...`);
+    app.relaunch();
+    app.exit();
   });
 
   ipcMain.on("set-adblocker", (event, value) => {

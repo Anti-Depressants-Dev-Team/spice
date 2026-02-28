@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('api', {
     toggleVolume: () => ipcRenderer.send('toggle-volume'),
     getSettings: () => ipcRenderer.invoke('get-settings'),
     setAdBlocker: (enabled) => ipcRenderer.send('set-adblocker', enabled),
+    setVkPlayer: (enabled) => ipcRenderer.send('set-vk-player', enabled),
     setDefaultService: (service) => ipcRenderer.send('set-default-service', service),
     getVolume: () => ipcRenderer.invoke('get-volume'),
     setDiscordRpc: (enabled) => ipcRenderer.send('set-discord-rpc', enabled),
