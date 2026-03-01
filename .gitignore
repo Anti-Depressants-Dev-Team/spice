@@ -18,3 +18,18 @@ out/
 
 # Electron-store
 config.json
+
+# Debug logs
+debug.log
+debug_dump.txt
+debug_dump_2.txt
+debug_dump_3.txt
+debug_dump_4.txt
+debug_dump_5.txt
+debug_dump_6.txt
+debug_dump_7.txt
+debug_dump_8.txt
+debug_dump_9.txt
+debug_dump_10.txt
+launch_output.txt
+launch_output_2.txt

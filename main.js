@@ -460,8 +460,18 @@ ipcMain.on("vk-player-command", (event, cmd) => {
     playpause: `(function(){ const v = document.querySelector('video'); if(v) v.paused ? v.play() : v.pause(); })()`,
     next: `document.querySelector('.next-button')?.click() || document.querySelector('[aria-label="Next"]')?.click()`,
     prev: `document.querySelector('.previous-button')?.click() || document.querySelector('[aria-label="Previous"]')?.click()`,
-    shuffle: `(function(){ const b = document.querySelector('tp-yt-paper-icon-button.shuffle') || document.querySelector('[aria-label*="Shuffle"]'); if(b) b.click(); })()`,
-    repeat: `(function(){ const b = document.querySelector('tp-yt-paper-icon-button.repeat') || document.querySelector('[aria-label*="Repeat"]'); if(b) b.click(); })()`,
+    shuffle: `(function(){ 
+      const b = document.querySelector('tp-yt-paper-icon-button.shuffle') || 
+                document.querySelector('.shuffle.ytmusic-player-bar') ||
+                document.querySelector('[aria-label*="Shuffle"]'); 
+      if(b) b.click(); 
+    })()`,
+    repeat: `(function(){ 
+      const b = document.querySelector('tp-yt-paper-icon-button.repeat') || 
+                document.querySelector('.repeat.ytmusic-player-bar') ||
+                document.querySelector('[aria-label*="Repeat"]'); 
+      if(b) b.click(); 
+    })()`,
   };
   if (code[cmd]) {
     view.webContents.executeJavaScript(code[cmd]).catch(() => { });
@@ -665,19 +675,58 @@ function startTrackPolling() {
                         // Get shuffle/repeat state from the DOM
                         let shuffle = false;
                         let repeat = 'off';
-                        const shuffleBtn = document.querySelector('.shuffle.ytmusic-player-bar, tp-yt-paper-icon-button.shuffle');
+                        
+                        // Shuffle button logic
+                        const shuffleBtn = document.querySelector('tp-yt-paper-icon-button.shuffle') || document.querySelector('.shuffle.ytmusic-player-bar');
+                        let shuffleDebug = '';
                         if (shuffleBtn) {
+                            shuffleDebug = shuffleBtn.outerHTML;
                             const ariaLabel = (shuffleBtn.getAttribute('aria-label') || '').toLowerCase();
                             const title = (shuffleBtn.getAttribute('title') || '').toLowerCase();
-                            // "Shuffle off" means shuffle is currently ON (clicking turns it off)
-                            shuffle = ariaLabel.includes('shuffle off') || title.includes('shuffle off') || shuffleBtn.getAttribute('aria-pressed') === 'true';
+                            
+                            let isPressed = shuffleBtn.getAttribute('aria-pressed') === 'true';
+                            if (!isPressed && shuffleBtn.querySelector('button')) {
+                                isPressed = shuffleBtn.querySelector('button').getAttribute('aria-pressed') === 'true';
+                            }
+                            
+                            // Let's just blindly check for common active attributes YouTube Music might use
+                            const isActiveAttr = shuffleBtn.hasAttribute('active') || (shuffleBtn.querySelector('button') && shuffleBtn.querySelector('button').hasAttribute('active'));
+                            const isActiveClass = shuffleBtn.classList.contains('active') || (shuffleBtn.querySelector('button') && shuffleBtn.querySelector('button').classList.contains('active'));
+
+                            shuffle = ariaLabel.includes('shuffle off') || 
+                                      title.includes('shuffle off') || 
+                                      title.includes('turned on') ||
+                                      title.includes('activat') ||
+                                      ariaLabel.includes('activat') ||
+                                      isPressed || 
+                                      isActiveAttr || 
+                                      isActiveClass;
                         }
-                        const repeatBtn = document.querySelector('.repeat.ytmusic-player-bar, tp-yt-paper-icon-button.repeat');
+                        
+                        // Repeat button logic
+                        const repeatBtn = document.querySelector('tp-yt-paper-icon-button.repeat') || document.querySelector('.repeat.ytmusic-player-bar');
+                        let repeatDebug = '';
                         if (repeatBtn) {
+                            repeatDebug = repeatBtn.outerHTML;
                             const ariaLabel = (repeatBtn.getAttribute('aria-label') || '').toLowerCase();
                             const title = (repeatBtn.getAttribute('title') || '').toLowerCase();
-                            if (ariaLabel.includes('repeat one') || title.includes('repeat one')) repeat = 'one';
-                            else if (ariaLabel.includes('repeat all') || title.includes('repeat all') || ariaLabel.includes('repeat off') || title.includes('repeat off')) repeat = 'all';
+                            const html = repeatBtn.innerHTML;
+                            
+                            let isPressed = repeatBtn.getAttribute('aria-pressed') === 'true';
+                            if (!isPressed && repeatBtn.querySelector('button')) {
+                                isPressed = repeatBtn.querySelector('button').getAttribute('aria-pressed') === 'true';
+                            }
+                            const isActiveAttr = repeatBtn.hasAttribute('active') || (repeatBtn.querySelector('button') && repeatBtn.querySelector('button').hasAttribute('active'));
+                            const isActiveClass = repeatBtn.classList.contains('active') || (repeatBtn.querySelector('button') && repeatBtn.querySelector('button').classList.contains('active'));
+
+                            // SVG Path for Repeat One
+                            if (html.includes('M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-')) {
+                                repeat = 'one';
+                            } else if (title.includes('repeat one') || ariaLabel.includes('repeat one') || title.includes('unul') || ariaLabel.includes('unul')) {
+                                repeat = 'one';
+                            } else if (isActiveAttr || isActiveClass || isPressed || title.includes('repeat off') || title.includes('dezactivează') || title.includes('toate')) {
+                                repeat = 'all';
+                            }
                         }
 
                         if (!playerBar || !video) return { videoOnly: true, paused: video ? video.paused : true, shuffle: shuffle, repeat: repeat };
@@ -697,7 +746,9 @@ function startTrackPolling() {
                             paused: video.paused,
                             currentTime: video.currentTime,
                             shuffle: shuffle,
-                            repeat: repeat
+                            repeat: repeat,
+                            shuffleDebug: shuffleDebug,
+                            repeatDebug: repeatDebug
                         };
                     })();
                 `);
@@ -714,6 +765,8 @@ function startTrackPolling() {
           "[Main Poll] Raw lines:",
           lines.slice(0, 3).map((l) => l.substring(0, 50)),
         );
+        console.log("[Main Poll] Shuffle state:", rawData.shuffle, "Debug:", rawData.shuffleDebug);
+        console.log("[Main Poll] Repeat state:", rawData.repeat, "Debug:", rawData.repeatDebug);
 
         // Third line has "Artist • Album • Year" (line 0 = time, line 1 = title, line 2 = artist)
         if (lines.length >= 3) {
@@ -744,6 +797,8 @@ function startTrackPolling() {
             albumArt: rawData.albumArt || "",
             paused: rawData.paused,
             currentTime: rawData.currentTime,
+            shuffle: rawData.shuffle || false,
+            repeat: rawData.repeat || 'off',
           };
         }
       }

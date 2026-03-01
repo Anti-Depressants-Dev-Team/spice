@@ -481,39 +481,103 @@
                         : '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
                 }
 
+                // Shuffle/Repeat states
+                const shuffleBtn = document.getElementById('vk-btn-shuffle');
+                const repeatBtn = document.getElementById('vk-btn-repeat');
+
+                if (shuffleBtn) {
+                    if (info.shuffle) {
+                        shuffleBtn.style.color = 'var(--accent-yt)';
+                    } else {
+                        shuffleBtn.style.color = '';
+                    }
+                }
+
+                if (repeatBtn) {
+                    if (info.repeat === 'one') {
+                        repeatBtn.style.color = 'var(--accent-yt)';
+                        repeatBtn.innerHTML = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4L13 15z"/></svg>';
+                    } else if (info.repeat === 'all') {
+                        repeatBtn.style.color = 'var(--accent-yt)';
+                        repeatBtn.innerHTML = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>';
+                    } else {
+                        repeatBtn.style.color = '';
+                        repeatBtn.innerHTML = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>';
+                    }
+                }
+
                 // Progress
                 if (info.duration && info.duration > 0) {
                     vkCurrentDuration = info.duration;
-                    const pct = (info.currentTime / info.duration) * 100;
-                    if (progressFill) progressFill.style.width = pct + '%';
-                    if (timeCurrent) timeCurrent.textContent = fmtTime(info.currentTime);
+                    if (typeof window.isVkDragging === 'undefined' || !window.isVkDragging) {
+                        const pct = (info.currentTime / info.duration) * 100;
+                        if (progressFill) progressFill.style.width = pct + '%';
+                        if (timeCurrent) timeCurrent.textContent = fmtTime(info.currentTime);
+                    }
                     if (timeTotal) timeTotal.textContent = fmtTime(info.duration);
                 }
             });
         }
 
-        // Click-to-seek on VK progress bar
+        // Click-to-seek & Drag on VK progress bar
         let vkCurrentDuration = 0;
+        window.isVkDragging = false;
         const vkProgressBg = document.querySelector('#vk-player-bar .vk-progress-bg');
         if (vkProgressBg) {
-            vkProgressBg.addEventListener('click', (e) => {
+            const updateProgress = (e) => {
                 if (!vkCurrentDuration || vkCurrentDuration <= 0) return;
                 const rect = vkProgressBg.getBoundingClientRect();
                 const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
                 const seekTime = pct * vkCurrentDuration;
-                window.api.vkCommand({ action: 'seek', time: seekTime });
+
                 // Immediate visual feedback
                 const fill = document.getElementById('vk-progress-fill');
                 if (fill) fill.style.width = (pct * 100) + '%';
                 const timeCur = document.getElementById('vk-time-current');
                 if (timeCur) timeCur.textContent = fmtTime(seekTime);
+
+                return seekTime;
+            };
+
+            vkProgressBg.addEventListener('mousedown', (e) => {
+                window.isVkDragging = true;
+                updateProgress(e);
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (window.isVkDragging) {
+                    updateProgress(e);
+                }
+            });
+
+            document.addEventListener('mouseup', (e) => {
+                if (window.isVkDragging) {
+                    window.isVkDragging = false;
+                    const seekTime = updateProgress(e);
+                    if (seekTime !== undefined) {
+                        window.api.vkCommand({ action: 'seek', time: seekTime });
+                    }
+                }
             });
         }
 
         // VK Player control buttons
-        document.getElementById('vk-btn-prev').addEventListener('click', () => window.api.vkCommand('prev'));
+        const optimisticReset = () => {
+            const fill = document.getElementById('vk-progress-fill');
+            if (fill) fill.style.width = '0%';
+            const timeCur = document.getElementById('vk-time-current');
+            if (timeCur) timeCur.textContent = '0:00';
+        };
+
+        document.getElementById('vk-btn-prev').addEventListener('click', () => {
+            window.api.vkCommand('prev');
+            optimisticReset();
+        });
         document.getElementById('vk-btn-play').addEventListener('click', () => window.api.vkCommand('playpause'));
-        document.getElementById('vk-btn-next').addEventListener('click', () => window.api.vkCommand('next'));
+        document.getElementById('vk-btn-next').addEventListener('click', () => {
+            window.api.vkCommand('next');
+            optimisticReset();
+        });
         document.getElementById('vk-btn-shuffle').addEventListener('click', () => window.api.vkCommand('shuffle'));
         document.getElementById('vk-btn-repeat').addEventListener('click', () => window.api.vkCommand('repeat'));
     </script>
