@@ -172,7 +172,7 @@ function createWindow() {
   // Initial load
   mainWindow.loadFile(path.join(__dirname, "index.html")).then(() => {
     mainWindow.show();
-    mainWindow.webContents.openDevTools({ mode: "detach" });
+    // mainWindow.webContents.openDevTools({ mode: "detach" }); // Disabled to stop DevTools console from popping up automatically
 
     // Check for Default Service Startup
     const startupService = store ? store.get("defaultService", "yt") : "yt"; // Default to YT Music
