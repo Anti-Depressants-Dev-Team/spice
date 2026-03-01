@@ -1,0 +1,133 @@
+{
+  "responseContext": {
+    "serviceTrackingParams": [
+      {
+        "service": "GFEEDBACK",
+        "params": [
+          {
+            "key": "browse_id",
+            "value": "FEmusic_liked_playlists"
+          },
+          {
+            "key": "browse_id_prefix",
+            "value": ""
+          },
+          {
+            "key": "logged_in",
+            "value": "0"
+          }
+        ]
+      },
+      {
+        "service": "CSI",
+        "params": [
+          {
+            "key": "c",
+            "value": "WEB_REMIX"
+          },
+          {
+            "key": "cver",
+            "value": "1.20260209.03.00"
+          },
+          {
+            "key": "yt_li",
+            "value": "0"
+          },
+          {
+            "key": "GetBrowsePlaylistsPage_rid",
+            "value": "0xd4e3cb230fde68b5"
+          }
+        ]
+      },
+      {
+        "service": "ECATCHER",
+        "params": [
+          {
+            "key": "client.version",
+            "value": "1.20000101"
+          },
+          {
+            "key": "client.name",
+            "value": "WEB_REMIX"
+          }
+        ]
+      }
+    ]
+  },
+  "contents": {
+    "singleColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "selected": true,
+            "content": {
+              "sectionListRenderer": {
+                "contents": [
+                  {
+                    "itemSectionRenderer": {
+                      "contents": [
+                        {
+                          "messageRenderer": {
+                            "text": {
+                              "runs": [
+                                {
+                                  "text": "Cauți ceea ce ți-a plăcut?"
+                                }
+                              ]
+                            },
+                            "icon": {
+                              "iconType": "LIKE"
+                            },
+                            "trackingParams": "CAQQljsYACITCN6TuMeY65IDFR-afAYdF4k39g==",
+                            "button": {
+                              "buttonRenderer": {
+                                "style": "STYLE_DEFAULT",
+                                "isDisabled": false,
+                                "text": {
+                                  "runs": [
+                                    {
+                                      "text": "Conectează-te"
+                                    }
+                                  ]
+                                },
+                                "navigationEndpoint": {
+                                  "clickTrackingParams": "CAUQ8FsiEwjek7jHmOuSAxUfmnwGHReJN_bKAQScaNgT",
+                                  "signInEndpoint": {
+                                    "hack": true
+                                  }
+                                },
+                                "trackingParams": "CAUQ8FsiEwjek7jHmOuSAxUfmnwGHReJN_Y="
+                              }
+                            },
+                            "subtext": {
+                              "messageSubtextRenderer": {
+                                "text": {
+                                  "runs": [
+                                    {
+                                      "text": "Conectează-te pentru a asculta melodiile pe care le-ai apreciat"
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "style": {
+                              "value": "RENDER_STYLE_VERTICAL_CENTERED"
+                            }
+                          }
+                        }
+                      ],
+                      "trackingParams": "CAMQuy8YACITCN6TuMeY65IDFR-afAYdF4k39g=="
+                    }
+                  }
+                ],
+                "trackingParams": "CAIQui8iEwjek7jHmOuSAxUfmnwGHReJN_Y="
+              }
+            },
+            "trackingParams": "CAEQ8JMBGAAiEwjek7jHmOuSAxUfmnwGHReJN_Y="
+          }
+        }
+      ]
+    }
+  },
+  "trackingParams": "CAAQhGciEwjek7jHmOuSAxUfmnwGHReJN_Y="
+}

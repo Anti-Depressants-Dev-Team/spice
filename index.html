@@ -113,6 +113,41 @@
         </div>
     </div>
 
+    <!-- VK Player Bar (between title bar and BrowserView) -->
+    <div id="vk-player-bar" class="hidden">
+        <button class="vk-ctrl-btn" id="vk-btn-prev"><svg viewBox="0 0 24 24">
+                <path fill="currentColor" d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
+            </svg></button>
+        <button class="vk-play-btn" id="vk-btn-play"><svg viewBox="0 0 24 24">
+                <path fill="currentColor" d="M8 5v14l11-7z" />
+            </svg></button>
+        <button class="vk-ctrl-btn" id="vk-btn-next"><svg viewBox="0 0 24 24">
+                <path fill="currentColor" d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+            </svg></button>
+        <button class="vk-ctrl-btn" id="vk-btn-shuffle"><svg viewBox="0 0 24 24">
+                <path fill="currentColor"
+                    d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
+            </svg></button>
+        <button class="vk-ctrl-btn" id="vk-btn-repeat"><svg viewBox="0 0 24 24">
+                <path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
+            </svg></button>
+
+        <div class="vk-track-info">
+            <img class="vk-track-art" id="vk-track-art" src="" style="display:none;">
+            <div class="vk-track-text">
+                <div class="vk-track-title" id="vk-track-title">No track playing</div>
+                <div class="vk-track-artist" id="vk-track-artist">Select a song</div>
+            </div>
+        </div>
+
+        <div class="vk-progress-wrap">
+            <span class="vk-time" id="vk-time-current">0:00</span>
+            <div class="vk-progress-bg">
+                <div class="vk-progress-fill" id="vk-progress-fill"></div>
+            </div>
+            <span class="vk-time" id="vk-time-total">0:00</span>
+        </div>
+    </div>
 
     <!-- Homepage Selection -->
     <div id="home-container">
@@ -137,6 +172,7 @@
                 </div>
                 <h2>SoundCloud</h2>
             </button>
+
         </div>
     </div>
 
@@ -164,7 +200,10 @@
             if (window.api.openMiniPlayer) window.api.openMiniPlayer();
         });
 
-        document.getElementById('btn-settings').addEventListener('click', () => window.api.openSettings());
+        document.getElementById('btn-settings').addEventListener('click', () => {
+            console.log('Renderer: btn-settings clicked');
+            if (window.api && window.api.openSettings) window.api.openSettings();
+        });
 
         // URL Modal
         const btnUrl = document.getElementById('btn-url');
@@ -366,9 +405,18 @@
         });
 
         // Window Controls
-        document.getElementById('btn-min').addEventListener('click', () => window.api.windowControls.minimize());
-        document.getElementById('btn-max').addEventListener('click', () => window.api.windowControls.maximize());
-        document.getElementById('btn-close').addEventListener('click', () => window.api.windowControls.close());
+        document.getElementById('btn-min').addEventListener('click', () => {
+            console.log('Renderer: btn-min clicked');
+            if (window.api && window.api.windowControls) window.api.windowControls.minimize();
+        });
+        document.getElementById('btn-max').addEventListener('click', () => {
+            console.log('Renderer: btn-max clicked');
+            if (window.api && window.api.windowControls) window.api.windowControls.maximize();
+        });
+        document.getElementById('btn-close').addEventListener('click', () => {
+            console.log('Renderer: btn-close clicked');
+            if (window.api && window.api.windowControls) window.api.windowControls.close();
+        });
 
         // Handle Active State
         const homeContainer = document.getElementById('home-container');
@@ -381,8 +429,157 @@
             } else {
                 homeContainer.classList.remove('hidden');
                 document.body.style.backgroundColor = '';
+                // Hide VK player when going home
+                document.getElementById('vk-player-bar').classList.add('hidden');
             }
         });
+
+        // VK Player Bar
+        if (window.api.onVkPlayerVisibility) {
+            window.api.onVkPlayerVisibility((visible) => {
+                const vkBar = document.getElementById('vk-player-bar');
+                if (visible) {
+                    vkBar.classList.remove('hidden');
+                } else {
+                    vkBar.classList.add('hidden');
+                }
+            });
+        }
+
+        function fmtTime(s) {
+            if (!s || isNaN(s)) return '0:00';
+            const m = Math.floor(s / 60);
+            const sec = Math.floor(s % 60);
+            return m + ':' + (sec < 10 ? '0' : '') + sec;
+        }
+
+        if (window.api.onVkTrackUpdate) {
+            window.api.onVkTrackUpdate((info) => {
+                const vkBar = document.getElementById('vk-player-bar');
+                if (vkBar.classList.contains('hidden')) return;
+
+                // Track info
+                const titleEl = document.getElementById('vk-track-title');
+                const artistEl = document.getElementById('vk-track-artist');
+                const artEl = document.getElementById('vk-track-art');
+                const playBtn = document.getElementById('vk-btn-play');
+                const progressFill = document.getElementById('vk-progress-fill');
+                const timeCurrent = document.getElementById('vk-time-current');
+                const timeTotal = document.getElementById('vk-time-total');
+
+                if (info.title && titleEl) titleEl.textContent = info.title;
+                if (info.artist && artistEl) artistEl.textContent = info.artist;
+                if (info.albumArt && artEl) {
+                    artEl.src = info.albumArt;
+                    artEl.style.display = 'block';
+                }
+
+                // Play/Pause icon
+                if (playBtn) {
+                    playBtn.innerHTML = info.paused
+                        ? '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>'
+                        : '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+                }
+
+                // Shuffle/Repeat states
+                const shuffleBtn = document.getElementById('vk-btn-shuffle');
+                const repeatBtn = document.getElementById('vk-btn-repeat');
+
+                if (shuffleBtn) {
+                    if (info.shuffle) {
+                        shuffleBtn.style.color = 'var(--accent-yt)';
+                    } else {
+                        shuffleBtn.style.color = '';
+                    }
+                }
+
+                if (repeatBtn) {
+                    if (info.repeat === 'one') {
+                        repeatBtn.style.color = 'var(--accent-yt)';
+                        repeatBtn.innerHTML = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4L13 15z"/></svg>';
+                    } else if (info.repeat === 'all') {
+                        repeatBtn.style.color = 'var(--accent-yt)';
+                        repeatBtn.innerHTML = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>';
+                    } else {
+                        repeatBtn.style.color = '';
+                        repeatBtn.innerHTML = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>';
+                    }
+                }
+
+                // Progress
+                if (info.duration && info.duration > 0) {
+                    vkCurrentDuration = info.duration;
+                    if (typeof window.isVkDragging === 'undefined' || !window.isVkDragging) {
+                        const pct = (info.currentTime / info.duration) * 100;
+                        if (progressFill) progressFill.style.width = pct + '%';
+                        if (timeCurrent) timeCurrent.textContent = fmtTime(info.currentTime);
+                    }
+                    if (timeTotal) timeTotal.textContent = fmtTime(info.duration);
+                }
+            });
+        }
+
+        // Click-to-seek & Drag on VK progress bar
+        let vkCurrentDuration = 0;
+        window.isVkDragging = false;
+        const vkProgressBg = document.querySelector('#vk-player-bar .vk-progress-bg');
+        if (vkProgressBg) {
+            const updateProgress = (e) => {
+                if (!vkCurrentDuration || vkCurrentDuration <= 0) return;
+                const rect = vkProgressBg.getBoundingClientRect();
+                const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                const seekTime = pct * vkCurrentDuration;
+
+                // Immediate visual feedback
+                const fill = document.getElementById('vk-progress-fill');
+                if (fill) fill.style.width = (pct * 100) + '%';
+                const timeCur = document.getElementById('vk-time-current');
+                if (timeCur) timeCur.textContent = fmtTime(seekTime);
+
+                return seekTime;
+            };
+
+            vkProgressBg.addEventListener('mousedown', (e) => {
+                window.isVkDragging = true;
+                updateProgress(e);
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (window.isVkDragging) {
+                    updateProgress(e);
+                }
+            });
+
+            document.addEventListener('mouseup', (e) => {
+                if (window.isVkDragging) {
+                    window.isVkDragging = false;
+                    const seekTime = updateProgress(e);
+                    if (seekTime !== undefined) {
+                        window.api.vkCommand({ action: 'seek', time: seekTime });
+                    }
+                }
+            });
+        }
+
+        // VK Player control buttons
+        const optimisticReset = () => {
+            const fill = document.getElementById('vk-progress-fill');
+            if (fill) fill.style.width = '0%';
+            const timeCur = document.getElementById('vk-time-current');
+            if (timeCur) timeCur.textContent = '0:00';
+        };
+
+        document.getElementById('vk-btn-prev').addEventListener('click', () => {
+            window.api.vkCommand('prev');
+            optimisticReset();
+        });
+        document.getElementById('vk-btn-play').addEventListener('click', () => window.api.vkCommand('playpause'));
+        document.getElementById('vk-btn-next').addEventListener('click', () => {
+            window.api.vkCommand('next');
+            optimisticReset();
+        });
+        document.getElementById('vk-btn-shuffle').addEventListener('click', () => window.api.vkCommand('shuffle'));
+        document.getElementById('vk-btn-repeat').addEventListener('click', () => window.api.vkCommand('repeat'));
     </script>
 </body>
 

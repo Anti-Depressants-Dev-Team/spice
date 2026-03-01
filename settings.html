@@ -288,6 +288,18 @@
             </p>
         </div>
 
+        <div class="settings-section">
+            <div class="toggle-container">
+                <label for="vk-player-toggle" style="margin:0; font-size: 16px;">VK Player (YT Music)</label>
+                <label class="switch">
+                    <input type="checkbox" id="vk-player-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <p style="color: #666; font-size: 12px; margin-top: 5px;">Replace the standard YouTube Music bottom player
+                with a sleek AMOLED VK-style top player.</p>
+        </div>
+
         <!-- Scrobbling Section -->
         <div class="settings-header" style="margin-top: 30px;">
             <h2>Scrobbling</h2>
@@ -376,6 +388,7 @@
         const adBlockTypeSelect = document.getElementById('adblock-type');
         const defaultServiceSelect = document.getElementById('default-service');
         const discordToggle = document.getElementById('discord-toggle');
+        const vkPlayerToggle = document.getElementById('vk-player-toggle');
 
         // Load settings
         window.api.getSettings().then(settings => {
@@ -388,6 +401,7 @@
 
             defaultServiceSelect.value = settings.defaultService;
             discordToggle.checked = settings.discordRpcEnabled;
+            vkPlayerToggle.checked = settings.vkPlayerEnabled;
         });
 
         adBlockTypeSelect.addEventListener('change', (e) => {
@@ -407,6 +421,11 @@
 
         discordToggle.addEventListener('change', (e) => {
             window.api.setDiscordRpc(e.target.checked);
+        });
+
+        vkPlayerToggle.addEventListener('change', (e) => {
+            window.api.setVkPlayer(e.target.checked);
+            // Wait for user to reload manually instead of forcing it
         });
 
         defaultServiceSelect.addEventListener('change', (e) => {

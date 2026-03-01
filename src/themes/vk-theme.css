@@ -1,0 +1,126 @@
+/* ============================================
+   VK Music Theme for Spice (YouTube Music)
+   Minimal CSS - most styling is inline in vk-layout.js
+   This handles YouTube Music component overrides only
+   ============================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+
+/* ---- Global font override ---- */
+html,
+body {
+    font-family: 'Roboto', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif !important;
+    background-color: #141414 !important;
+    color: #e1e3e6 !important;
+}
+
+/* ---- YT Music component overrides ---- */
+
+/* Links */
+a,
+.yt-simple-endpoint {
+    color: #5b88ba !important;
+}
+
+/* Cards */
+ytmusic-responsive-list-item-renderer:hover,
+ytmusic-two-row-item-renderer:hover {
+    background: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Thumbnails */
+ytmusic-thumbnail-renderer img {
+    border-radius: 6px !important;
+}
+
+/* Chips */
+ytmusic-chip-cloud-chip-renderer,
+.chip-cloud-chip {
+    background: #222 !important;
+    border: 1px solid #2a2a2a !important;
+    border-radius: 16px !important;
+    color: #939699 !important;
+}
+
+ytmusic-chip-cloud-chip-renderer[chip-style="STYLE_DEFAULT"][selected],
+.chip-cloud-chip[selected] {
+    background: #a855f7 !important;
+    border-color: #a855f7 !important;
+    color: white !important;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #444;
+}
+
+/* Toast */
+tp-yt-paper-toast {
+    background: #222 !important;
+    color: #e1e3e6 !important;
+    border-radius: 8px !important;
+}
+
+/* Menus */
+tp-yt-paper-listbox {
+    background: #222 !important;
+    border: 1px solid #2a2a2a !important;
+    border-radius: 8px !important;
+}
+
+tp-yt-paper-item:hover {
+    background: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Queue panel */
+ytmusic-player-queue {
+    background: #191919 !important;
+    border-left: 1px solid #2a2a2a !important;
+}
+
+ytmusic-player-queue-item:hover {
+    background: rgba(255, 255, 255, 0.04) !important;
+}
+
+ytmusic-player-queue-item[selected] {
+    background: rgba(0, 119, 255, 0.1) !important;
+}
+
+/* Section headers */
+.header.ytmusic-shelf-renderer {
+    color: #e1e3e6 !important;
+    font-weight: 500 !important;
+}
+
+/* Volume range input styling */
+#vk-vol-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    background: #333;
+    border-radius: 2px;
+    outline: none;
+}
+
+#vk-vol-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #a855f7;
+    cursor: pointer;
+}

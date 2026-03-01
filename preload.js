@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('api', {
     toggleVolume: () => ipcRenderer.send('toggle-volume'),
     getSettings: () => ipcRenderer.invoke('get-settings'),
     setAdBlocker: (enabled) => ipcRenderer.send('set-adblocker', enabled),
+    setVkPlayer: (enabled) => ipcRenderer.send('set-vk-player', enabled),
     setDefaultService: (service) => ipcRenderer.send('set-default-service', service),
     getVolume: () => ipcRenderer.invoke('get-volume'),
     setDiscordRpc: (enabled) => ipcRenderer.send('set-discord-rpc', enabled),
@@ -23,10 +24,22 @@ contextBridge.exposeInMainWorld('api', {
     onLyricsProgressUpdate: (callback) => ipcRenderer.on('lyrics-progress-update', (event, progress) => callback(progress)),
     onServiceActive: (callback) => ipcRenderer.on('service-active', (event, value) => callback(value)),
     onVolumeChanged: (callback) => ipcRenderer.on('volume-changed', (event, value) => callback(value)),
+    onVkPlayerVisibility: (callback) => ipcRenderer.on('vk-player-visibility', (event, visible) => callback(visible)),
+    onVkTrackUpdate: (callback) => ipcRenderer.on('vk-track-update', (event, info) => callback(info)),
+    vkCommand: (cmd) => ipcRenderer.send('vk-player-command', cmd),
     windowControls: {
-        minimize: () => ipcRenderer.send('window-minimize'),
-        maximize: () => ipcRenderer.send('window-maximize'),
-        close: () => ipcRenderer.send('window-close')
+        minimize: () => {
+            console.log("Renderer (preload): window-minimize sent");
+            ipcRenderer.send('window-minimize');
+        },
+        maximize: () => {
+            console.log("Renderer (preload): window-maximize sent");
+            ipcRenderer.send('window-maximize');
+        },
+        close: () => {
+            console.log("Renderer (preload): window-close sent");
+            ipcRenderer.send('window-close');
+        }
     },
     // Scrobbler API
     scrobbler: {
