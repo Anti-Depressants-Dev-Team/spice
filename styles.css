@@ -113,11 +113,11 @@ body {
 }
 
 .top-search-input {
-    background-color: #222;
+    background-color: #08020d;
     color: #fff;
-    border: 1px solid #333;
+    border: 1px solid rgba(168, 85, 247, 0.3);
     padding: 6px 12px 6px 30px;
-    border-radius: 15px;
+    border-radius: 6px;
     width: 100%;
     max-width: 300px;
     font-size: 13px;
@@ -125,7 +125,7 @@ body {
     -webkit-app-region: no-drag;
     pointer-events: auto;
     transition: all 0.2s ease;
-    background-image: url('data:image/svg+xml;utf8,<svg fill="%23888" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>');
+    background-image: url('data:image/svg+xml;utf8,<svg fill="%23a855f7" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>');
     background-repeat: no-repeat;
     background-position: 8px center;
     background-size: 14px;
@@ -133,8 +133,8 @@ body {
 
 .top-search-input:focus {
     border-color: var(--accent-yt);
-    background-color: #2a2a2a;
-    box-shadow: 0 0 5px rgba(168, 85, 247, 0.3);
+    background-color: #12051f;
+    box-shadow: 0 0 8px rgba(168, 85, 247, 0.4);
 }
 
 .title-right {
@@ -466,8 +466,8 @@ h1 {
 /* VK Player Bar - sits between title bar and BrowserView */
 #vk-player-bar {
     height: 50px;
-    background: #0e0e0e;
-    border-bottom: 1px solid #1a1a1a;
+    background: #000000;
+    border-bottom: 1px solid rgba(168, 85, 247, 0.15);
     display: flex;
     align-items: center;
     padding: 0 16px;
@@ -481,7 +481,7 @@ h1 {
 .vk-ctrl-btn {
     width: 32px;
     height: 32px;
-    border-radius: 50%;
+    border-radius: 6px;
     background: transparent;
     color: #666;
     border: none;
@@ -509,7 +509,7 @@ h1 {
 .vk-play-btn {
     width: 36px;
     height: 36px;
-    border-radius: 50%;
+    border-radius: 6px;
     background: var(--accent-yt);
     color: #fff;
     border: none;

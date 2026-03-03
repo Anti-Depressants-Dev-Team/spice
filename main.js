@@ -460,16 +460,29 @@ ipcMain.on("vk-player-command", (event, cmd) => {
     playpause: `document.querySelector('#play-pause-button')?.click()`,
     next: `document.querySelector('.next-button')?.click() || document.querySelector('[aria-label="Next"]')?.click()`,
     prev: `document.querySelector('.previous-button')?.click() || document.querySelector('[aria-label="Previous"]')?.click()`,
+    like: `(function(){
+      const bar = document.querySelector('ytmusic-player-bar');
+      if (!bar) return;
+      const b = bar.querySelector('.ytmusic-like-button-renderer[aria-pressed="false"]') || 
+                bar.querySelector('ytmusic-like-button-renderer [icon="yt-icons:like"]') ||
+                bar.querySelector('[aria-label="Like"]') ||
+                bar.querySelector('ytmusic-like-button-renderer.like');
+      if(b) b.click();
+    })()`,
     shuffle: `(function(){ 
-      const b = document.querySelector('tp-yt-paper-icon-button.shuffle') || 
-                document.querySelector('.shuffle.ytmusic-player-bar') ||
-                document.querySelector('[aria-label*="Shuffle"]'); 
+      const bar = document.querySelector('ytmusic-player-bar');
+      if (!bar) return;
+      const b = bar.querySelector('tp-yt-paper-icon-button.shuffle') || 
+                bar.querySelector('.shuffle.ytmusic-player-bar') ||
+                bar.querySelector('[aria-label*="Shuffle"]'); 
       if(b) b.click(); 
     })()`,
     repeat: `(function(){ 
-      const b = document.querySelector('tp-yt-paper-icon-button.repeat') || 
-                document.querySelector('.repeat.ytmusic-player-bar') ||
-                document.querySelector('[aria-label*="Repeat"]'); 
+      const bar = document.querySelector('ytmusic-player-bar');
+      if (!bar) return;
+      const b = bar.querySelector('tp-yt-paper-icon-button.repeat') || 
+                bar.querySelector('.repeat.ytmusic-player-bar') ||
+                bar.querySelector('[aria-label*="Repeat"]'); 
       if(b) b.click(); 
     })()`,
   };
@@ -675,61 +688,67 @@ function startTrackPolling() {
                         // Get shuffle/repeat state from the DOM
                         let shuffle = false;
                         let repeat = 'off';
+                        let likeStatus = false;
                         
-                        // Shuffle button logic
-                        const shuffleBtn = document.querySelector('tp-yt-paper-icon-button.shuffle') || document.querySelector('.shuffle.ytmusic-player-bar');
-                        let shuffleDebug = '';
-                        if (shuffleBtn) {
-                            shuffleDebug = shuffleBtn.outerHTML;
-                            const ariaLabel = (shuffleBtn.getAttribute('aria-label') || '').toLowerCase();
-                            const title = (shuffleBtn.getAttribute('title') || '').toLowerCase();
-                            
-                            let isPressed = shuffleBtn.getAttribute('aria-pressed') === 'true';
-                            if (!isPressed && shuffleBtn.querySelector('button')) {
-                                isPressed = shuffleBtn.querySelector('button').getAttribute('aria-pressed') === 'true';
-                            }
-                            
-                            // Let's just blindly check for common active attributes YouTube Music might use
-                            const isActiveAttr = shuffleBtn.hasAttribute('active') || (shuffleBtn.querySelector('button') && shuffleBtn.querySelector('button').hasAttribute('active'));
-                            const isActiveClass = shuffleBtn.classList.contains('active') || (shuffleBtn.querySelector('button') && shuffleBtn.querySelector('button').classList.contains('active'));
+                        // Like/Heart button logic
+                        const likeBtn = playerBar ? (playerBar.querySelector('ytmusic-like-button-renderer [icon="yt-icons:like"]') || 
+                                        playerBar.querySelector('ytmusic-like-button-renderer.like') ||
+                                        playerBar.querySelector('[aria-label="Like"]')) : null;
+                        if (likeBtn) {
+                            // YT Music uses aria-pressed on a parent tp-yt-paper-icon-button
+                            const parentBtn = likeBtn.closest('tp-yt-paper-icon-button') || likeBtn;
+                            likeStatus = parentBtn.getAttribute('aria-pressed') === 'true';
+                        }
 
-                            shuffle = ariaLabel.includes('shuffle off') || 
-                                      title.includes('shuffle off') || 
-                                      title.includes('turned on') ||
-                                      title.includes('activat') ||
-                                      ariaLabel.includes('activat') ||
-                                      isPressed || 
-                                      isActiveAttr || 
-                                      isActiveClass;
+                        // Shuffle button logic
+                        const shuffleBtn = playerBar ? (playerBar.querySelector('tp-yt-paper-icon-button.shuffle') || playerBar.querySelector('.shuffle.ytmusic-player-bar')) : null;
+                        if (shuffleBtn) {
+                            let isPressed = shuffleBtn.getAttribute('aria-pressed') === 'true';
+                            const innerBtn = shuffleBtn.querySelector('button');
+                            if (!isPressed && innerBtn) {
+                                isPressed = innerBtn.getAttribute('aria-pressed') === 'true';
+                            }
+                            const title = (shuffleBtn.getAttribute('title') || '').toLowerCase();
+                            const ariaLabel = (shuffleBtn.getAttribute('aria-label') || '').toLowerCase();
+                            
+                            // Check literal tooltips / explicit active states
+                            if (title.includes('shuffle on') || ariaLabel.includes('shuffle on') || shuffleBtn.hasAttribute('active') || shuffleBtn.classList.contains('active')) {
+                                shuffle = true;
+                            } else if (title.includes('shuffle off') || ariaLabel.includes('shuffle off')) {
+                                shuffle = false;
+                            } else {
+                                shuffle = isPressed; // Fallback
+                            }
                         }
                         
                         // Repeat button logic
-                        const repeatBtn = document.querySelector('tp-yt-paper-icon-button.repeat') || document.querySelector('.repeat.ytmusic-player-bar');
+                        const repeatBtn = playerBar ? (playerBar.querySelector('tp-yt-paper-icon-button.repeat') || playerBar.querySelector('.repeat.ytmusic-player-bar')) : null;
                         let repeatDebug = '';
                         if (repeatBtn) {
-                            repeatDebug = repeatBtn.outerHTML;
-                            const ariaLabel = (repeatBtn.getAttribute('aria-label') || '').toLowerCase();
-                            const title = (repeatBtn.getAttribute('title') || '').toLowerCase();
-                            const html = repeatBtn.innerHTML;
-                            
                             let isPressed = repeatBtn.getAttribute('aria-pressed') === 'true';
-                            if (!isPressed && repeatBtn.querySelector('button')) {
-                                isPressed = repeatBtn.querySelector('button').getAttribute('aria-pressed') === 'true';
+                            const innerBtn = repeatBtn.querySelector('button');
+                            if (!isPressed && innerBtn) {
+                                isPressed = innerBtn.getAttribute('aria-pressed') === 'true';
                             }
-                            const isActiveAttr = repeatBtn.hasAttribute('active') || (repeatBtn.querySelector('button') && repeatBtn.querySelector('button').hasAttribute('active'));
-                            const isActiveClass = repeatBtn.classList.contains('active') || (repeatBtn.querySelector('button') && repeatBtn.querySelector('button').classList.contains('active'));
-
-                            // SVG Path for Repeat One
-                            if (html.includes('M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-')) {
+                            
+                            const title = (repeatBtn.getAttribute('title') || '').toLowerCase();
+                            const ariaLabel = (repeatBtn.getAttribute('aria-label') || '').toLowerCase();
+                            
+                            // Check literal tooltips: YTM uses literal state strings for ARIA now
+                            if (title.includes('repeat one') || ariaLabel.includes('repeat one') || title.includes('unul') || ariaLabel.includes('unul')) {
                                 repeat = 'one';
-                            } else if (title.includes('repeat one') || ariaLabel.includes('repeat one') || title.includes('unul') || ariaLabel.includes('unul')) {
-                                repeat = 'one';
-                            } else if (isActiveAttr || isActiveClass || isPressed || title.includes('repeat off') || title.includes('dezactivează') || title.includes('toate')) {
+                            } else if (title.includes('repeat off') || ariaLabel.includes('repeat off') || title.includes('dezactivează') || ariaLabel.includes('dezactivează')) {
+                                repeat = 'off';
+                            } else if (title.includes('repeat all') || ariaLabel.includes('repeat all') || title.includes('toate') || ariaLabel.includes('toate') || isPressed || repeatBtn.hasAttribute('active') || repeatBtn.classList.contains('active')) {
                                 repeat = 'all';
+                            } else {
+                                repeat = 'off';
                             }
+                            
+                            repeatDebug = repeatBtn.outerHTML;
                         }
 
-                        if (!playerBar || !video) return { videoOnly: true, paused: video ? video.paused : true, shuffle: shuffle, repeat: repeat };
+                        if (!playerBar || !video) return { videoOnly: true, paused: video ? video.paused : true, shuffle: shuffle, repeat: repeat, repeatDebug };
 
                         // Get all the text from player bar
                         const rawText = playerBar.innerText;
@@ -747,7 +766,8 @@ function startTrackPolling() {
                             currentTime: video.currentTime,
                             shuffle: shuffle,
                             repeat: repeat,
-                            shuffleDebug: shuffleDebug,
+                            likeStatus: likeStatus,
+                            shuffleDebug: '',
                             repeatDebug: repeatDebug
                         };
                     })();
@@ -799,14 +819,22 @@ function startTrackPolling() {
             currentTime: rawData.currentTime,
             shuffle: rawData.shuffle || false,
             repeat: rawData.repeat || 'off',
+            likeStatus: rawData.likeStatus || false,
+            repeatDebug: rawData.repeatDebug || '',
           };
         }
       }
 
       console.log(
         "[Main Poll] Result:",
-        track ? `${track.title} by ${track.artist} ` : "null",
+        track ? `${track.title} by ${track.artist}` : "null", "repeat=" + (track ? track.repeat : ''), (track && track.repeatDebug ? `[DEBUG REPEAT] ${track.repeatDebug}` : "")
       );
+
+      if (track && track.repeatDebug) {
+        try {
+          require('fs').appendFileSync('spice_debug.log', `[DEBUG REPEAT] repeat=${track.repeat} ` + track.repeatDebug + '\n');
+        } catch (e) { }
+      }
 
       if (track && track.title && track.artist) {
         const trackKey = track.artist + " - " + track.title;
@@ -883,6 +911,7 @@ function startTrackPolling() {
           volume: currentVolume,
           shuffle: rawData.shuffle || false,
           repeat: rawData.repeat || "off",
+          likeStatus: rawData.likeStatus || false,
         });
 
         // Update Discord RPC with current progress
