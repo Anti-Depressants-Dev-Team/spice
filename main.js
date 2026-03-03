@@ -457,7 +457,7 @@ ipcMain.on("vk-player-command", (event, cmd) => {
   }
 
   const code = {
-    playpause: `(function(){ const v = document.querySelector('video'); if(v) v.paused ? v.play() : v.pause(); })()`,
+    playpause: `document.querySelector('#play-pause-button')?.click()`,
     next: `document.querySelector('.next-button')?.click() || document.querySelector('[aria-label="Next"]')?.click()`,
     prev: `document.querySelector('.previous-button')?.click() || document.querySelector('[aria-label="Previous"]')?.click()`,
     shuffle: `(function(){ 
@@ -1878,7 +1878,40 @@ app.whenReady().then(async () => {
       defaultService: store ? store.get("defaultService", "yt") : "yt",
       discordRpcEnabled: store ? store.get("discordRpcEnabled", true) : true,
       vkPlayerEnabled: store ? store.get("vkPlayerEnabled", false) : false,
+      topBarSearchEnabled: store ? store.get("topBarSearchEnabled", false) : false,
     };
+  });
+
+  ipcMain.handle("get-topbar-search", () => {
+    return store ? store.get("topBarSearchEnabled", false) : false;
+  });
+
+  ipcMain.on("set-topbar-search", (event, enabled) => {
+    if (store) store.set("topBarSearchEnabled", enabled);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("topbar-search-visibility", enabled);
+    }
+  });
+
+  ipcMain.on("execute-search", (event, query) => {
+    const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(query)}`;
+    if (view && currentService === 'yt') {
+      const code = `
+        (function() {
+          var a = document.createElement('a');
+          a.href = '/search?q=${encodeURIComponent(query).replace(/'/g, "\\'")}';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        })();
+      `;
+      view.webContents.executeJavaScript(code).catch(e => {
+        console.error("SPA Search failed, falling back to load-url:", e);
+        ipcMain.emit('load-url', event, searchUrl);
+      });
+    } else {
+      ipcMain.emit('load-url', event, searchUrl);
+    }
   });
 
   ipcMain.on("set-vk-player", (event, enabled) => {

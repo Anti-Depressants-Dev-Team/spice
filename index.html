@@ -38,6 +38,12 @@
                 </svg>
             </button>
         </div>
+
+        <!-- Top Search Bar -->
+        <div class="top-search-container" id="top-search-container">
+            <input type="text" id="top-search-input" class="top-search-input" placeholder="Search YouTube Music...">
+        </div>
+
         <!-- Right Side Controls (Settings + Window Ops) -->
         <div class="title-right">
             <button id="btn-volume" class="nav-btn" title="Volume">
@@ -124,14 +130,6 @@
         <button class="vk-ctrl-btn" id="vk-btn-next"><svg viewBox="0 0 24 24">
                 <path fill="currentColor" d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
             </svg></button>
-        <button class="vk-ctrl-btn" id="vk-btn-shuffle"><svg viewBox="0 0 24 24">
-                <path fill="currentColor"
-                    d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
-            </svg></button>
-        <button class="vk-ctrl-btn" id="vk-btn-repeat"><svg viewBox="0 0 24 24">
-                <path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
-            </svg></button>
-
         <div class="vk-track-info">
             <img class="vk-track-art" id="vk-track-art" src="" style="display:none;">
             <div class="vk-track-text">
@@ -147,6 +145,14 @@
             </div>
             <span class="vk-time" id="vk-time-total">0:00</span>
         </div>
+
+        <button class="vk-ctrl-btn" id="vk-btn-shuffle"><svg viewBox="0 0 24 24">
+                <path fill="currentColor"
+                    d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
+            </svg></button>
+        <button class="vk-ctrl-btn" id="vk-btn-repeat"><svg viewBox="0 0 24 24">
+                <path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
+            </svg></button>
     </div>
 
     <!-- Homepage Selection -->
@@ -308,12 +314,24 @@
         btnVolume.addEventListener('click', (e) => {
             e.stopPropagation();
             volPopup.classList.toggle('hidden');
+            const searchContainer = document.getElementById('top-search-container');
+            if (searchContainer) {
+                if (!volPopup.classList.contains('hidden')) {
+                    searchContainer.classList.add('shifted');
+                } else {
+                    searchContainer.classList.remove('shifted');
+                }
+            }
         });
 
         // Close popup when clicking outside
         document.addEventListener('click', (e) => {
             if (!volPopup.contains(e.target) && !btnVolume.contains(e.target)) {
                 volPopup.classList.add('hidden');
+                const searchContainer = document.getElementById('top-search-container');
+                if (searchContainer) {
+                    searchContainer.classList.remove('shifted');
+                }
             }
         });
 
@@ -573,13 +591,46 @@
             window.api.vkCommand('prev');
             optimisticReset();
         });
-        document.getElementById('vk-btn-play').addEventListener('click', () => window.api.vkCommand('playpause'));
+        document.getElementById('vk-btn-play').addEventListener('click', () => {
+            const playBtn = document.getElementById('vk-btn-play');
+            const isCurrentlyPaused = playBtn.innerHTML.includes('M8 5v14l11-7z');
+            playBtn.innerHTML = !isCurrentlyPaused
+                ? '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>'
+                : '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+            window.api.vkCommand('playpause');
+        });
         document.getElementById('vk-btn-next').addEventListener('click', () => {
             window.api.vkCommand('next');
             optimisticReset();
         });
         document.getElementById('vk-btn-shuffle').addEventListener('click', () => window.api.vkCommand('shuffle'));
         document.getElementById('vk-btn-repeat').addEventListener('click', () => window.api.vkCommand('repeat'));
+
+        // Top Search Bar Logic
+        const topSearchContainer = document.getElementById('top-search-container');
+        const topSearchInput = document.getElementById('top-search-input');
+
+        window.api.getTopBarSearch().then(enabled => {
+            topSearchContainer.classList.toggle('visible', enabled);
+        });
+
+        window.api.onTopBarSearchVisibility(visible => {
+            topSearchContainer.classList.toggle('visible', visible);
+            if (visible) {
+                // optionally focus? No, maybe not intrusive focus
+            }
+        });
+
+        topSearchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const query = topSearchInput.value.trim();
+                if (query) {
+                    window.api.executeSearch(query);
+                    // blur to remove focus after search
+                    topSearchInput.blur();
+                }
+            }
+        });
     </script>
 </body>
 
