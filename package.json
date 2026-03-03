@@ -5,6 +5,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "start:hidden": "npx cross-env ELECTRON_RUN_AS_NODE=1 node -e \"require('child_process').spawn(require('electron'), ['.'], {detached: true, stdio: 'ignore'}).unref()\"",
+    "start:vbs": "echo Set WshShell = CreateObject(\"WScript.Shell\") > start.vbs && echo WshShell.Run \"npm start\", 0, false >> start.vbs && cscript start.vbs && del start.vbs",
     "dist": "electron-builder",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

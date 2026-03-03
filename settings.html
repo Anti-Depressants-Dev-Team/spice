@@ -271,7 +271,7 @@
             <select id="default-service">
                 <option value="home">None (Home Screen)</option>
                 <option value="yt">YouTube Music</option>
-                <option value="sc">SoundCloud</option>
+                <option value="sc">SoundCloud (experimental)</option>
             </select>
         </div>
 
@@ -298,6 +298,18 @@
             </div>
             <p style="color: #666; font-size: 12px; margin-top: 5px;">Replace the standard YouTube Music bottom player
                 with a sleek AMOLED VK-style top player.</p>
+        </div>
+
+        <div class="settings-section">
+            <div class="toggle-container">
+                <label for="topbar-search-toggle" style="margin:0; font-size: 16px;">Top Bar Search (YT Music)</label>
+                <label class="switch">
+                    <input type="checkbox" id="topbar-search-toggle">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <p style="color: #666; font-size: 12px; margin-top: 5px;">Enable a quick search bar in the top navigation
+                bar tailored for YouTube Music.</p>
         </div>
 
         <!-- Scrobbling Section -->
@@ -389,6 +401,7 @@
         const defaultServiceSelect = document.getElementById('default-service');
         const discordToggle = document.getElementById('discord-toggle');
         const vkPlayerToggle = document.getElementById('vk-player-toggle');
+        const topbarSearchToggle = document.getElementById('topbar-search-toggle');
 
         // Load settings
         window.api.getSettings().then(settings => {
@@ -402,6 +415,7 @@
             defaultServiceSelect.value = settings.defaultService;
             discordToggle.checked = settings.discordRpcEnabled;
             vkPlayerToggle.checked = settings.vkPlayerEnabled;
+            topbarSearchToggle.checked = settings.topBarSearchEnabled;
         });
 
         adBlockTypeSelect.addEventListener('change', (e) => {
@@ -426,6 +440,10 @@
         vkPlayerToggle.addEventListener('change', (e) => {
             window.api.setVkPlayer(e.target.checked);
             // Wait for user to reload manually instead of forcing it
+        });
+
+        topbarSearchToggle.addEventListener('change', (e) => {
+            window.api.setTopBarSearch(e.target.checked);
         });
 
         defaultServiceSelect.addEventListener('change', (e) => {
