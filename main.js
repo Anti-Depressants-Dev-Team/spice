@@ -16,7 +16,7 @@ function logToFile(msg) {
   try {
     const timestamp = new Date().toISOString();
     fs.appendFileSync(logFile, `[${timestamp}] ${msg}\n`);
-  } catch (e) { }
+  } catch (e) {}
 }
 
 // Override console methods to log to file in production
@@ -26,13 +26,13 @@ console.log = (...args) => {
   originalConsoleLog(...args);
   try {
     logToFile(`INFO: ${args.join(" ")}`);
-  } catch (e) { }
+  } catch (e) {}
 };
 console.error = (...args) => {
   originalConsoleError(...args);
   try {
     logToFile(`ERROR: ${args.join(" ")}`);
-  } catch (e) { }
+  } catch (e) {}
 };
 
 // Handle uncaught exceptions immediately
@@ -43,7 +43,7 @@ process.on("uncaughtException", (error) => {
       "Critical Error",
       `A critical error occurred:\n${error.message}\nCheck debug.log for details.`,
     );
-  } catch (e) { }
+  } catch (e) {}
 });
 
 console.log("App Starting...");
@@ -169,8 +169,8 @@ function createWindow() {
     }
   });
 
-  // Initial load
-  mainWindow.loadFile(path.join(__dirname, "index.html")).then(() => {
+  // Initial load via local server
+  mainWindow.loadURL("http://localhost:6969/").then(() => {
     mainWindow.show();
     // mainWindow.webContents.openDevTools({ mode: "detach" }); // Disabled to stop DevTools console from popping up automatically
 
@@ -236,139 +236,14 @@ function createMiniPlayerWindow() {
   });
 
   miniPlayerWindow.setMenuBarVisibility(false);
-  miniPlayerWindow.loadURL("http://localhost:6969"); // Load from local server
+  miniPlayerWindow.loadURL("http://localhost:6969/mini-player/"); // Load from local server
 
   miniPlayerWindow.on("closed", () => {
     miniPlayerWindow = null;
   });
 }
 
-// Initialize Server
-app.whenReady().then(() => {
-  miniPlayerServer.startServer((action) => {
-    console.log("[MiniPlayer] Action received:", action);
-
-    if (action.action === "close") {
-      if (miniPlayerWindow) {
-        miniPlayerWindow.close();
-      }
-      return;
-    }
-
-    const playerView = getActiveBackendView();
-    if (!playerView) return;
-
-    // Execute actions on the main player view
-    const code = `
-            (function() {
-                const click = (sel) => document.querySelector(sel)?.click();
-
-                if ('${action.action}' === 'playpause') {
-                   // Generic toggle or service specific
-                   const ytm = document.querySelector('#play-pause-button');
-                   if (ytm) ytm.click();
-                   else click('.playControl');
-                }
-                else if ('${action.action}' === 'next') {
-                    const ytm = document.querySelector('.next-button');
-                    if (ytm) ytm.click();
-                    else click('.skipControl__next');
-                }
-                else if ('${action.action}' === 'prev') {
-                    const ytm = document.querySelector('.previous-button');
-                    if (ytm) ytm.click();
-                    else click('.skipControl__previous');
-                }
-                else if ('${action.action}' === 'volume') {
-                    // Handled in main process below
-                }
-                else if ('${action.action}' === 'shuffle') {
-                    console.log('[MiniPlayer] Shuffle requested');
-
-                    const findBtn = (selectors) => {
-                        for (const s of selectors) {
-                            const el = document.querySelector(s);
-                            if (el) return el;
-                        }
-                        return null;
-                    };
-
-                    // YTM Selectors (various states)
-                    const ytmShuffle = findBtn([
-                        '.shuffle-button',
-                        'tp-yt-paper-icon-button[aria-label="Shuffle"]',
-                        'tp-yt-paper-icon-button[aria-label="Shuffle on"]',
-                        'tp-yt-paper-icon-button[aria-label="Shuffle off"]',
-                        'ytmusic-player-bar .shuffle',
-                        '[class*="shuffle"]'
-                    ]);
-
-                    if (ytmShuffle) {
-                        console.log('[MiniPlayer] YTM Shuffle found:', ytmShuffle);
-                        ytmShuffle.click();
-                    } else {
-                         console.log('[MiniPlayer] YTM Shuffle NOT found');
-                    }
-
-                    // SoundCloud
-                    const scShuffle = document.querySelector('.shuffleControl');
-                    if (scShuffle) scShuffle.click();
-                }
-                else if ('${action.action}' === 'repeat') {
-                    console.log('[MiniPlayer] Repeat requested');
-
-                    const findBtn = (selectors) => {
-                        for (const s of selectors) {
-                            const el = document.querySelector(s);
-                            if (el) return el;
-                        }
-                        return null;
-                    };
-
-                    // YTM Selectors (various states)
-                    const ytmRepeat = findBtn([
-                        '.repeat-button',
-                        'tp-yt-paper-icon-button[aria-label="Repeat"]',
-                        'tp-yt-paper-icon-button[aria-label="Repeat all"]',
-                        'tp-yt-paper-icon-button[aria-label="Repeat one"]',
-                        'tp-yt-paper-icon-button[aria-label="Repeat off"]',
-                        'ytmusic-player-bar .repeat',
-                        '[class*="repeat"]'
-                    ]);
-
-                    if (ytmRepeat) {
-                        console.log('[MiniPlayer] YTM Repeat found:', ytmRepeat);
-                        ytmRepeat.click();
-                    } else {
-                         console.log('[MiniPlayer] YTM Repeat NOT found');
-                    }
-
-                    // SoundCloud
-                    const scRepeat = document.querySelector('.repeatControl');
-                    if (scRepeat) scRepeat.click();
-                }
-            })();
-        `;
-    playerView.webContents
-      .executeJavaScript(code)
-      .catch((e) => console.error(e));
-
-    // Handle volume separately in main process (uses AudioContext gain, not video.volume)
-    if (action.action === "volume" && action.value !== undefined) {
-      // Emit internally — picked up by ipcMain.on('set-volume') which calls applyVolume
-      ipcMain.emit(
-        "set-volume",
-        { sender: mainWindow?.webContents },
-        action.value,
-      );
-      // Immediately update mini player server state so slider doesn't reset on next poll
-      miniPlayerServer.updateState({ volume: action.value });
-      // Sync the main app's volume slider
-      if (mainWindow)
-        mainWindow.webContents.send("volume-changed", action.value);
-    }
-  });
-});
+// Mini player control handler is registered in the main startup flow.
 
 const TITLE_BAR_HEIGHT = 40;
 const VK_PLAYER_HEIGHT = 50;
@@ -450,9 +325,9 @@ ipcMain.on("vk-player-command", (event, cmd) => {
   if (!view) return;
 
   // Handle seek command (object: {action: 'seek', time: seconds})
-  if (typeof cmd === 'object' && cmd.action === 'seek') {
+  if (typeof cmd === "object" && cmd.action === "seek") {
     const seekCode = `(function(){ const v = document.querySelector('video'); if(v && v.duration) v.currentTime = ${Number(cmd.time)}; })()`;
-    view.webContents.executeJavaScript(seekCode).catch(() => { });
+    view.webContents.executeJavaScript(seekCode).catch(() => {});
     return;
   }
 
@@ -463,27 +338,27 @@ ipcMain.on("vk-player-command", (event, cmd) => {
     like: `(function(){
       const bar = document.querySelector('ytmusic-player-bar');
       if (!bar) return;
-      const b = bar.querySelector('.ytmusic-like-button-renderer[aria-pressed="false"]') || 
+      const b = bar.querySelector('.ytmusic-like-button-renderer[aria-pressed="false"]') ||
                 bar.querySelector('ytmusic-like-button-renderer [icon="yt-icons:like"]') ||
                 bar.querySelector('[aria-label="Like"]') ||
                 bar.querySelector('ytmusic-like-button-renderer.like');
       if(b) b.click();
     })()`,
-    shuffle: `(function(){ 
+    shuffle: `(function(){
       const bar = document.querySelector('ytmusic-player-bar');
       if (!bar) return;
-      const b = bar.querySelector('tp-yt-paper-icon-button.shuffle') || 
+      const b = bar.querySelector('tp-yt-paper-icon-button.shuffle') ||
                 bar.querySelector('.shuffle.ytmusic-player-bar') ||
-                bar.querySelector('[aria-label*="Shuffle"]'); 
-      if(b) b.click(); 
+                bar.querySelector('[aria-label*="Shuffle"]');
+      if(b) b.click();
     })()`,
-    repeat: `(function(){ 
+    repeat: `(function(){
       const bar = document.querySelector('ytmusic-player-bar');
       if (!bar) return;
-      const b = bar.querySelector('tp-yt-paper-icon-button.repeat') || 
+      const b = bar.querySelector('tp-yt-paper-icon-button.repeat') ||
                 bar.querySelector('.repeat.ytmusic-player-bar') ||
-                bar.querySelector('[aria-label*="Repeat"]'); 
-      if(b) b.click(); 
+                bar.querySelector('[aria-label*="Repeat"]');
+      if(b) b.click();
     })()`,
     playlist: `(function(){
       return new Promise((resolve) => {
@@ -551,6 +426,7 @@ ipcMain.on("vk-player-command", (event, cmd) => {
     })()`,
   };
   if (code[cmd]) {
+    view.webContents.executeJavaScript(code[cmd]).catch(() => {});
     view.webContents.executeJavaScript(code[cmd]).then((res) => {
       if (cmd === 'playlist' && res && res.success === false) {
         try { require('fs').writeFileSync('debug_playlist_popup_dump.html', res.html); } catch (e) { }
@@ -558,7 +434,6 @@ ipcMain.on("vk-player-command", (event, cmd) => {
     }).catch(() => { });
   }
 });
-
 
 function loadService(serviceKey) {
   if (!SERVICES[serviceKey]) return;
@@ -605,8 +480,11 @@ function loadService(serviceKey) {
   mainWindow.webContents.send("service-active", true);
 
   // Send VK player config once DOM is ready
-  view.webContents.on('dom-ready', () => {
+  view.webContents.on("dom-ready", () => {
     const vkPlayerEnabled = store ? store.get("vkPlayerEnabled", false) : false;
+    console.log(
+      `[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`,
+    );
     console.log(`[Main] DOM Ready.Sending vk- player - config = ${vkPlayerEnabled}`);
     view.webContents.send("vk-player-config", vkPlayerEnabled);
   });
@@ -684,6 +562,13 @@ ipcMain.on("load-url", (event, url) => {
     mainWindow.webContents.send("service-active", true);
 
     // Send VK player config once DOM is ready
+    view.webContents.on("dom-ready", () => {
+      const vkPlayerEnabled = store
+        ? store.get("vkPlayerEnabled", false)
+        : false;
+      console.log(
+        `[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`,
+      );
     view.webContents.on('dom-ready', () => {
       const vkPlayerEnabled = store ? store.get("vkPlayerEnabled", false) : false;
       console.log(`[Main] DOM Ready.Sending vk - player - config = ${vkPlayerEnabled} `);
@@ -748,6 +633,73 @@ function startTrackPolling() {
     try {
       // Query track info directly from the page - simplified to return raw text
       const rawData = await activeView.webContents.executeJavaScript(`
+                    (function () {
+                        const playerBar = document.querySelector('ytmusic-player-bar');
+                        const video = document.querySelector('video');
+                        const albumArtEl = document.querySelector('ytmusic-player-bar .image img, .thumbnail-image-wrapper img');
+
+                        // Get shuffle/repeat state from the DOM
+                        let shuffle = false;
+                        let repeat = 'off';
+                        let likeStatus = false;
+
+                        // Like/Heart button logic
+                        const likeBtn = playerBar ? (playerBar.querySelector('ytmusic-like-button-renderer [icon="yt-icons:like"]') ||
+                                        playerBar.querySelector('ytmusic-like-button-renderer.like') ||
+                                        playerBar.querySelector('[aria-label="Like"]')) : null;
+                        if (likeBtn) {
+                            // YT Music uses aria-pressed on a parent tp-yt-paper-icon-button
+                            const parentBtn = likeBtn.closest('tp-yt-paper-icon-button') || likeBtn;
+                            likeStatus = parentBtn.getAttribute('aria-pressed') === 'true';
+                        }
+
+                        // Shuffle button logic
+                        const shuffleBtn = playerBar ? (playerBar.querySelector('tp-yt-paper-icon-button.shuffle') || playerBar.querySelector('.shuffle.ytmusic-player-bar')) : null;
+                        if (shuffleBtn) {
+                            let isPressed = shuffleBtn.getAttribute('aria-pressed') === 'true';
+                            const innerBtn = shuffleBtn.querySelector('button');
+                            if (!isPressed && innerBtn) {
+                                isPressed = innerBtn.getAttribute('aria-pressed') === 'true';
+                            }
+                            const title = (shuffleBtn.getAttribute('title') || '').toLowerCase();
+                            const ariaLabel = (shuffleBtn.getAttribute('aria-label') || '').toLowerCase();
+
+                            // Check literal tooltips / explicit active states
+                            if (title.includes('shuffle on') || ariaLabel.includes('shuffle on') || shuffleBtn.hasAttribute('active') || shuffleBtn.classList.contains('active')) {
+                                shuffle = true;
+                            } else if (title.includes('shuffle off') || ariaLabel.includes('shuffle off')) {
+                                shuffle = false;
+                            } else {
+                                shuffle = isPressed; // Fallback
+                            }
+                        }
+
+                        // Repeat button logic
+                        const repeatBtn = playerBar ? (playerBar.querySelector('tp-yt-paper-icon-button.repeat') || playerBar.querySelector('.repeat.ytmusic-player-bar')) : null;
+                        let repeatDebug = '';
+                        if (repeatBtn) {
+                            let isPressed = repeatBtn.getAttribute('aria-pressed') === 'true';
+                            const innerBtn = repeatBtn.querySelector('button');
+                            if (!isPressed && innerBtn) {
+                                isPressed = innerBtn.getAttribute('aria-pressed') === 'true';
+                            }
+
+                            const title = (repeatBtn.getAttribute('title') || '').toLowerCase();
+                            const ariaLabel = (repeatBtn.getAttribute('aria-label') || '').toLowerCase();
+
+                            // Check literal tooltips: YTM uses literal state strings for ARIA now
+                            if (title.includes('repeat one') || ariaLabel.includes('repeat one') || title.includes('unul') || ariaLabel.includes('unul')) {
+                                repeat = 'one';
+                            } else if (title.includes('repeat off') || ariaLabel.includes('repeat off') || title.includes('dezactivează') || ariaLabel.includes('dezactivează')) {
+                                repeat = 'off';
+                            } else if (title.includes('repeat all') || ariaLabel.includes('repeat all') || title.includes('toate') || ariaLabel.includes('toate') || isPressed || repeatBtn.hasAttribute('active') || repeatBtn.classList.contains('active')) {
+                                repeat = 'all';
+                            } else {
+                                repeat = 'off';
+                            }
+
+                            repeatDebug = repeatBtn.outerHTML;
+                        }
     (function () {
       const playerBar = document.querySelector('ytmusic-player-bar');
       const video = document.querySelector('video');
@@ -853,8 +805,18 @@ function startTrackPolling() {
           "[Main Poll] Raw lines:",
           lines.slice(0, 3).map((l) => l.substring(0, 50)),
         );
-        console.log("[Main Poll] Shuffle state:", rawData.shuffle, "Debug:", rawData.shuffleDebug);
-        console.log("[Main Poll] Repeat state:", rawData.repeat, "Debug:", rawData.repeatDebug);
+        console.log(
+          "[Main Poll] Shuffle state:",
+          rawData.shuffle,
+          "Debug:",
+          rawData.shuffleDebug,
+        );
+        console.log(
+          "[Main Poll] Repeat state:",
+          rawData.repeat,
+          "Debug:",
+          rawData.repeatDebug,
+        );
 
         // Third line has "Artist • Album • Year" (line 0 = time, line 1 = title, line 2 = artist)
         if (lines.length >= 3) {
@@ -886,20 +848,28 @@ function startTrackPolling() {
             paused: rawData.paused,
             currentTime: rawData.currentTime,
             shuffle: rawData.shuffle || false,
-            repeat: rawData.repeat || 'off',
+            repeat: rawData.repeat || "off",
             likeStatus: rawData.likeStatus || false,
-            repeatDebug: rawData.repeatDebug || '',
+            repeatDebug: rawData.repeatDebug || "",
           };
         }
       }
 
       console.log(
         "[Main Poll] Result:",
+        track ? `${track.title} by ${track.artist}` : "null",
+        "repeat=" + (track ? track.repeat : ""),
+        track && track.repeatDebug ? `[DEBUG REPEAT] ${track.repeatDebug}` : "",
         track ? `${track.title} by ${track.artist} ` : "null", "repeat=" + (track ? track.repeat : ''), (track && track.repeatDebug ? `[DEBUG REPEAT] ${track.repeatDebug} ` : "")
       );
 
       if (track && track.repeatDebug) {
         try {
+          require("fs").appendFileSync(
+            "spice_debug.log",
+            `[DEBUG REPEAT] repeat=${track.repeat} ` + track.repeatDebug + "\n",
+          );
+        } catch (e) {}
           require('fs').appendFileSync('spice_debug.log', `[DEBUG REPEAT]repeat = ${track.repeat} ` + track.repeatDebug + '\n');
         } catch (e) { }
       }
@@ -1354,6 +1324,178 @@ app.on("activate", () => {
 });
 
 app.whenReady().then(async () => {
+  try {
+    await miniPlayerServer.startServer((action) => {
+      console.log("[MiniPlayer] Action received:", action);
+
+      if (action.action === "close") {
+        if (miniPlayerWindow) {
+          miniPlayerWindow.close();
+        }
+        return;
+      }
+
+      const playerView = getActiveBackendView();
+      if (!playerView) return;
+
+      // Execute actions on the main player view
+      const code = `
+            (function() {
+                const click = (sel) => document.querySelector(sel)?.click();
+
+                if ('${action.action}' === 'playpause') {
+                   // Generic toggle or service specific
+                   const ytm = document.querySelector('#play-pause-button');
+                   if (ytm) ytm.click();
+                   else click('.playControl');
+                }
+                else if ('${action.action}' === 'next') {
+                    const ytm = document.querySelector('.next-button');
+                    if (ytm) ytm.click();
+                    else click('.skipControl__next');
+                }
+                else if ('${action.action}' === 'prev') {
+                    const ytm = document.querySelector('.previous-button');
+                    if (ytm) ytm.click();
+                    else click('.skipControl__previous');
+                }
+                else if ('${action.action}' === 'volume') {
+                    // Handled in main process below
+                }
+                else if ('${action.action}' === 'shuffle') {
+                    console.log('[MiniPlayer] Shuffle requested');
+
+                    const findBtn = (selectors) => {
+                        for (const s of selectors) {
+                            const el = document.querySelector(s);
+                            if (el) return el;
+                        }
+                        return null;
+                    };
+
+                    // YTM Selectors (various states)
+                    const ytmShuffle = findBtn([
+                        '.shuffle-button',
+                        'tp-yt-paper-icon-button[aria-label="Shuffle"]',
+                        'tp-yt-paper-icon-button[aria-label="Shuffle on"]',
+                        'tp-yt-paper-icon-button[aria-label="Shuffle off"]',
+                        'ytmusic-player-bar .shuffle',
+                        '[class*="shuffle"]'
+                    ]);
+
+                    if (ytmShuffle) {
+                        console.log('[MiniPlayer] YTM Shuffle found:', ytmShuffle);
+                        ytmShuffle.click();
+                    } else {
+                         console.log('[MiniPlayer] YTM Shuffle NOT found');
+                    }
+
+                    // SoundCloud
+                    const scShuffle = document.querySelector('.shuffleControl');
+                    if (scShuffle) scShuffle.click();
+                }
+                else if ('${action.action}' === 'repeat') {
+                    console.log('[MiniPlayer] Repeat requested');
+
+                    const findBtn = (selectors) => {
+                        for (const s of selectors) {
+                            const el = document.querySelector(s);
+                            if (el) return el;
+                        }
+                        return null;
+                    };
+
+                    // YTM Selectors (various states)
+                    const ytmRepeat = findBtn([
+                        '.repeat-button',
+                        'tp-yt-paper-icon-button[aria-label="Repeat"]',
+                        'tp-yt-paper-icon-button[aria-label="Repeat all"]',
+                        'tp-yt-paper-icon-button[aria-label="Repeat one"]',
+                        'tp-yt-paper-icon-button[aria-label="Repeat off"]',
+                        'ytmusic-player-bar .repeat',
+                        '[class*="repeat"]'
+                    ]);
+
+                    if (ytmRepeat) {
+                        console.log('[MiniPlayer] YTM Repeat found:', ytmRepeat);
+                        ytmRepeat.click();
+                    } else {
+                         console.log('[MiniPlayer] YTM Repeat NOT found');
+                    }
+
+                    // SoundCloud
+                    const scRepeat = document.querySelector('.repeatControl');
+                    if (scRepeat) scRepeat.click();
+                }
+            })();
+        `;
+      playerView.webContents
+        .executeJavaScript(code)
+        .catch((e) => console.error(e));
+
+      // Handle volume separately in main process (uses AudioContext gain, not video.volume)
+      if (action.action === "volume" && action.value !== undefined) {
+        // Emit internally — picked up by ipcMain.on('set-volume') which calls applyVolume
+        ipcMain.emit(
+          "set-volume",
+          { sender: mainWindow?.webContents },
+          action.value,
+        );
+        // Immediately update mini player server state so slider doesn't reset on next poll
+        miniPlayerServer.updateState({ volume: action.value });
+        // Sync the main app's volume slider
+        if (mainWindow)
+          mainWindow.webContents.send("volume-changed", action.value);
+      }
+    });
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err);
+    console.error("[Server] Failed to start:", message);
+
+    const portInUse =
+      (err && (err.code === "EADDRINUSE" || err.errno === "EADDRINUSE")) ||
+      /EADDRINUSE|address already in use/i.test(message);
+
+    if (portInUse) {
+      const probeTargets = [
+        "http://localhost:6969/api/status",
+        "http://127.0.0.1:6969/api/status",
+      ];
+
+      let existingServerDetected = false;
+      for (const url of probeTargets) {
+        try {
+          const res = await fetch(url);
+          if (res && res.ok) {
+            existingServerDetected = true;
+            console.log(
+              `[Server] Port 6969 is already in use by a compatible local server (${url}). Continuing startup.`,
+            );
+            break;
+          }
+        } catch (_) {
+          // Keep probing alternatives
+        }
+      }
+
+      if (!existingServerDetected) {
+        dialog.showErrorBox(
+          "Port 6969 is already in use",
+          "Spice could not start its local server because port 6969 is occupied by another process. Close the conflicting app/process and launch Spice again.",
+        );
+        app.quit();
+        return;
+      }
+    } else {
+      dialog.showErrorBox(
+        "Local server startup failed",
+        `Spice failed to start its local server.\n\n${message}`,
+      );
+      app.quit();
+      return;
+    }
+  }
+
   initStore();
 
   // NUCLEAR OPTION: Clear Cache on Startup
@@ -1547,9 +1689,13 @@ app.whenReady().then(async () => {
       mainWindow.webContents.send("service-active", true);
 
       // Dispatch settings once DOM is interactive
-      view.webContents.on('dom-ready', () => {
-        const vkPlayerEnabled = store ? store.get("vkPlayerEnabled", false) : false;
-        console.log(`[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`);
+      view.webContents.on("dom-ready", () => {
+        const vkPlayerEnabled = store
+          ? store.get("vkPlayerEnabled", false)
+          : false;
+        console.log(
+          `[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`,
+        );
         view.webContents.send("vk-player-config", vkPlayerEnabled);
       });
 
@@ -1642,7 +1788,7 @@ app.whenReady().then(async () => {
       },
     });
 
-    lyricsWindow.loadFile(path.join(__dirname, "lyrics.html"));
+    lyricsWindow.loadURL("http://localhost:6969/lyrics");
 
     lyricsWindow.once("ready-to-show", () => {
       lyricsWindow.show();
@@ -1662,12 +1808,9 @@ app.whenReady().then(async () => {
     return lastTrack || null;
   });
 
-
   ipcMain.on("open-mini-player", () => {
     createMiniPlayerWindow();
   });
-
-
 
   ipcMain.handle("fetch-lyrics", async (event, args) => {
     // args can be just {title, artist} (legacy) or {title, artist, provider}
@@ -1868,7 +2011,7 @@ app.whenReady().then(async () => {
       },
     });
 
-    settingsWindow.loadFile("settings.html");
+    settingsWindow.loadURL("http://localhost:6969/settings");
 
     settingsWindow.on("closed", () => {
       settingsWindow = null;
@@ -1942,7 +2085,7 @@ app.whenReady().then(async () => {
     if (!targetView) return;
     targetView.webContents
       .executeJavaScript(getVolumeScript(currentVolume))
-      .catch(() => { });
+      .catch(() => {});
   }
 
   // Set Volume IPC
@@ -1975,7 +2118,9 @@ app.whenReady().then(async () => {
       defaultService: store ? store.get("defaultService", "yt") : "yt",
       discordRpcEnabled: store ? store.get("discordRpcEnabled", true) : true,
       vkPlayerEnabled: store ? store.get("vkPlayerEnabled", false) : false,
-      topBarSearchEnabled: store ? store.get("topBarSearchEnabled", false) : false,
+      topBarSearchEnabled: store
+        ? store.get("topBarSearchEnabled", false)
+        : false,
     };
   });
 
@@ -1992,7 +2137,7 @@ app.whenReady().then(async () => {
 
   ipcMain.on("execute-search", (event, query) => {
     const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(query)}`;
-    if (view && currentService === 'yt') {
+    if (view && currentService === "yt") {
       const code = `
         (function() {
           var a = document.createElement('a');
@@ -2002,12 +2147,12 @@ app.whenReady().then(async () => {
           a.remove();
         })();
       `;
-      view.webContents.executeJavaScript(code).catch(e => {
+      view.webContents.executeJavaScript(code).catch((e) => {
         console.error("SPA Search failed, falling back to load-url:", e);
-        ipcMain.emit('load-url', event, searchUrl);
+        ipcMain.emit("load-url", event, searchUrl);
       });
     } else {
-      ipcMain.emit('load-url', event, searchUrl);
+      ipcMain.emit("load-url", event, searchUrl);
     }
   });
 

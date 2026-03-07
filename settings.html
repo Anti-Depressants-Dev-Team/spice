@@ -1,589 +1,747 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Spice Settings</title>
+        <link rel="stylesheet" href="styles.css" />
+        <style>
+            body {
+                display: flex;
+                flex-direction: column;
+                margin: 0;
+                padding: 0;
+                background-color: #121212;
+                color: #ffffff;
+                height: 100vh;
+                overflow: hidden;
+            }
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Spice Settings</title>
-    <link rel="stylesheet" href="styles.css">
-    <style>
-        body {
-            display: flex;
-            flex-direction: column;
-            margin: 0;
-            padding: 0;
-            background-color: #121212;
-            color: #ffffff;
-            height: 100vh;
-            overflow: hidden;
-        }
+            #title-bar {
+                position: relative;
+                /* Relative is fine as body is flex column */
+                flex-shrink: 0;
+            }
 
-        #title-bar {
-            position: relative;
-            /* Relative is fine as body is flex column */
-            flex-shrink: 0;
-        }
+            .settings-content {
+                overflow-y: auto;
+                flex-grow: 1;
+                padding: 20px;
+            }
 
-        .settings-content {
-            overflow-y: auto;
-            flex-grow: 1;
-            padding: 20px;
-        }
+            .settings-header {
+                border-bottom: 1px solid #333;
+                padding-bottom: 10px;
+                margin-bottom: 20px;
+            }
 
-        .settings-header {
-            border-bottom: 1px solid #333;
-            padding-bottom: 10px;
-            margin-bottom: 20px;
-        }
+            h2 {
+                margin: 0;
+                font-weight: 300;
+            }
 
-        h2 {
-            margin: 0;
-            font-weight: 300;
-        }
+            .settings-section {
+                margin-bottom: 30px;
+            }
 
-        .settings-section {
-            margin-bottom: 30px;
-        }
+            label {
+                display: block;
+                margin-bottom: 10px;
+                color: #ccc;
+            }
 
-        label {
-            display: block;
-            margin-bottom: 10px;
-            color: #ccc;
-        }
+            /* Toggle CSS */
+            .toggle-container {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 10px 0;
+            }
 
-        /* Toggle CSS */
-        .toggle-container {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 10px 0;
-        }
+            .switch {
+                position: relative;
+                display: inline-block;
+                width: 40px;
+                height: 20px;
+            }
 
-        .switch {
-            position: relative;
-            display: inline-block;
-            width: 40px;
-            height: 20px;
-        }
+            .switch input {
+                opacity: 0;
+                width: 0;
+                height: 0;
+            }
 
-        .switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
+            .slider {
+                position: absolute;
+                cursor: pointer;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: #444;
+                transition: 0.4s;
+                border-radius: 20px;
+            }
 
-        .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: #444;
-            transition: .4s;
-            border-radius: 20px;
-        }
+            .slider:before {
+                position: absolute;
+                content: "";
+                height: 16px;
+                width: 16px;
+                left: 2px;
+                bottom: 2px;
+                background-color: white;
+                transition: 0.4s;
+                border-radius: 50%;
+            }
 
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 16px;
-            width: 16px;
-            left: 2px;
-            bottom: 2px;
-            background-color: white;
-            transition: .4s;
-            border-radius: 50%;
-        }
+            input:checked + .slider {
+                background-color: #ba2f2f;
+                /* Deep Red Accent */
+            }
 
-        input:checked+.slider {
-            background-color: #ba2f2f;
-            /* Deep Red Accent */
-        }
+            input:checked + .slider:before {
+                transform: translateX(20px);
+            }
 
-        input:checked+.slider:before {
-            transform: translateX(20px);
-        }
+            /* Dropdown CSS */
+            select {
+                background-color: #222;
+                color: #fff;
+                border: 1px solid #444;
+                padding: 8px 12px;
+                border-radius: 4px;
+                width: 100%;
+                font-size: 14px;
+                margin-top: 5px;
+                cursor: pointer;
+            }
 
-        /* Dropdown CSS */
-        select {
-            background-color: #222;
-            color: #fff;
-            border: 1px solid #444;
-            padding: 8px 12px;
-            border-radius: 4px;
-            width: 100%;
-            font-size: 14px;
-            margin-top: 5px;
-            cursor: pointer;
-        }
+            select:focus {
+                outline: none;
+                border-color: #ba2f2f;
+            }
 
-        select:focus {
-            outline: none;
-            border-color: #ba2f2f;
-        }
+            /* Input Fields */
+            input[type="text"],
+            input[type="password"] {
+                background-color: #222;
+                color: #fff;
+                border: 1px solid #444;
+                padding: 8px 12px;
+                border-radius: 4px;
+                width: 100%;
+                font-size: 14px;
+                margin-top: 5px;
+                box-sizing: border-box;
+            }
 
-        /* Input Fields */
-        input[type="text"],
-        input[type="password"] {
-            background-color: #222;
-            color: #fff;
-            border: 1px solid #444;
-            padding: 8px 12px;
-            border-radius: 4px;
-            width: 100%;
-            font-size: 14px;
-            margin-top: 5px;
-            box-sizing: border-box;
-        }
+            input[type="text"]:focus,
+            input[type="password"]:focus {
+                outline: none;
+                border-color: #ba2f2f;
+            }
 
-        input[type="text"]:focus,
-        input[type="password"]:focus {
-            outline: none;
-            border-color: #ba2f2f;
-        }
+            /* Buttons */
+            .btn {
+                background-color: #ba2f2f;
+                color: #fff;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+                margin-top: 10px;
+                transition: background-color 0.2s;
+            }
 
-        /* Buttons */
-        .btn {
-            background-color: #ba2f2f;
-            color: #fff;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            margin-top: 10px;
-            transition: background-color 0.2s;
-        }
+            .btn:hover {
+                background-color: #d43d3d;
+            }
 
-        .btn:hover {
-            background-color: #d43d3d;
-        }
+            .btn:disabled {
+                background-color: #444;
+                cursor: not-allowed;
+            }
 
-        .btn:disabled {
-            background-color: #444;
-            cursor: not-allowed;
-        }
+            .btn-secondary {
+                background-color: #333;
+            }
 
-        .btn-secondary {
-            background-color: #333;
-        }
+            .btn-secondary:hover {
+                background-color: #444;
+            }
 
-        .btn-secondary:hover {
-            background-color: #444;
-        }
+            /* Status Indicators */
+            .status {
+                display: inline-block;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 12px;
+                margin-left: 10px;
+            }
 
-        /* Status Indicators */
-        .status {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            margin-left: 10px;
-        }
+            .status-connected {
+                background-color: #2d5a2d;
+                color: #7dff7d;
+            }
 
-        .status-connected {
-            background-color: #2d5a2d;
-            color: #7dff7d;
-        }
+            .status-disconnected {
+                background-color: #5a2d2d;
+                color: #ff7d7d;
+            }
 
-        .status-disconnected {
-            background-color: #5a2d2d;
-            color: #ff7d7d;
-        }
+            /* Section Divider */
+            .section-header {
+                display: flex;
+                align-items: center;
+                margin-bottom: 15px;
+            }
 
-        /* Section Divider */
-        .section-header {
-            display: flex;
-            align-items: center;
-            margin-bottom: 15px;
-        }
+            .section-header h3 {
+                margin: 0;
+                font-weight: 400;
+            }
 
-        .section-header h3 {
-            margin: 0;
-            font-weight: 400;
-        }
+            .credential-fields {
+                padding-left: 10px;
+                border-left: 2px solid #333;
+                margin-top: 10px;
+            }
 
-        .credential-fields {
-            padding-left: 10px;
-            border-left: 2px solid #333;
-            margin-top: 10px;
-        }
+            .field-group {
+                margin-bottom: 12px;
+            }
 
-        .field-group {
-            margin-bottom: 12px;
-        }
+            .field-group label {
+                font-size: 13px;
+                color: #999;
+                margin-bottom: 5px;
+            }
 
-        .field-group label {
-            font-size: 13px;
-            color: #999;
-            margin-bottom: 5px;
-        }
+            .hidden {
+                display: none !important;
+            }
+        </style>
+    </head>
 
-        .hidden {
-            display: none !important;
-        }
-    </style>
-</head>
-
-<body>
-    <!-- Custom Title Bar -->
-    <div id="title-bar">
-        <!-- Spacer/Drag Region -->
-        <div class="drag-region"
-            style="-webkit-app-region: drag; flex-grow: 1; margin-left:15px; display:flex; align-items:center; font-weight:bold; color:#888;">
-            Spice Settings
-        </div>
-
-        <!-- Right Side Controls (Only Close for Settings) -->
-        <div class="window-controls">
-            <button id="btn-close" class="win-btn win-close" title="Close">
-                <svg viewBox="0 0 12 12">
-                    <path fill="currentColor"
-                        d="M11 1.7L10.3 1 6 5.3 1.7 1 1 1.7 5.3 6 1 10.3 1.7 11 6 6.7 10.3 11 11 10.3 6.7 6z" />
-                </svg>
-            </button>
-        </div>
-    </div>
-
-    <!-- Content -->
-    <div class="settings-content">
-        <div class="settings-header">
-            <h2>Preferences</h2>
-        </div>
-
-        <div class="settings-section">
-            <label for="adblock-type" style="font-size: 16px;">AdBlocker Type</label>
-            <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Select which adblocking solution to use.
-                Changing this requires a restart.</p>
-            <select id="adblock-type">
-                <option value="spice">Spice (Built-in)</option>
-                <option value="ublock">uBlock Origin (Best Protection)</option>
-                <option value="ublock_lite">uBlock Origin Lite (Faster)</option>
-                <option value="none">Disabled</option>
-            </select>
-        </div>
-
-        <div class="settings-section">
-            <label for="default-service" style="font-size: 16px;">Default Startup Service</label>
-            <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Select which service to load automatically.
-                Changing this will restart the application.</p>
-            <select id="default-service">
-                <option value="home">None (Home Screen)</option>
-                <option value="yt">YouTube Music</option>
-                <option value="sc">SoundCloud (experimental)</option>
-            </select>
-        </div>
-
-        <div class="settings-section">
-            <div class="toggle-container">
-                <label for="discord-toggle" style="margin:0; font-size: 16px;">Discord Rich Presence</label>
-                <label class="switch">
-                    <input type="checkbox" id="discord-toggle">
-                    <span class="slider"></span>
-                </label>
+    <body>
+        <!-- Custom Title Bar -->
+        <div id="title-bar">
+            <!-- Spacer/Drag Region -->
+            <div
+                class="drag-region"
+                style="
+                    -webkit-app-region: drag;
+                    flex-grow: 1;
+                    margin-left: 15px;
+                    display: flex;
+                    align-items: center;
+                    font-weight: bold;
+                    color: #888;
+                "
+            >
+                Spice Settings
             </div>
-            <p style="color: #666; font-size: 12px; margin-top: 5px;">Show what you're listening to in your Discord
-                status.
-            </p>
-        </div>
 
-        <div class="settings-section">
-            <div class="toggle-container">
-                <label for="vk-player-toggle" style="margin:0; font-size: 16px;">VK Player (YT Music)</label>
-                <label class="switch">
-                    <input type="checkbox" id="vk-player-toggle">
-                    <span class="slider"></span>
-                </label>
-            </div>
-            <p style="color: #666; font-size: 12px; margin-top: 5px;">Replace the standard YouTube Music bottom player
-                with a sleek AMOLED VK-style top player.</p>
-        </div>
-
-        <div class="settings-section">
-            <div class="toggle-container">
-                <label for="topbar-search-toggle" style="margin:0; font-size: 16px;">Top Bar Search (YT Music)</label>
-                <label class="switch">
-                    <input type="checkbox" id="topbar-search-toggle">
-                    <span class="slider"></span>
-                </label>
-            </div>
-            <p style="color: #666; font-size: 12px; margin-top: 5px;">Enable a quick search bar in the top navigation
-                bar tailored for YouTube Music.</p>
-        </div>
-
-        <!-- Scrobbling Section -->
-        <div class="settings-header" style="margin-top: 30px;">
-            <h2>Scrobbling</h2>
-        </div>
-
-        <!-- Last.fm -->
-        <div class="settings-section">
-            <div class="section-header">
-                <div class="toggle-container" style="flex-grow: 1; padding: 0;">
-                    <label for="lastfm-toggle" style="margin:0; font-size: 16px;">Last.fm</label>
-                    <label class="switch">
-                        <input type="checkbox" id="lastfm-toggle">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-                <span id="lastfm-status" class="status status-disconnected">Not Connected</span>
-            </div>
-            <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Scrobble your listening history to Last.fm.
-            </p>
-
-            <div id="lastfm-setup-section" class="hidden">
-                <button id="lastfm-auth-btn" class="btn"
-                    style="width: 100%; background: linear-gradient(135deg, #ba2f2f 0%, #d43d3d 100%); font-weight: bold;">
-                    🎵 Connect to Last.fm
+            <!-- Right Side Controls (Only Close for Settings) -->
+            <div class="window-controls">
+                <button id="btn-close" class="win-btn win-close" title="Close">
+                    <svg viewBox="0 0 12 12">
+                        <path
+                            fill="currentColor"
+                            d="M11 1.7L10.3 1 6 5.3 1.7 1 1 1.7 5.3 6 1 10.3 1.7 11 6 6.7 10.3 11 11 10.3 6.7 6z"
+                        />
+                    </svg>
                 </button>
-                <button id="lastfm-disconnect-btn" class="btn btn-secondary hidden"
-                    style="width: 100%;">Disconnect</button>
             </div>
         </div>
 
-        <!-- ListenBrainz -->
-        <div class="settings-section">
-            <div class="section-header">
-                <div class="toggle-container" style="flex-grow: 1; padding: 0;">
-                    <label for="listenbrainz-toggle" style="margin:0; font-size: 16px;">ListenBrainz</label>
+        <!-- Content -->
+        <div class="settings-content">
+            <div class="settings-header">
+                <h2>Preferences</h2>
+            </div>
+
+            <div class="settings-section">
+                <label for="adblock-type" style="font-size: 16px"
+                    >AdBlocker Type</label
+                >
+                <p style="color: #666; font-size: 12px; margin-bottom: 10px">
+                    Select which adblocking solution to use. Changing this
+                    requires a restart.
+                </p>
+                <select id="adblock-type">
+                    <option value="spice">Spice (Built-in)</option>
+                    <option value="ublock">
+                        uBlock Origin (Best Protection)
+                    </option>
+                    <option value="ublock_lite">
+                        uBlock Origin Lite (Faster)
+                    </option>
+                    <option value="none">Disabled</option>
+                </select>
+            </div>
+
+            <div class="settings-section">
+                <label for="default-service" style="font-size: 16px"
+                    >Default Startup Service</label
+                >
+                <p style="color: #666; font-size: 12px; margin-bottom: 10px">
+                    Select which service to load automatically. Changing this
+                    will restart the application.
+                </p>
+                <select id="default-service">
+                    <option value="home">None (Home Screen)</option>
+                    <option value="yt">YouTube Music</option>
+                    <option value="sc">SoundCloud (experimental)</option>
+                </select>
+            </div>
+
+            <div class="settings-section">
+                <div class="toggle-container">
+                    <label
+                        for="discord-toggle"
+                        style="margin: 0; font-size: 16px"
+                        >Discord Rich Presence</label
+                    >
                     <label class="switch">
-                        <input type="checkbox" id="listenbrainz-toggle">
+                        <input type="checkbox" id="discord-toggle" />
                         <span class="slider"></span>
                     </label>
                 </div>
-                <span id="listenbrainz-status" class="status status-disconnected">Not Connected</span>
+                <p style="color: #666; font-size: 12px; margin-top: 5px">
+                    Show what you're listening to in your Discord status.
+                </p>
             </div>
-            <p style="color: #666; font-size: 12px; margin-bottom: 10px;">Scrobble to ListenBrainz. Get your token from
-                your profile settings.</p>
 
-            <div id="listenbrainz-fields" class="credential-fields hidden">
-                <div class="field-group">
-                    <label for="listenbrainz-token">User Token</label>
-                    <input type="password" id="listenbrainz-token" placeholder="Your ListenBrainz Token">
+            <div class="settings-section">
+                <div class="toggle-container">
+                    <label
+                        for="vk-player-toggle"
+                        style="margin: 0; font-size: 16px"
+                        >VK Player (YT Music)</label
+                    >
+                    <label class="switch">
+                        <input type="checkbox" id="vk-player-toggle" />
+                        <span class="slider"></span>
+                    </label>
                 </div>
-                <button id="listenbrainz-save-btn" class="btn">Save Token</button>
-                <button id="listenbrainz-disconnect-btn" class="btn btn-secondary hidden">Disconnect</button>
+                <p style="color: #666; font-size: 12px; margin-top: 5px">
+                    Replace the standard YouTube Music bottom player with a
+                    sleek AMOLED VK-style top player.
+                </p>
             </div>
-        </div>
-        <!-- Mini Player -->
-        <div class="settings-header" style="margin-top: 30px;">
-            <h2>Mini Player</h2>
-        </div>
-        <div class="settings-section">
-            <p style="color: #ccc; font-size: 14px; margin: 0;">
-                The mini player is also available as a web page at
-                <strong style="color: #ba2f2f;">http://localhost:6969</strong>
-            </p>
-            <p style="color: #666; font-size: 12px; margin-top: 8px;">
-                You can open this URL in any browser or embed it as a browser source in OBS to control playback
-                remotely.
-            </p>
-        </div>
 
-        <!-- Developer Tools -->
-        <div class="settings-header" style="margin-top: 30px;">
-            <h2>Advanced</h2>
-        </div>
-        <div class="settings-section">
-            <div class="section-header">
-                <div>
-                    <label style="margin:0; font-size: 16px;">Developer Tools</label>
-                    <p style="color: #666; font-size: 12px; margin: 0;">Open the developer console for debugging.</p>
+            <div class="settings-section">
+                <div class="toggle-container">
+                    <label
+                        for="topbar-search-toggle"
+                        style="margin: 0; font-size: 16px"
+                        >Top Bar Search (YT Music)</label
+                    >
+                    <label class="switch">
+                        <input type="checkbox" id="topbar-search-toggle" />
+                        <span class="slider"></span>
+                    </label>
                 </div>
-                <button id="open-devtools-btn" class="btn" style="margin-left: auto;">Open Console</button>
+                <p style="color: #666; font-size: 12px; margin-top: 5px">
+                    Enable a quick search bar in the top navigation bar tailored
+                    for YouTube Music.
+                </p>
+            </div>
+
+            <!-- Scrobbling Section -->
+            <div class="settings-header" style="margin-top: 30px">
+                <h2>Scrobbling</h2>
+            </div>
+
+            <!-- Last.fm -->
+            <div class="settings-section">
+                <div class="section-header">
+                    <div
+                        class="toggle-container"
+                        style="flex-grow: 1; padding: 0"
+                    >
+                        <label
+                            for="lastfm-toggle"
+                            style="margin: 0; font-size: 16px"
+                            >Last.fm</label
+                        >
+                        <label class="switch">
+                            <input type="checkbox" id="lastfm-toggle" />
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <span id="lastfm-status" class="status status-disconnected"
+                        >Not Connected</span
+                    >
+                </div>
+                <p style="color: #666; font-size: 12px; margin-bottom: 10px">
+                    Scrobble your listening history to Last.fm.
+                </p>
+
+                <div id="lastfm-setup-section" class="hidden">
+                    <button
+                        id="lastfm-auth-btn"
+                        class="btn"
+                        style="
+                            width: 100%;
+                            background: linear-gradient(
+                                135deg,
+                                #ba2f2f 0%,
+                                #d43d3d 100%
+                            );
+                            font-weight: bold;
+                        "
+                    >
+                        🎵 Connect to Last.fm
+                    </button>
+                    <button
+                        id="lastfm-disconnect-btn"
+                        class="btn btn-secondary hidden"
+                        style="width: 100%"
+                    >
+                        Disconnect
+                    </button>
+                </div>
+            </div>
+
+            <!-- ListenBrainz -->
+            <div class="settings-section">
+                <div class="section-header">
+                    <div
+                        class="toggle-container"
+                        style="flex-grow: 1; padding: 0"
+                    >
+                        <label
+                            for="listenbrainz-toggle"
+                            style="margin: 0; font-size: 16px"
+                            >ListenBrainz</label
+                        >
+                        <label class="switch">
+                            <input type="checkbox" id="listenbrainz-toggle" />
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <span
+                        id="listenbrainz-status"
+                        class="status status-disconnected"
+                        >Not Connected</span
+                    >
+                </div>
+                <p style="color: #666; font-size: 12px; margin-bottom: 10px">
+                    Scrobble to ListenBrainz. Get your token from your profile
+                    settings.
+                </p>
+
+                <div id="listenbrainz-fields" class="credential-fields hidden">
+                    <div class="field-group">
+                        <label for="listenbrainz-token">User Token</label>
+                        <input
+                            type="password"
+                            id="listenbrainz-token"
+                            placeholder="Your ListenBrainz Token"
+                        />
+                    </div>
+                    <button id="listenbrainz-save-btn" class="btn">
+                        Save Token
+                    </button>
+                    <button
+                        id="listenbrainz-disconnect-btn"
+                        class="btn btn-secondary hidden"
+                    >
+                        Disconnect
+                    </button>
+                </div>
+            </div>
+            <!-- Mini Player -->
+            <div class="settings-header" style="margin-top: 30px">
+                <h2>Mini Player</h2>
+            </div>
+            <div class="settings-section">
+                <p style="color: #ccc; font-size: 14px; margin: 0">
+                    The mini player is also available as a web page at
+                    <strong style="color: #ba2f2f"
+                        >http://localhost:6969/mini-player/</strong
+                    >
+                </p>
+                <p style="color: #666; font-size: 12px; margin-top: 8px">
+                    You can open this URL in any browser or embed it as a
+                    browser source in OBS to control playback remotely. The full
+                    app UI is also accessible at
+                    <strong style="color: #ba2f2f"
+                        >http://localhost:6969/</strong
+                    >
+                </p>
+            </div>
+
+            <!-- Developer Tools -->
+            <div class="settings-header" style="margin-top: 30px">
+                <h2>Advanced</h2>
+            </div>
+            <div class="settings-section">
+                <div class="section-header">
+                    <div>
+                        <label style="margin: 0; font-size: 16px"
+                            >Developer Tools</label
+                        >
+                        <p style="color: #666; font-size: 12px; margin: 0">
+                            Open the developer console for debugging.
+                        </p>
+                    </div>
+                    <button
+                        id="open-devtools-btn"
+                        class="btn"
+                        style="margin-left: auto"
+                    >
+                        Open Console
+                    </button>
+                </div>
             </div>
         </div>
-    </div>
 
-    <script>
-        const adBlockTypeSelect = document.getElementById('adblock-type');
-        const defaultServiceSelect = document.getElementById('default-service');
-        const discordToggle = document.getElementById('discord-toggle');
-        const vkPlayerToggle = document.getElementById('vk-player-toggle');
-        const topbarSearchToggle = document.getElementById('topbar-search-toggle');
+        <script>
+            const adBlockTypeSelect = document.getElementById("adblock-type");
+            const defaultServiceSelect =
+                document.getElementById("default-service");
+            const discordToggle = document.getElementById("discord-toggle");
+            const vkPlayerToggle = document.getElementById("vk-player-toggle");
+            const topbarSearchToggle = document.getElementById(
+                "topbar-search-toggle",
+            );
 
-        // Load settings
-        window.api.getSettings().then(settings => {
-            // Migration: if adBlockerType is undefined, map boolean to 'spice' or 'none'
-            if (settings.adBlockerType) {
-                adBlockTypeSelect.value = settings.adBlockerType;
-            } else {
-                adBlockTypeSelect.value = settings.adBlockerEnabled ? 'spice' : 'none';
-            }
+            // Load settings
+            window.api.getSettings().then((settings) => {
+                // Migration: if adBlockerType is undefined, map boolean to 'spice' or 'none'
+                if (settings.adBlockerType) {
+                    adBlockTypeSelect.value = settings.adBlockerType;
+                } else {
+                    adBlockTypeSelect.value = settings.adBlockerEnabled
+                        ? "spice"
+                        : "none";
+                }
 
-            defaultServiceSelect.value = settings.defaultService;
-            discordToggle.checked = settings.discordRpcEnabled;
-            vkPlayerToggle.checked = settings.vkPlayerEnabled;
-            topbarSearchToggle.checked = settings.topBarSearchEnabled;
-        });
+                defaultServiceSelect.value = settings.defaultService;
+                discordToggle.checked = settings.discordRpcEnabled;
+                vkPlayerToggle.checked = settings.vkPlayerEnabled;
+                topbarSearchToggle.checked = settings.topBarSearchEnabled;
+            });
 
-        adBlockTypeSelect.addEventListener('change', (e) => {
-            if (confirm('Changing the adblocker requires a restart. Continue?')) {
-                window.api.setAdBlocker(e.target.value);
-            } else {
-                // Revert
-                window.api.getSettings().then(settings => {
-                    if (settings.adBlockerType) {
-                        adBlockTypeSelect.value = settings.adBlockerType;
-                    } else {
-                        adBlockTypeSelect.value = settings.adBlockerEnabled ? 'spice' : 'none';
+            adBlockTypeSelect.addEventListener("change", (e) => {
+                if (
+                    confirm(
+                        "Changing the adblocker requires a restart. Continue?",
+                    )
+                ) {
+                    window.api.setAdBlocker(e.target.value);
+                } else {
+                    // Revert
+                    window.api.getSettings().then((settings) => {
+                        if (settings.adBlockerType) {
+                            adBlockTypeSelect.value = settings.adBlockerType;
+                        } else {
+                            adBlockTypeSelect.value = settings.adBlockerEnabled
+                                ? "spice"
+                                : "none";
+                        }
+                    });
+                }
+            });
+
+            discordToggle.addEventListener("change", (e) => {
+                window.api.setDiscordRpc(e.target.checked);
+            });
+
+            vkPlayerToggle.addEventListener("change", (e) => {
+                window.api.setVkPlayer(e.target.checked);
+                // Wait for user to reload manually instead of forcing it
+            });
+
+            topbarSearchToggle.addEventListener("change", (e) => {
+                window.api.setTopBarSearch(e.target.checked);
+            });
+
+            defaultServiceSelect.addEventListener("change", (e) => {
+                if (
+                    confirm(
+                        "Changing the default service will restart the application. Continue?",
+                    )
+                ) {
+                    window.api.setDefaultService(e.target.value);
+                } else {
+                    // Revert if cancelled (though hard to revert to original without storing it, but fetching settings again works)
+                    window.api.getSettings().then((settings) => {
+                        defaultServiceSelect.value = settings.defaultService;
+                    });
+                }
+            });
+
+            document
+                .getElementById("btn-close")
+                .addEventListener("click", () =>
+                    window.api.windowControls.close(),
+                );
+
+            // Scrobbler Settings
+            const lastfmToggle = document.getElementById("lastfm-toggle");
+            const lastfmSetupSection = document.getElementById(
+                "lastfm-setup-section",
+            );
+            const lastfmAuthBtn = document.getElementById("lastfm-auth-btn");
+            const lastfmDisconnectBtn = document.getElementById(
+                "lastfm-disconnect-btn",
+            );
+            const lastfmStatus = document.getElementById("lastfm-status");
+
+            const listenbrainzToggle = document.getElementById(
+                "listenbrainz-toggle",
+            );
+            const listenbrainzFields = document.getElementById(
+                "listenbrainz-fields",
+            );
+            const listenbrainzToken =
+                document.getElementById("listenbrainz-token");
+            const listenbrainzSaveBtn = document.getElementById(
+                "listenbrainz-save-btn",
+            );
+            const listenbrainzDisconnectBtn = document.getElementById(
+                "listenbrainz-disconnect-btn",
+            );
+            const listenbrainzStatus = document.getElementById(
+                "listenbrainz-status",
+            );
+
+            // Load scrobbler settings
+            async function loadScrobblerSettings() {
+                const settings = await window.api.scrobbler.getSettings();
+                if (!settings) return;
+
+                // Last.fm
+                lastfmToggle.checked = settings.lastfm.enabled;
+                lastfmSetupSection.classList.toggle(
+                    "hidden",
+                    !settings.lastfm.enabled,
+                );
+
+                if (settings.lastfm.sessionKey) {
+                    lastfmStatus.textContent =
+                        "Connected: " + (settings.lastfm.username || "User");
+                    lastfmStatus.className = "status status-connected";
+                    lastfmAuthBtn.classList.add("hidden");
+                    lastfmDisconnectBtn.classList.remove("hidden");
+                } else {
+                    lastfmStatus.textContent = "Not Connected";
+                    lastfmStatus.className = "status status-disconnected";
+                    lastfmAuthBtn.classList.remove("hidden");
+                    lastfmDisconnectBtn.classList.add("hidden");
+                }
+
+                // ListenBrainz
+                listenbrainzToggle.checked = settings.listenbrainz.enabled;
+                listenbrainzFields.classList.toggle(
+                    "hidden",
+                    !settings.listenbrainz.enabled,
+                );
+
+                if (settings.listenbrainz.token) {
+                    listenbrainzToken.value = settings.listenbrainz.token;
+                    if (settings.listenbrainz.username) {
+                        listenbrainzStatus.textContent =
+                            "Connected: " + settings.listenbrainz.username;
+                        listenbrainzStatus.className =
+                            "status status-connected";
+                        listenbrainzDisconnectBtn.classList.remove("hidden");
                     }
-                });
-            }
-        });
-
-        discordToggle.addEventListener('change', (e) => {
-            window.api.setDiscordRpc(e.target.checked);
-        });
-
-        vkPlayerToggle.addEventListener('change', (e) => {
-            window.api.setVkPlayer(e.target.checked);
-            // Wait for user to reload manually instead of forcing it
-        });
-
-        topbarSearchToggle.addEventListener('change', (e) => {
-            window.api.setTopBarSearch(e.target.checked);
-        });
-
-        defaultServiceSelect.addEventListener('change', (e) => {
-            if (confirm('Changing the default service will restart the application. Continue?')) {
-                window.api.setDefaultService(e.target.value);
-            } else {
-                // Revert if cancelled (though hard to revert to original without storing it, but fetching settings again works)
-                window.api.getSettings().then(settings => {
-                    defaultServiceSelect.value = settings.defaultService;
-                });
-            }
-        });
-
-        document.getElementById('btn-close').addEventListener('click', () => window.api.windowControls.close());
-
-        // Scrobbler Settings
-        const lastfmToggle = document.getElementById('lastfm-toggle');
-        const lastfmSetupSection = document.getElementById('lastfm-setup-section');
-        const lastfmAuthBtn = document.getElementById('lastfm-auth-btn');
-        const lastfmDisconnectBtn = document.getElementById('lastfm-disconnect-btn');
-        const lastfmStatus = document.getElementById('lastfm-status');
-
-        const listenbrainzToggle = document.getElementById('listenbrainz-toggle');
-        const listenbrainzFields = document.getElementById('listenbrainz-fields');
-        const listenbrainzToken = document.getElementById('listenbrainz-token');
-        const listenbrainzSaveBtn = document.getElementById('listenbrainz-save-btn');
-        const listenbrainzDisconnectBtn = document.getElementById('listenbrainz-disconnect-btn');
-        const listenbrainzStatus = document.getElementById('listenbrainz-status');
-
-        // Load scrobbler settings
-        async function loadScrobblerSettings() {
-            const settings = await window.api.scrobbler.getSettings();
-            if (!settings) return;
-
-            // Last.fm
-            lastfmToggle.checked = settings.lastfm.enabled;
-            lastfmSetupSection.classList.toggle('hidden', !settings.lastfm.enabled);
-
-            if (settings.lastfm.sessionKey) {
-                lastfmStatus.textContent = 'Connected: ' + (settings.lastfm.username || 'User');
-                lastfmStatus.className = 'status status-connected';
-                lastfmAuthBtn.classList.add('hidden');
-                lastfmDisconnectBtn.classList.remove('hidden');
-            } else {
-                lastfmStatus.textContent = 'Not Connected';
-                lastfmStatus.className = 'status status-disconnected';
-                lastfmAuthBtn.classList.remove('hidden');
-                lastfmDisconnectBtn.classList.add('hidden');
-            }
-
-            // ListenBrainz
-            listenbrainzToggle.checked = settings.listenbrainz.enabled;
-            listenbrainzFields.classList.toggle('hidden', !settings.listenbrainz.enabled);
-
-            if (settings.listenbrainz.token) {
-                listenbrainzToken.value = settings.listenbrainz.token;
-                if (settings.listenbrainz.username) {
-                    listenbrainzStatus.textContent = 'Connected: ' + settings.listenbrainz.username;
-                    listenbrainzStatus.className = 'status status-connected';
-                    listenbrainzDisconnectBtn.classList.remove('hidden');
                 }
             }
-        }
 
-        // Last.fm handlers
-        lastfmToggle.addEventListener('change', (e) => {
-            window.api.scrobbler.toggleLastFm(e.target.checked);
-            lastfmSetupSection.classList.toggle('hidden', !e.target.checked);
-        });
+            // Last.fm handlers
+            lastfmToggle.addEventListener("change", (e) => {
+                window.api.scrobbler.toggleLastFm(e.target.checked);
+                lastfmSetupSection.classList.toggle(
+                    "hidden",
+                    !e.target.checked,
+                );
+            });
 
-        lastfmAuthBtn.addEventListener('click', async () => {
-            lastfmAuthBtn.disabled = true;
-            lastfmAuthBtn.textContent = 'Authenticating...';
+            lastfmAuthBtn.addEventListener("click", async () => {
+                lastfmAuthBtn.disabled = true;
+                lastfmAuthBtn.textContent = "Authenticating...";
 
-            const result = await window.api.scrobbler.lastFmAuthenticate();
+                const result = await window.api.scrobbler.lastFmAuthenticate();
 
-            if (result.error) {
-                alert('Error: ' + result.error);
-                lastfmAuthBtn.disabled = false;
-                lastfmAuthBtn.textContent = '🎵 Connect to Last.fm';
-            } else if (result.success) {
-                lastfmStatus.textContent = 'Connected: ' + result.username;
-                lastfmStatus.className = 'status status-connected';
-                lastfmAuthBtn.classList.add('hidden');
-                lastfmDisconnectBtn.classList.remove('hidden');
-                lastfmAuthBtn.disabled = false;
-                lastfmAuthBtn.textContent = '🎵 Connect to Last.fm';
-            }
-        });
+                if (result.error) {
+                    alert("Error: " + result.error);
+                    lastfmAuthBtn.disabled = false;
+                    lastfmAuthBtn.textContent = "🎵 Connect to Last.fm";
+                } else if (result.success) {
+                    lastfmStatus.textContent = "Connected: " + result.username;
+                    lastfmStatus.className = "status status-connected";
+                    lastfmAuthBtn.classList.add("hidden");
+                    lastfmDisconnectBtn.classList.remove("hidden");
+                    lastfmAuthBtn.disabled = false;
+                    lastfmAuthBtn.textContent = "🎵 Connect to Last.fm";
+                }
+            });
 
-        lastfmDisconnectBtn.addEventListener('click', () => {
-            window.api.scrobbler.disconnectLastFm();
-            lastfmStatus.textContent = 'Not Connected';
-            lastfmStatus.className = 'status status-disconnected';
-            lastfmAuthBtn.classList.remove('hidden');
-            lastfmDisconnectBtn.classList.add('hidden');
-        });
+            lastfmDisconnectBtn.addEventListener("click", () => {
+                window.api.scrobbler.disconnectLastFm();
+                lastfmStatus.textContent = "Not Connected";
+                lastfmStatus.className = "status status-disconnected";
+                lastfmAuthBtn.classList.remove("hidden");
+                lastfmDisconnectBtn.classList.add("hidden");
+            });
 
-        // ListenBrainz handlers
-        listenbrainzToggle.addEventListener('change', (e) => {
-            window.api.scrobbler.toggleListenBrainz(e.target.checked);
-            listenbrainzFields.classList.toggle('hidden', !e.target.checked);
-        });
+            // ListenBrainz handlers
+            listenbrainzToggle.addEventListener("change", (e) => {
+                window.api.scrobbler.toggleListenBrainz(e.target.checked);
+                listenbrainzFields.classList.toggle(
+                    "hidden",
+                    !e.target.checked,
+                );
+            });
 
-        listenbrainzSaveBtn.addEventListener('click', () => {
-            window.api.scrobbler.saveListenBrainzToken(listenbrainzToken.value.trim());
-        });
+            listenbrainzSaveBtn.addEventListener("click", () => {
+                window.api.scrobbler.saveListenBrainzToken(
+                    listenbrainzToken.value.trim(),
+                );
+            });
 
-        window.api.scrobbler.onListenBrainzValidation((result) => {
-            if (result.valid) {
-                listenbrainzStatus.textContent = 'Connected: ' + (result.username || 'User');
-                listenbrainzStatus.className = 'status status-connected';
-                listenbrainzDisconnectBtn.classList.remove('hidden');
-                alert('Token validated!');
-            } else {
-                listenbrainzStatus.textContent = 'Invalid Token';
-                listenbrainzStatus.className = 'status status-disconnected';
-                listenbrainzDisconnectBtn.classList.add('hidden');
-                alert('Invalid token. Please check and try again.');
-            }
-        });
+            window.api.scrobbler.onListenBrainzValidation((result) => {
+                if (result.valid) {
+                    listenbrainzStatus.textContent =
+                        "Connected: " + (result.username || "User");
+                    listenbrainzStatus.className = "status status-connected";
+                    listenbrainzDisconnectBtn.classList.remove("hidden");
+                    alert("Token validated!");
+                } else {
+                    listenbrainzStatus.textContent = "Invalid Token";
+                    listenbrainzStatus.className = "status status-disconnected";
+                    listenbrainzDisconnectBtn.classList.add("hidden");
+                    alert("Invalid token. Please check and try again.");
+                }
+            });
 
-        listenbrainzDisconnectBtn.addEventListener('click', () => {
-            window.api.scrobbler.disconnectListenBrainz();
-            listenbrainzToken.value = '';
-            listenbrainzStatus.textContent = 'Not Connected';
-            listenbrainzStatus.className = 'status status-disconnected';
-            listenbrainzDisconnectBtn.classList.add('hidden');
-            listenbrainzToggle.checked = false;
-            listenbrainzFields.classList.add('hidden');
-        });
+            listenbrainzDisconnectBtn.addEventListener("click", () => {
+                window.api.scrobbler.disconnectListenBrainz();
+                listenbrainzToken.value = "";
+                listenbrainzStatus.textContent = "Not Connected";
+                listenbrainzStatus.className = "status status-disconnected";
+                listenbrainzDisconnectBtn.classList.add("hidden");
+                listenbrainzToggle.checked = false;
+                listenbrainzFields.classList.add("hidden");
+            });
 
-        // Developer Tools
-        document.getElementById('open-devtools-btn').addEventListener('click', () => {
-            window.api.openDevTools();
-        });
+            // Developer Tools
+            document
+                .getElementById("open-devtools-btn")
+                .addEventListener("click", () => {
+                    window.api.openDevTools();
+                });
 
-        // Load settings on page load
-        loadScrobblerSettings();
-    </script>
-</body>
-
+            // Load settings on page load
+            loadScrobblerSettings();
+        </script>
+    </body>
 </html>
