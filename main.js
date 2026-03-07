@@ -485,9 +485,77 @@ ipcMain.on("vk-player-command", (event, cmd) => {
                 bar.querySelector('[aria-label*="Repeat"]'); 
       if(b) b.click(); 
     })()`,
+    playlist: `(function(){
+      return new Promise((resolve) => {
+        let menuBtn = document.querySelector('ytmusic-player-bar ytmusic-menu-renderer button[aria-label="Action menu"]') ||
+                      document.querySelector('ytmusic-player-bar button[aria-label="Action menu"]') ||
+                      document.querySelector('ytmusic-player-bar ytmusic-menu-renderer tp-yt-paper-icon-button') ||
+                      document.querySelector('ytmusic-player-bar tp-yt-paper-icon-button.expand-button') || 
+                      document.querySelector('ytmusic-player-bar tp-yt-paper-icon-button[aria-label="More player controls"]');
+        
+        if (!menuBtn) {
+            const art = document.querySelector('ytmusic-player-bar .thumbnail-image-wrapper img, ytmusic-player-bar img');
+            if (art) {
+                art.dispatchEvent(new MouseEvent('contextmenu', {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window,
+                    button: 2
+                }));
+            } else {
+                return resolve({success: false, html: 'No menu button or art found'});
+            }
+        } else {
+            menuBtn.click();
+        }
+        
+        let attempts = 0;
+        const interval = setInterval(() => {
+          attempts++;
+          
+          const popup = document.querySelector('ytmusic-popup-container, tp-yt-iron-dropdown');
+          if (!popup && attempts < 15) return;
+          
+          const paths = Array.from(document.querySelectorAll('ytmusic-popup-container path, tp-yt-iron-dropdown path'));
+          const playlistIconPath = paths.find(p => p.getAttribute('d') === 'M22 13h-4v4h-2v-4h-4v-2h4V7h2v4h4v2zm-8-6H2v1h12V7zM2 12h8v-1H2v1zm0 4h8v-1H2v1z' || 
+                                                     (p.getAttribute('d') && p.getAttribute('d').includes('M22 13h-4v4h-2v-4h-4v-2h4V7h2v4h4v2zm-8-6H2v1h12V7zM2 12h8v-1H2v1zm0 4h8v-1H2v1z')));
+          
+          let playlistItem = null;
+          
+          if (playlistIconPath) {
+              playlistItem = playlistIconPath.closest('ytmusic-menu-navigation-item-renderer, ytmusic-menu-service-item-renderer, ytmusic-toggle-menu-service-item-renderer, tp-yt-paper-icon-item, ytmusic-menu-item-renderer');
+          }
+          
+          if (!playlistItem) {
+              const items = Array.from(document.querySelectorAll('ytmusic-popup-container ytmusic-menu-navigation-item-renderer, ytmusic-popup-container ytmusic-menu-service-item-renderer, ytmusic-popup-container ytmusic-toggle-menu-service-item-renderer, ytmusic-popup-container tp-yt-paper-icon-item, tp-yt-iron-dropdown ytmusic-menu-item-renderer, tp-yt-iron-dropdown ytmusic-menu-navigation-item-renderer'));
+              playlistItem = items.find(el => {
+                  const text = el.textContent.toLowerCase();
+                  return text.includes('playlist') || text.includes('save to');
+              });
+          }
+          
+          if (playlistItem) {
+            clearInterval(interval);
+            setTimeout(() => {
+              // YouTube music often expects the inner anchor tag or formatted string to be clicked to trigger the actual navigation/action
+              const clickable = playlistItem.querySelector('a') || playlistItem.querySelector('yt-formatted-string') || playlistItem;
+              clickable.click();
+              resolve({success: true, msg: 'Clicked add to playlist'});
+            }, 50);
+          } else if (attempts >= 15) {
+            clearInterval(interval);
+            resolve({success: false, html: popup ? popup.innerHTML : 'no popup html'});
+          }
+        }, 50);
+      });
+    })()`,
   };
   if (code[cmd]) {
-    view.webContents.executeJavaScript(code[cmd]).catch(() => { });
+    view.webContents.executeJavaScript(code[cmd]).then((res) => {
+      if (cmd === 'playlist' && res && res.success === false) {
+        try { require('fs').writeFileSync('debug_playlist_popup_dump.html', res.html); } catch (e) { }
+      }
+    }).catch(() => { });
   }
 });
 
@@ -539,7 +607,7 @@ function loadService(serviceKey) {
   // Send VK player config once DOM is ready
   view.webContents.on('dom-ready', () => {
     const vkPlayerEnabled = store ? store.get("vkPlayerEnabled", false) : false;
-    console.log(`[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`);
+    console.log(`[Main] DOM Ready.Sending vk- player - config = ${vkPlayerEnabled}`);
     view.webContents.send("vk-player-config", vkPlayerEnabled);
   });
 
@@ -618,7 +686,7 @@ ipcMain.on("load-url", (event, url) => {
     // Send VK player config once DOM is ready
     view.webContents.on('dom-ready', () => {
       const vkPlayerEnabled = store ? store.get("vkPlayerEnabled", false) : false;
-      console.log(`[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`);
+      console.log(`[Main] DOM Ready.Sending vk - player - config = ${vkPlayerEnabled} `);
       view.webContents.send("vk-player-config", vkPlayerEnabled);
     });
 
@@ -680,98 +748,98 @@ function startTrackPolling() {
     try {
       // Query track info directly from the page - simplified to return raw text
       const rawData = await activeView.webContents.executeJavaScript(`
-                    (function () {
-                        const playerBar = document.querySelector('ytmusic-player-bar');
-                        const video = document.querySelector('video');
-                        const albumArtEl = document.querySelector('ytmusic-player-bar .image img, .thumbnail-image-wrapper img');
+    (function () {
+      const playerBar = document.querySelector('ytmusic-player-bar');
+      const video = document.querySelector('video');
+      const albumArtEl = document.querySelector('ytmusic-player-bar .image img, .thumbnail-image-wrapper img');
 
-                        // Get shuffle/repeat state from the DOM
-                        let shuffle = false;
-                        let repeat = 'off';
-                        let likeStatus = false;
-                        
-                        // Like/Heart button logic
-                        const likeBtn = playerBar ? (playerBar.querySelector('ytmusic-like-button-renderer [icon="yt-icons:like"]') || 
-                                        playerBar.querySelector('ytmusic-like-button-renderer.like') ||
-                                        playerBar.querySelector('[aria-label="Like"]')) : null;
-                        if (likeBtn) {
-                            // YT Music uses aria-pressed on a parent tp-yt-paper-icon-button
-                            const parentBtn = likeBtn.closest('tp-yt-paper-icon-button') || likeBtn;
-                            likeStatus = parentBtn.getAttribute('aria-pressed') === 'true';
-                        }
+      // Get shuffle/repeat state from the DOM
+      let shuffle = false;
+      let repeat = 'off';
+      let likeStatus = false;
 
-                        // Shuffle button logic
-                        const shuffleBtn = playerBar ? (playerBar.querySelector('tp-yt-paper-icon-button.shuffle') || playerBar.querySelector('.shuffle.ytmusic-player-bar')) : null;
-                        if (shuffleBtn) {
-                            let isPressed = shuffleBtn.getAttribute('aria-pressed') === 'true';
-                            const innerBtn = shuffleBtn.querySelector('button');
-                            if (!isPressed && innerBtn) {
-                                isPressed = innerBtn.getAttribute('aria-pressed') === 'true';
-                            }
-                            const title = (shuffleBtn.getAttribute('title') || '').toLowerCase();
-                            const ariaLabel = (shuffleBtn.getAttribute('aria-label') || '').toLowerCase();
-                            
-                            // Check literal tooltips / explicit active states
-                            if (title.includes('shuffle on') || ariaLabel.includes('shuffle on') || shuffleBtn.hasAttribute('active') || shuffleBtn.classList.contains('active')) {
-                                shuffle = true;
-                            } else if (title.includes('shuffle off') || ariaLabel.includes('shuffle off')) {
-                                shuffle = false;
-                            } else {
-                                shuffle = isPressed; // Fallback
-                            }
-                        }
-                        
-                        // Repeat button logic
-                        const repeatBtn = playerBar ? (playerBar.querySelector('tp-yt-paper-icon-button.repeat') || playerBar.querySelector('.repeat.ytmusic-player-bar')) : null;
-                        let repeatDebug = '';
-                        if (repeatBtn) {
-                            let isPressed = repeatBtn.getAttribute('aria-pressed') === 'true';
-                            const innerBtn = repeatBtn.querySelector('button');
-                            if (!isPressed && innerBtn) {
-                                isPressed = innerBtn.getAttribute('aria-pressed') === 'true';
-                            }
-                            
-                            const title = (repeatBtn.getAttribute('title') || '').toLowerCase();
-                            const ariaLabel = (repeatBtn.getAttribute('aria-label') || '').toLowerCase();
-                            
-                            // Check literal tooltips: YTM uses literal state strings for ARIA now
-                            if (title.includes('repeat one') || ariaLabel.includes('repeat one') || title.includes('unul') || ariaLabel.includes('unul')) {
-                                repeat = 'one';
-                            } else if (title.includes('repeat off') || ariaLabel.includes('repeat off') || title.includes('dezactivează') || ariaLabel.includes('dezactivează')) {
-                                repeat = 'off';
-                            } else if (title.includes('repeat all') || ariaLabel.includes('repeat all') || title.includes('toate') || ariaLabel.includes('toate') || isPressed || repeatBtn.hasAttribute('active') || repeatBtn.classList.contains('active')) {
-                                repeat = 'all';
-                            } else {
-                                repeat = 'off';
-                            }
-                            
-                            repeatDebug = repeatBtn.outerHTML;
-                        }
+      // Like/Heart button logic
+      const likeBtn = playerBar ? (playerBar.querySelector('ytmusic-like-button-renderer [icon="yt-icons:like"]') ||
+        playerBar.querySelector('ytmusic-like-button-renderer.like') ||
+        playerBar.querySelector('[aria-label="Like"]')) : null;
+      if (likeBtn) {
+        // YT Music uses aria-pressed on a parent tp-yt-paper-icon-button
+        const parentBtn = likeBtn.closest('tp-yt-paper-icon-button') || likeBtn;
+        likeStatus = parentBtn.getAttribute('aria-pressed') === 'true';
+      }
 
-                        if (!playerBar || !video) return { videoOnly: true, paused: video ? video.paused : true, shuffle: shuffle, repeat: repeat, repeatDebug };
+      // Shuffle button logic
+      const shuffleBtn = playerBar ? (playerBar.querySelector('tp-yt-paper-icon-button.shuffle') || playerBar.querySelector('.shuffle.ytmusic-player-bar')) : null;
+      if (shuffleBtn) {
+        let isPressed = shuffleBtn.getAttribute('aria-pressed') === 'true';
+        const innerBtn = shuffleBtn.querySelector('button');
+        if (!isPressed && innerBtn) {
+          isPressed = innerBtn.getAttribute('aria-pressed') === 'true';
+        }
+        const title = (shuffleBtn.getAttribute('title') || '').toLowerCase();
+        const ariaLabel = (shuffleBtn.getAttribute('aria-label') || '').toLowerCase();
 
-                        // Get all the text from player bar
-                        const rawText = playerBar.innerText;
+        // Check literal tooltips / explicit active states
+        if (title.includes('shuffle on') || ariaLabel.includes('shuffle on') || shuffleBtn.hasAttribute('active') || shuffleBtn.classList.contains('active')) {
+          shuffle = true;
+        } else if (title.includes('shuffle off') || ariaLabel.includes('shuffle off')) {
+          shuffle = false;
+        } else {
+          shuffle = isPressed; // Fallback
+        }
+      }
 
-                        // Try to get title directly
-                        let titleEl = document.querySelector('ytmusic-player-bar .title');
-                        let title = titleEl ? titleEl.textContent.trim() : '';
+      // Repeat button logic
+      const repeatBtn = playerBar ? (playerBar.querySelector('tp-yt-paper-icon-button.repeat') || playerBar.querySelector('.repeat.ytmusic-player-bar')) : null;
+      let repeatDebug = '';
+      if (repeatBtn) {
+        let isPressed = repeatBtn.getAttribute('aria-pressed') === 'true';
+        const innerBtn = repeatBtn.querySelector('button');
+        if (!isPressed && innerBtn) {
+          isPressed = innerBtn.getAttribute('aria-pressed') === 'true';
+        }
 
-                        return {
-                            rawText: rawText,
-                            title: title,
-                            albumArt: albumArtEl ? albumArtEl.src : '',
-                            duration: video.duration || 0,
-                            paused: video.paused,
-                            currentTime: video.currentTime,
-                            shuffle: shuffle,
-                            repeat: repeat,
-                            likeStatus: likeStatus,
-                            shuffleDebug: '',
-                            repeatDebug: repeatDebug
-                        };
-                    })();
-                `);
+        const title = (repeatBtn.getAttribute('title') || '').toLowerCase();
+        const ariaLabel = (repeatBtn.getAttribute('aria-label') || '').toLowerCase();
+
+        // Check literal tooltips: YTM uses literal state strings for ARIA now
+        if (title.includes('repeat one') || ariaLabel.includes('repeat one') || title.includes('unul') || ariaLabel.includes('unul')) {
+          repeat = 'one';
+        } else if (title.includes('repeat off') || ariaLabel.includes('repeat off') || title.includes('dezactivează') || ariaLabel.includes('dezactivează')) {
+          repeat = 'off';
+        } else if (title.includes('repeat all') || ariaLabel.includes('repeat all') || title.includes('toate') || ariaLabel.includes('toate') || isPressed || repeatBtn.hasAttribute('active') || repeatBtn.classList.contains('active')) {
+          repeat = 'all';
+        } else {
+          repeat = 'off';
+        }
+
+        repeatDebug = repeatBtn.outerHTML;
+      }
+
+      if (!playerBar || !video) return { videoOnly: true, paused: video ? video.paused : true, shuffle: shuffle, repeat: repeat, repeatDebug };
+
+      // Get all the text from player bar
+      const rawText = playerBar.innerText;
+
+      // Try to get title directly
+      let titleEl = document.querySelector('ytmusic-player-bar .title');
+      let title = titleEl ? titleEl.textContent.trim() : '';
+
+      return {
+        rawText: rawText,
+        title: title,
+        albumArt: albumArtEl ? albumArtEl.src : '',
+        duration: video.duration || 0,
+        paused: video.paused,
+        currentTime: video.currentTime,
+        shuffle: shuffle,
+        repeat: repeat,
+        likeStatus: likeStatus,
+        shuffleDebug: '',
+        repeatDebug: repeatDebug
+      };
+    })();
+  `);
 
       // Parse the raw data in main process
       let track = null;
@@ -827,12 +895,12 @@ function startTrackPolling() {
 
       console.log(
         "[Main Poll] Result:",
-        track ? `${track.title} by ${track.artist}` : "null", "repeat=" + (track ? track.repeat : ''), (track && track.repeatDebug ? `[DEBUG REPEAT] ${track.repeatDebug}` : "")
+        track ? `${track.title} by ${track.artist} ` : "null", "repeat=" + (track ? track.repeat : ''), (track && track.repeatDebug ? `[DEBUG REPEAT] ${track.repeatDebug} ` : "")
       );
 
       if (track && track.repeatDebug) {
         try {
-          require('fs').appendFileSync('spice_debug.log', `[DEBUG REPEAT] repeat=${track.repeat} ` + track.repeatDebug + '\n');
+          require('fs').appendFileSync('spice_debug.log', `[DEBUG REPEAT]repeat = ${track.repeat} ` + track.repeatDebug + '\n');
         } catch (e) { }
       }
 
@@ -981,257 +1049,257 @@ function injectTrackDetection(serviceKey) {
   if (serviceKey === "yt") {
     // YouTube Music track detection
     script = `
-                    (function () {
-                        console.log('[Spice Scrobbler] YouTube Music track detection injected');
-                        console.log('[Spice Scrobbler] Checking for spiceReportTrack:', typeof window.spiceReportTrack);
+    (function () {
+      console.log('[Spice Scrobbler] YouTube Music track detection injected');
+      console.log('[Spice Scrobbler] Checking for spiceReportTrack:', typeof window.spiceReportTrack);
 
-                        let lastTrackKey = null;
-                        let lastTime = 0;
+      let lastTrackKey = null;
+      let lastTime = 0;
 
-                        function getTrackInfo() {
-                            // Title selectors - try multiple options
-                            let titleEl = document.querySelector('ytmusic-player-bar .title.ytmusic-player-bar');
-                            if (!titleEl) titleEl = document.querySelector('.content-info-wrapper .title');
-                            if (!titleEl) titleEl = document.querySelector('ytmusic-player-bar .title');
-                            if (!titleEl) titleEl = document.querySelector('.ytmusic-player-bar-title');
+      function getTrackInfo() {
+        // Title selectors - try multiple options
+        let titleEl = document.querySelector('ytmusic-player-bar .title.ytmusic-player-bar');
+        if (!titleEl) titleEl = document.querySelector('.content-info-wrapper .title');
+        if (!titleEl) titleEl = document.querySelector('ytmusic-player-bar .title');
+        if (!titleEl) titleEl = document.querySelector('.ytmusic-player-bar-title');
 
-                            // Artist selectors - YT Music changed their DOM structure
-                            let artistEl = null;
-                            // Try byline link first (traditional approach)
-                            artistEl = document.querySelector('ytmusic-player-bar .byline a');
-                            if (!artistEl) artistEl = document.querySelector('.content-info-wrapper .byline a');
-                            // Try complex title (newer structure has yt-formatted-string)
-                            if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline yt-formatted-string a');
-                            if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline .yt-formatted-string a');
-                            // Fallback: Get entire byline text (may include extra info but better than nothing)
-                            if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline yt-formatted-string');
-                            if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline .yt-formatted-string');
-                            // Ultimate fallback: Any span/text in subtitle or byline
-                            if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .subtitle span');
-                            if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline span');
-                            if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline');
-                            if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .subtitle');
+        // Artist selectors - YT Music changed their DOM structure
+        let artistEl = null;
+        // Try byline link first (traditional approach)
+        artistEl = document.querySelector('ytmusic-player-bar .byline a');
+        if (!artistEl) artistEl = document.querySelector('.content-info-wrapper .byline a');
+        // Try complex title (newer structure has yt-formatted-string)
+        if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline yt-formatted-string a');
+        if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline .yt-formatted-string a');
+        // Fallback: Get entire byline text (may include extra info but better than nothing)
+        if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline yt-formatted-string');
+        if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline .yt-formatted-string');
+        // Ultimate fallback: Any span/text in subtitle or byline
+        if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .subtitle span');
+        if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline span');
+        if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline');
+        if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .subtitle');
 
-                            // Debug what we found
-                            if (!artistEl) {
-                                const playerBar = document.querySelector('ytmusic-player-bar');
-                                if (playerBar && (!window._lastDump || Date.now() - window._lastDump > 5000)) {
-                                    window._lastDump = Date.now();
-                                    const rawText = playerBar.innerText;
-                                    console.log('[Spice Scrobbler] Player Bar Text:', rawText.substring(0, 200));
-                                    // Split on actual newline character
-                                    const lines = rawText.split(String.fromCharCode(10));
-                                    console.log('[Spice Scrobbler] Lines count:', lines.length);
-                                    if (lines.length >= 2) {
-                                        let artistLine = lines[1]; // Second line usually has artist
-                                        if (artistLine && artistLine.includes(' \\u2022 ')) {
-                                            artistLine = artistLine.split(' \\u2022 ')[0];
-                                        }
-                                        if (artistLine && artistLine.trim()) {
-                                            console.log('[Spice Scrobbler] Extracted artist:', artistLine.trim());
-                                            artistEl = { textContent: artistLine.trim() };
-                                        }
-                                    }
-                                }
-                            }
+        // Debug what we found
+        if (!artistEl) {
+          const playerBar = document.querySelector('ytmusic-player-bar');
+          if (playerBar && (!window._lastDump || Date.now() - window._lastDump > 5000)) {
+            window._lastDump = Date.now();
+            const rawText = playerBar.innerText;
+            console.log('[Spice Scrobbler] Player Bar Text:', rawText.substring(0, 200));
+            // Split on actual newline character
+            const lines = rawText.split(String.fromCharCode(10));
+            console.log('[Spice Scrobbler] Lines count:', lines.length);
+            if (lines.length >= 2) {
+              let artistLine = lines[1]; // Second line usually has artist
+              if (artistLine && artistLine.includes(' \\u2022 ')) {
+                artistLine = artistLine.split(' \\u2022 ')[0];
+              }
+              if (artistLine && artistLine.trim()) {
+                console.log('[Spice Scrobbler] Extracted artist:', artistLine.trim());
+                artistEl = { textContent: artistLine.trim() };
+              }
+            }
+          }
+        }
 
-                            const albumEl = document.querySelector('ytmusic-player-bar .subtitle .yt-formatted-string[href*="browse"]');
-                            const video = document.querySelector('video');
+        const albumEl = document.querySelector('ytmusic-player-bar .subtitle .yt-formatted-string[href*="browse"]');
+        const video = document.querySelector('video');
 
-                            if (!titleEl || !artistEl) {
-                                // Only log once every 10 seconds to reduce spam
-                                if (!window._lastSelectorLog || Date.now() - window._lastSelectorLog > 10000) {
-                                    console.log('[Spice Scrobbler] Waiting for player... Title:', !!titleEl, 'Artist:', !!artistEl);
-                                    window._lastSelectorLog = Date.now();
-                                }
-                                return null;
-                            }
+        if (!titleEl || !artistEl) {
+          // Only log once every 10 seconds to reduce spam
+          if (!window._lastSelectorLog || Date.now() - window._lastSelectorLog > 10000) {
+            console.log('[Spice Scrobbler] Waiting for player... Title:', !!titleEl, 'Artist:', !!artistEl);
+            window._lastSelectorLog = Date.now();
+          }
+          return null;
+        }
 
-                            // Get album art
-                            const albumArtEl = document.querySelector('ytmusic-player-bar .image img, .thumbnail-image-wrapper img, img.ytmusic-player-bar');
-                            let albumArt = albumArtEl?.src || '';
-                            if (albumArt) {
-                                albumArt = albumArt.replace(/w\\d+-h\\d+/, 'w1200-h1200').replace(/=w\\d+-h\\d+/, '=w1200-h1200').replace(/s\\d+-/, 's1200-');
-                            }
+        // Get album art
+        const albumArtEl = document.querySelector('ytmusic-player-bar .image img, .thumbnail-image-wrapper img, img.ytmusic-player-bar');
+        let albumArt = albumArtEl?.src || '';
+        if (albumArt) {
+          albumArt = albumArt.replace(/w\\d+-h\\d+/, 'w1200-h1200').replace(/=w\\d+-h\\d+/, '=w1200-h1200').replace(/s\\d+-/, 's1200-');
+        }
 
-                            const title = titleEl.textContent?.trim();
-                            let artist = artistEl.textContent?.trim();
+        const title = titleEl.textContent?.trim();
+        let artist = artistEl.textContent?.trim();
 
-                            // Clean artist if it contains extra info (like " • Album Name • 2024")
-                            if (artist && artist.includes(' • ')) {
-                                artist = artist.split(' • ')[0].trim();
-                            }
+        // Clean artist if it contains extra info (like " • Album Name • 2024")
+        if (artist && artist.includes(' • ')) {
+          artist = artist.split(' • ')[0].trim();
+        }
 
-                            const album = albumEl?.textContent?.trim() || '';
-                            const duration = video?.duration || 0;
+        const album = albumEl?.textContent?.trim() || '';
+        const duration = video?.duration || 0;
 
-                            if (!title || !artist) return null;
+        if (!title || !artist) return null;
 
-                            console.log('[Spice Scrobbler] Track detected: ' + title + ' by ' + artist);
-                            return { track: title, artist, album, duration, albumArt };
-                        }
+        console.log('[Spice Scrobbler] Track detected: ' + title + ' by ' + artist);
+        return { track: title, artist, album, duration, albumArt };
+      }
 
-                        function checkForTrackChange() {
-                            const video = document.querySelector('video');
-                            if (!video) return;
-                            // Note: We check even if paused to detect track changes while paused? Usually not needed but good for seeking.
+      function checkForTrackChange() {
+        const video = document.querySelector('video');
+        if (!video) return;
+        // Note: We check even if paused to detect track changes while paused? Usually not needed but good for seeking.
 
-                            const track = getTrackInfo();
-                            if (!track) return;
+        const track = getTrackInfo();
+        if (!track) return;
 
-                            const trackKey = track.artist + ' - ' + track.track;
-                            const currentTime = video.currentTime;
-                            const duration = video.duration || 180;
+        const trackKey = track.artist + ' - ' + track.track;
+        const currentTime = video.currentTime;
+        const duration = video.duration || 180;
 
-                            if (lastTrackKey === trackKey) {
-                                // If time jumped back by more than 5 seconds, consider it a seek-to-start or loop
-                                // This handles both automatic loops and manual restarts
-                                if (currentTime < lastTime && (lastTime - currentTime) > 5) {
-                                    console.log('[Spice Scrobbler] Repeat detected! (Time jump: ' + lastTime.toFixed(1) + ' -> ' + currentTime.toFixed(1) + ')');
-                                    track.isRepeat = true;
-                                    window.spiceReportTrack(track); // Report as repeat
-                                    lastTime = currentTime;
-                                    return;
-                                }
-                            }
+        if (lastTrackKey === trackKey) {
+          // If time jumped back by more than 5 seconds, consider it a seek-to-start or loop
+          // This handles both automatic loops and manual restarts
+          if (currentTime < lastTime && (lastTime - currentTime) > 5) {
+            console.log('[Spice Scrobbler] Repeat detected! (Time jump: ' + lastTime.toFixed(1) + ' -> ' + currentTime.toFixed(1) + ')');
+            track.isRepeat = true;
+            window.spiceReportTrack(track); // Report as repeat
+            lastTime = currentTime;
+            return;
+          }
+        }
 
-                            if (lastTrackKey !== trackKey) {
-                                lastTrackKey = trackKey;
-                                console.log('[Spice Scrobbler] Now Playing:', trackKey);
-                                console.log('[Spice Scrobbler] spiceReportTrack available:', typeof window.spiceReportTrack);
+        if (lastTrackKey !== trackKey) {
+          lastTrackKey = trackKey;
+          console.log('[Spice Scrobbler] Now Playing:', trackKey);
+          console.log('[Spice Scrobbler] spiceReportTrack available:', typeof window.spiceReportTrack);
 
-                                // Send to main process
-                                if (typeof window.spiceReportTrack === 'function') {
-                                    console.log('[Spice Scrobbler] Calling spiceReportTrack...');
-                                    window.spiceReportTrack(track);
-                                    console.log('[Spice Scrobbler] spiceReportTrack called successfully');
-                                } else {
-                                    console.log('[Spice Scrobbler] ERROR: spiceReportTrack is NOT a function!');
-                                }
-                            }
+          // Send to main process
+          if (typeof window.spiceReportTrack === 'function') {
+            console.log('[Spice Scrobbler] Calling spiceReportTrack...');
+            window.spiceReportTrack(track);
+            console.log('[Spice Scrobbler] spiceReportTrack called successfully');
+          } else {
+            console.log('[Spice Scrobbler] ERROR: spiceReportTrack is NOT a function!');
+          }
+        }
 
-                            lastTime = currentTime;
-                        }
+        lastTime = currentTime;
+      }
 
-                        // Check every 1 second
-                        setInterval(checkForTrackChange, 1000);
+      // Check every 1 second
+      setInterval(checkForTrackChange, 1000);
 
-                        function getControlsState() {
-                            return { shuffle: false, repeat: 'off' };
-                        }
+      function getControlsState() {
+        return { shuffle: false, repeat: 'off' };
+      }
 
-                        // Report progress/pause state every 500ms
-                        setInterval(() => {
-                            const video = document.querySelector('video');
-                            if (video) {
-                                const controls = getControlsState();
-                                const progress = {
-                                    currentTime: video.currentTime,
-                                    duration: video.duration || 0,
-                                    paused: video.paused,
-                                    shuffle: controls.shuffle,
-                                    repeat: controls.repeat
-                                };
-                                if (typeof window.spiceReportProgress === 'function') {
-                                    window.spiceReportProgress(progress);
-                                }
-                            }
-                        }, 500);
+      // Report progress/pause state every 500ms
+      setInterval(() => {
+        const video = document.querySelector('video');
+        if (video) {
+          const controls = getControlsState();
+          const progress = {
+            currentTime: video.currentTime,
+            duration: video.duration || 0,
+            paused: video.paused,
+            shuffle: controls.shuffle,
+            repeat: controls.repeat
+          };
+          if (typeof window.spiceReportProgress === 'function') {
+            window.spiceReportProgress(progress);
+          }
+        }
+      }, 500);
 
-                        // Also check on video play events to catch immediate changes
-                        document.addEventListener('play', (e) => {
-                            if (e.target.tagName === 'VIDEO') {
-                                setTimeout(checkForTrackChange, 200);
-                            }
-                        }, true);
-                    })();
-                `;
+      // Also check on video play events to catch immediate changes
+      document.addEventListener('play', (e) => {
+        if (e.target.tagName === 'VIDEO') {
+          setTimeout(checkForTrackChange, 200);
+        }
+      }, true);
+    })();
+  `;
   } else if (serviceKey === "sc") {
     // SoundCloud track detection
     script = `
-                    (function () {
-                        console.log('[Spice Scrobbler] SoundCloud track detection injected');
+    (function () {
+      console.log('[Spice Scrobbler] SoundCloud track detection injected');
 
-                        let lastTrackKey = null;
-                        let lastTime = 0;
+      let lastTrackKey = null;
+      let lastTime = 0;
 
-                        function parseTime(timeStr) {
-                            if (!timeStr) return 0;
-                            const parts = timeStr.split(':');
-                            if (parts.length === 2) {
-                                return parseInt(parts[0]) * 60 + parseInt(parts[1]);
-                            } else if (parts.length === 3) {
-                                return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
-                            }
-                            return 0;
-                        }
+      function parseTime(timeStr) {
+        if (!timeStr) return 0;
+        const parts = timeStr.split(':');
+        if (parts.length === 2) {
+          return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+        } else if (parts.length === 3) {
+          return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
+        }
+        return 0;
+      }
 
-                        function getTrackInfo() {
-                            const titleEl = document.querySelector('.playbackSoundBadge__titleLink span:last-child');
-                            const artistEl = document.querySelector('.playbackSoundBadge__lightLink');
+      function getTrackInfo() {
+        const titleEl = document.querySelector('.playbackSoundBadge__titleLink span:last-child');
+        const artistEl = document.querySelector('.playbackSoundBadge__lightLink');
 
-                            if (!titleEl || !artistEl) return null;
+        if (!titleEl || !artistEl) return null;
 
-                            const title = titleEl.textContent?.trim();
-                            const artist = artistEl.textContent?.trim();
+        const title = titleEl.textContent?.trim();
+        const artist = artistEl.textContent?.trim();
 
-                            if (!title || !artist) return null;
+        if (!title || !artist) return null;
 
-                            // Get album art
-                            const albumArtEl = document.querySelector('.playbackSoundBadge__avatar .image span');
-                            let albumArt = '';
-                            if (albumArtEl) {
-                                const bgImage = getComputedStyle(albumArtEl).backgroundImage;
-                                const match = bgImage.match(/url\\(["']?([^"')]+)["']?\\)/);
-                                if (match) {
-                                    albumArt = match[1].replace(/-t\d+x\d+/, '-t500x500');
-                                }
-                            }
+        // Get album art
+        const albumArtEl = document.querySelector('.playbackSoundBadge__avatar .image span');
+        let albumArt = '';
+        if (albumArtEl) {
+          const bgImage = getComputedStyle(albumArtEl).backgroundImage;
+          const match = bgImage.match(/url\\(["']?([^"')]+)["']?\\)/);
+          if (match) {
+            albumArt = match[1].replace(/-t\d+x\d+/, '-t500x500');
+          }
+        }
 
-                            // Parse duration from UI
-                            const progressEl = document.querySelector('.playbackTimeline__duration span[aria-hidden="true"]');
-                            const duration = progressEl ? parseTime(progressEl.textContent) : 0;
+        // Parse duration from UI
+        const progressEl = document.querySelector('.playbackTimeline__duration span[aria-hidden="true"]');
+        const duration = progressEl ? parseTime(progressEl.textContent) : 0;
 
-                            return { track: title, artist, album: '', duration, albumArt };
-                        }
+        return { track: title, artist, album: '', duration, albumArt };
+      }
 
-                        function getPlaybackState() {
-                            // Try to find audio element first
-                            const audio = document.querySelector('media') || document.querySelector('audio');
-                            if (audio) {
-                                return {
-                                    currentTime: audio.currentTime,
-                                    duration: audio.duration,
-                                    paused: audio.paused
-                                };
-                            }
+      function getPlaybackState() {
+        // Try to find audio element first
+        const audio = document.querySelector('media') || document.querySelector('audio');
+        if (audio) {
+          return {
+            currentTime: audio.currentTime,
+            duration: audio.duration,
+            paused: audio.paused
+          };
+        }
 
-                            // Fallback to UI scraping
-                            const timePassedEl = document.querySelector('.playbackTimeline__timePassed span[aria-hidden="true"]');
-                            const currentTime = timePassedEl ? parseTime(timePassedEl.textContent) : 0;
+        // Fallback to UI scraping
+        const timePassedEl = document.querySelector('.playbackTimeline__timePassed span[aria-hidden="true"]');
+        const currentTime = timePassedEl ? parseTime(timePassedEl.textContent) : 0;
 
-                            const playBtn = document.querySelector('.playControl');
-                            const paused = !playBtn || !playBtn.classList.contains('playing');
+        const playBtn = document.querySelector('.playControl');
+        const paused = !playBtn || !playBtn.classList.contains('playing');
 
-                            return { currentTime, paused };
-                        }
+        return { currentTime, paused };
+      }
 
-                        function checkForTrackChange() {
-                            const state = getPlaybackState();
-                            // If UI based, only proceed if not paused? No, we want to update state even if paused but only if track exists.
+      function checkForTrackChange() {
+        const state = getPlaybackState();
+        // If UI based, only proceed if not paused? No, we want to update state even if paused but only if track exists.
 
-                            const track = getTrackInfo();
-                            if (!track) return;
+        const track = getTrackInfo();
+        if (!track) return;
 
-                            const trackKey = track.artist + ' - ' + track.track;
-                            const currentTime = state.currentTime;
-                            const duration = track.duration || 180;
+        const trackKey = track.artist + ' - ' + track.track;
+        const currentTime = state.currentTime;
+        const duration = track.duration || 180;
 
-                            // Repeat Detection
-                            if (lastTrackKey === trackKey) {
-                                // Relaxed logic: Any significant backward jump
-                                if (currentTime < lastTime && (lastTime - currentTime) > 5) {
-                                    console.log(\`[Spice Scrobbler] Repeat detected(SC)! (Time jump: \${lastTime.toFixed(1)} -> \${currentTime.toFixed(1)})\`);
+        // Repeat Detection
+        if (lastTrackKey === trackKey) {
+          // Relaxed logic: Any significant backward jump
+          if (currentTime < lastTime && (lastTime - currentTime) > 5) {
+            console.log(\`[Spice Scrobbler] Repeat detected(SC)! (Time jump: \${lastTime.toFixed(1)} -> \${currentTime.toFixed(1)})\`);
                             track.isRepeat = true;
                             window.spiceReportTrack(track);
                             lastTime = currentTime;
