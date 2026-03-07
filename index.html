@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Spice</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="/styles.css">
 </head>
 
 <body>
@@ -168,7 +168,7 @@
     <div id="home-container">
         <h1>Welcome to Spice</h1>
         <div class="card-container">
-            <button class="service-card yt-music" onclick="window.api.loadService('yt')">
+            <button class="service-card yt-music" onclick="loadService('yt')">
                 <div class="card-icon">
                     <!-- Simple Play Icon for visual -->
                     <svg viewBox="0 0 24 24" width="64" height="64">
@@ -177,7 +177,7 @@
                 </div>
                 <h2>YouTube Music</h2>
             </button>
-            <button class="service-card soundcloud" onclick="window.api.loadService('sc')">
+            <button class="service-card soundcloud" onclick="loadService('sc')">
                 <div class="card-icon">
                     <!-- Cloud Icon for visual -->
                     <svg viewBox="0 0 24 24" width="64" height="64">
@@ -192,33 +192,96 @@
     </div>
 
     <script>
-        function loadService(service) {
-            console.log('Renderer: Clicking service card', service);
-            if (window.api && window.api.loadService) {
-                window.api.loadService(service);
-            } else {
-                console.error('API not exposed!');
+        // Helper to handle both Electron IPC and Browser Fetch (Remote)
+        async function callApi(action, ...args) {
+            console.log(`callApi: ${action}`, args);
+            
+            // 1. Try Electron API if available
+            if (window.api) {
+                if (action === 'loadService') return window.api.loadService(...args);
+                if (action === 'navigate') return window.api.navigate(...args);
+                if (action === 'openLyrics') return window.api.openLyrics();
+                if (action === 'openMiniPlayer') return window.api.openMiniPlayer();
+                if (action === 'openSettings') return window.api.openSettings();
+                if (action === 'loadUrl') return window.api.loadUrl(...args);
+                if (action === 'hideView') return window.api.hideView();
+                if (action === 'showView') return window.api.showView();
+                if (action === 'setVolume') return window.api.setVolume(...args);
+                if (action === 'getVolume') return window.api.getVolume();
+                if (action === 'vkCommand') return window.api.vkCommand(...args);
+                if (action === 'executeSearch') return window.api.executeSearch(...args);
+                if (action === 'windowControls') {
+                    const type = args[0];
+                    if (type === 'minimize') return window.api.windowControls.minimize();
+                    if (type === 'maximize') return window.api.windowControls.maximize();
+                    if (type === 'close') return window.api.windowControls.close();
+                }
+                if (action === 'getTopBarSearch') return window.api.getTopBarSearch();
+            }
+
+            // 2. Fallback to Server API (for regular browser/localhost access)
+            let serverAction = action;
+            let serverData = { args };
+            
+            if (action === 'vkCommand') {
+                const cmd = args[0];
+                if (typeof cmd === 'string') {
+                    serverAction = cmd;
+                } else if (typeof cmd === 'object') {
+                    serverAction = cmd.action;
+                    serverData = cmd;
+                }
+            } else if (action === 'setVolume') {
+                serverAction = 'volume';
+                serverData = { value: args[0] };
+            }
+
+            console.log(`Fallback to Remote API for ${serverAction}`);
+            try {
+                const response = await fetch('/api/control', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: serverAction, ...serverData })
+                });
+                return await response.json();
+            } catch (err) {
+                console.error('Remote API Error:', err);
+                return null;
+            }
+        }
+
+        async function loadService(service) {
+            console.log('Renderer: loadService', service);
+            await callApi('loadService', service);
+            
+            // If in browser (no IPC), manually update UI and start polling
+            if (!window.api) {
+                document.getElementById('home-container').classList.add('hidden');
+                document.body.style.backgroundColor = '#000';
+                document.getElementById('vk-player-bar').classList.remove('hidden');
+                
+                if (!window.statusPolling) {
+                    window.statusPolling = setInterval(pollStatus, 1000);
+                }
             }
         }
 
         // Setup Navigation Listeners
-        // Setup Navigation Listeners
-        document.getElementById('btn-back').addEventListener('click', () => window.api.navigate('back'));
-        document.getElementById('btn-reload').addEventListener('click', () => window.api.navigate('reload'));
-        document.getElementById('btn-home').addEventListener('click', () => window.api.navigate('home'));
-
-        document.getElementById('lyrics-btn').addEventListener('click', () => {
-            if (window.api.openLyrics) window.api.openLyrics();
+        document.getElementById('btn-back').addEventListener('click', () => callApi('navigate', 'back'));
+        document.getElementById('btn-reload').addEventListener('click', () => callApi('navigate', 'reload'));
+        document.getElementById('btn-home').addEventListener('click', () => {
+            console.log('Renderer: Home button clicked');
+            callApi('navigate', 'home');
+            if (!window.api) {
+                document.getElementById('home-container').classList.remove('hidden');
+                document.body.style.backgroundColor = '';
+                document.getElementById('vk-player-bar').classList.add('hidden');
+            }
         });
 
-        document.getElementById('mini-player-btn').addEventListener('click', () => {
-            if (window.api.openMiniPlayer) window.api.openMiniPlayer();
-        });
-
-        document.getElementById('btn-settings').addEventListener('click', () => {
-            console.log('Renderer: btn-settings clicked');
-            if (window.api && window.api.openSettings) window.api.openSettings();
-        });
+        document.getElementById('lyrics-btn').addEventListener('click', () => callApi('openLyrics'));
+        document.getElementById('mini-player-btn').addEventListener('click', () => callApi('openMiniPlayer'));
+        document.getElementById('btn-settings').addEventListener('click', () => callApi('openSettings'));
 
         // URL Modal
         const btnUrl = document.getElementById('btn-url');
@@ -243,8 +306,7 @@
         }
 
         function openUrlModal() {
-            // Hide browser view so modal is visible
-            if (window.api.hideView) window.api.hideView();
+            callApi('hideView');
             urlModal.classList.remove('hidden');
             urlInput.value = '';
             urlError.classList.add('hidden');
@@ -255,21 +317,16 @@
             urlModal.classList.add('hidden');
             urlInput.value = '';
             urlError.classList.add('hidden');
-            // Show browser view again
-            if (window.api.showView) window.api.showView();
+            callApi('showView');
         }
 
         function goToUrl() {
-            console.log('Go button clicked');
             const url = urlInput.value.trim();
             if (!url) return;
-
             if (isValidUrl(url)) {
-                console.log('Sending load-url IPC:', url);
-                window.api.loadUrl(url);
+                callApi('loadUrl', url);
                 closeUrlModal();
             } else {
-                console.log('Invalid URL:', url);
                 urlError.classList.remove('hidden');
             }
         }
@@ -277,21 +334,9 @@
         btnUrl.addEventListener('click', openUrlModal);
         urlCancel.addEventListener('click', closeUrlModal);
         urlGo.addEventListener('click', goToUrl);
-
-        // Close on backdrop click
-        urlModal.addEventListener('click', (e) => {
-            if (e.target === urlModal) closeUrlModal();
-        });
-
-        // Enter key to submit
-        urlInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') goToUrl();
-        });
-
-        // Clear error on input
-        urlInput.addEventListener('input', () => {
-            urlError.classList.add('hidden');
-        });
+        urlModal.addEventListener('click', (e) => { if (e.target === urlModal) closeUrlModal(); });
+        urlInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') goToUrl(); });
+        urlInput.addEventListener('input', () => { urlError.classList.add('hidden'); });
 
         // Volume Controls
         const btnVolume = document.getElementById('btn-volume');
@@ -300,16 +345,18 @@
         const volText = document.getElementById('volume-text');
         const btnBoost = document.getElementById('btn-boost');
 
-        // Boost state
         let boostEnabled = false;
         function getMaxVolume() { return boostEnabled ? 1000 : 200; }
 
-        // Initialize Volume
         (async () => {
-            if (window.api && window.api.getVolume) {
-                const vol = await window.api.getVolume();
+            const volResponse = await callApi('getVolume');
+            let vol = volResponse;
+            if (volResponse && typeof volResponse === 'object' && volResponse.success) {
+                // If it's a browser response without actual volume data
+                vol = 1.0; 
+            }
+            if (vol !== null && typeof vol === 'number') {
                 const sliderVal = Math.round(vol * 100);
-                // Auto-enable boost if stored volume exceeds 200%
                 if (sliderVal > 200) {
                     boostEnabled = true;
                     btnBoost.classList.add('active');
@@ -323,90 +370,56 @@
         btnVolume.addEventListener('click', (e) => {
             e.stopPropagation();
             volPopup.classList.toggle('hidden');
-            const searchContainer = document.getElementById('top-search-container');
-            if (searchContainer) {
-                if (!volPopup.classList.contains('hidden')) {
-                    searchContainer.classList.add('shifted');
-                } else {
-                    searchContainer.classList.remove('shifted');
-                }
+            const sc = document.getElementById('top-search-container');
+            if (sc) {
+                if (!volPopup.classList.contains('hidden')) sc.classList.add('shifted');
+                else sc.classList.remove('shifted');
             }
         });
 
-        // Close popup when clicking outside
         document.addEventListener('click', (e) => {
             if (!volPopup.contains(e.target) && !btnVolume.contains(e.target)) {
                 volPopup.classList.add('hidden');
-                const searchContainer = document.getElementById('top-search-container');
-                if (searchContainer) {
-                    searchContainer.classList.remove('shifted');
-                }
+                const sc = document.getElementById('top-search-container');
+                if (sc) sc.classList.remove('shifted');
             }
         });
 
-        // Volume Change Handler
         function updateVolume(val) {
-            // val is 0-1000 (or 0-200 when boost is off)
-            // Backend expects gain (0.0 - 10.0)
             const gain = val / 100;
-            window.api.setVolume(gain);
+            callApi('setVolume', gain);
             volText.innerText = Math.round(val) + '%';
             volRange.value = val;
         }
 
-        volRange.addEventListener('input', (e) => {
-            updateVolume(e.target.value);
-        });
-
-        // Boost toggle
+        volRange.addEventListener('input', (e) => updateVolume(e.target.value));
         btnBoost.addEventListener('click', (e) => {
             e.stopPropagation();
             boostEnabled = !boostEnabled;
             btnBoost.classList.toggle('active', boostEnabled);
             volRange.max = boostEnabled ? 1000 : 200;
-
-            // Clamp volume down if turning boost off while above 200
-            if (!boostEnabled && parseInt(volRange.value) > 200) {
-                updateVolume(200);
-            }
+            if (!boostEnabled && parseInt(volRange.value) > 200) updateVolume(200);
         });
 
-        // Scroll to change volume (on slider)
         volRange.parentElement.addEventListener('wheel', (e) => {
             e.preventDefault();
-            let val = parseInt(volRange.value);
-            if (e.deltaY < 0) val += 10;
-            else val -= 10;
-
-            // Clamp to current max
+            let val = parseInt(volRange.value) + (e.deltaY < 0 ? 10 : -10);
             const max = getMaxVolume();
-            if (val > max) val = max;
-            if (val < 0) val = 0;
-
+            val = Math.max(0, Math.min(max, val));
             updateVolume(val);
         });
 
-        // Scroll to change volume (on volume icon)
         btnVolume.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            let val = parseInt(volRange.value);
-            if (e.deltaY < 0) val += 10;
-            else val -= 10;
-
+            e.preventDefault(); e.stopPropagation();
+            let val = parseInt(volRange.value) + (e.deltaY < 0 ? 10 : -10);
             const max = getMaxVolume();
-            if (val > max) val = max;
-            if (val < 0) val = 0;
-
+            val = Math.max(0, Math.min(max, val));
             updateVolume(val);
         });
 
-        // Sync volume when changed externally (e.g. from mini player)
         if (window.api && window.api.onVolumeChanged) {
             window.api.onVolumeChanged((gainValue) => {
-                // gainValue is 0.0 - 10.0, slider is 0-1000
                 const sliderVal = Math.round(gainValue * 100);
-                // Auto-enable boost if external volume exceeds 200%
                 if (sliderVal > 200 && !boostEnabled) {
                     boostEnabled = true;
                     btnBoost.classList.add('active');
@@ -417,59 +430,49 @@
             });
         }
 
-        // Double click to type volume
         volRange.parentElement.addEventListener('dblclick', () => {
             const max = getMaxVolume();
             const input = prompt(`Enter volume (0-${max}):`, volRange.value);
             if (input !== null) {
                 let val = parseInt(input);
-                if (isNaN(val)) return;
-                if (val < 0) val = 0;
-                if (val > max) val = max;
-
-                updateVolume(val);
+                if (!isNaN(val)) updateVolume(Math.max(0, Math.min(max, val)));
             }
         });
 
         // Window Controls
-        document.getElementById('btn-min').addEventListener('click', () => {
-            console.log('Renderer: btn-min clicked');
-            if (window.api && window.api.windowControls) window.api.windowControls.minimize();
-        });
-        document.getElementById('btn-max').addEventListener('click', () => {
-            console.log('Renderer: btn-max clicked');
-            if (window.api && window.api.windowControls) window.api.windowControls.maximize();
-        });
-        document.getElementById('btn-close').addEventListener('click', () => {
-            console.log('Renderer: btn-close clicked');
-            if (window.api && window.api.windowControls) window.api.windowControls.close();
-        });
+        document.getElementById('btn-min').addEventListener('click', () => callApi('windowControls', 'minimize'));
+        document.getElementById('btn-max').addEventListener('click', () => callApi('windowControls', 'maximize'));
+        document.getElementById('btn-close').addEventListener('click', () => callApi('windowControls', 'close'));
 
         // Handle Active State
         const homeContainer = document.getElementById('home-container');
-        // Nav container is always visible now
+        if (window.api && window.api.onServiceActive) {
+            window.api.onServiceActive((active) => {
+                if (active) {
+                    homeContainer.classList.add('hidden');
+                    document.body.style.backgroundColor = '#000';
+                } else {
+                    homeContainer.classList.remove('hidden');
+                    document.body.style.backgroundColor = '';
+                    document.getElementById('vk-player-bar').classList.add('hidden');
+                }
+            });
+        }
 
-        window.api.onServiceActive((active) => {
-            if (active) {
-                homeContainer.classList.add('hidden');
-                document.body.style.backgroundColor = '#000';
-            } else {
-                homeContainer.classList.remove('hidden');
-                document.body.style.backgroundColor = '';
-                // Hide VK player when going home
-                document.getElementById('vk-player-bar').classList.add('hidden');
+        // Auto-load default service (YT Music) if on home screen at startup
+        setTimeout(() => {
+            if (!homeContainer.classList.contains('hidden')) {
+                console.log('Renderer: Auto-loading default service (YT Music)');
+                loadService('yt');
             }
-        });
+        }, 1000);
 
         // VK Player Bar
-        if (window.api.onVkPlayerVisibility) {
+        if (window.api && window.api.onVkPlayerVisibility) {
             window.api.onVkPlayerVisibility((visible) => {
                 const vkBar = document.getElementById('vk-player-bar');
-                if (visible) {
-                    vkBar.classList.remove('hidden');
-                } else {
-                    vkBar.classList.add('hidden');
-                }
+                if (visible) vkBar.classList.remove('hidden');
+                else vkBar.classList.add('hidden');
             });
         }
 
@@ -480,84 +483,96 @@
             return m + ':' + (sec < 10 ? '0' : '') + sec;
         }
 
-        if (window.api.onVkTrackUpdate) {
-            window.api.onVkTrackUpdate((info) => {
-                const vkBar = document.getElementById('vk-player-bar');
-                if (vkBar.classList.contains('hidden')) return;
+        function updateVkPlayerUI(info) {
+            const vkBar = document.getElementById('vk-player-bar');
+            if (vkBar.classList.contains('hidden')) return;
 
-                // Track info
-                const titleEl = document.getElementById('vk-track-title');
-                const artistEl = document.getElementById('vk-track-artist');
-                const artEl = document.getElementById('vk-track-art');
-                const playBtn = document.getElementById('vk-btn-play');
-                const progressFill = document.getElementById('vk-progress-fill');
-                const timeCurrent = document.getElementById('vk-time-current');
-                const timeTotal = document.getElementById('vk-time-total');
-                const shuffleBtn = document.getElementById('vk-btn-shuffle');
-                const repeatBtn = document.getElementById('vk-btn-repeat');
-                const likeBtn = document.getElementById('vk-btn-like');
+            const titleEl = document.getElementById('vk-track-title');
+            const artistEl = document.getElementById('vk-track-artist');
+            const artEl = document.getElementById('vk-track-art');
+            const playBtn = document.getElementById('vk-btn-play');
+            const progressFill = document.getElementById('vk-progress-fill');
+            const timeCurrent = document.getElementById('vk-time-current');
+            const timeTotal = document.getElementById('vk-time-total');
+            const shuffleBtn = document.getElementById('vk-btn-shuffle');
+            const repeatBtn = document.getElementById('vk-btn-repeat');
+            const likeBtn = document.getElementById('vk-btn-like');
 
-                if (info.title && titleEl) titleEl.textContent = info.title;
-                if (info.artist && artistEl) artistEl.textContent = info.artist;
-                if (info.albumArt && artEl) {
-                    artEl.src = info.albumArt;
-                    artEl.style.display = 'block';
+            if (info.title && titleEl) titleEl.textContent = info.title;
+            if (info.artist && artistEl) artistEl.textContent = info.artist;
+            if (info.albumArt && artEl) {
+                artEl.src = info.albumArt;
+                artEl.style.display = 'block';
+            }
+
+            if (playBtn) {
+                playBtn.innerHTML = info.paused
+                    ? '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>'
+                    : '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+            }
+
+            if (shuffleBtn) shuffleBtn.style.color = info.shuffle ? 'var(--accent-yt)' : '';
+            if (repeatBtn) {
+                if (info.repeat === 'one') {
+                    repeatBtn.style.color = 'var(--accent-yt)';
+                    repeatBtn.innerHTML = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4L13 15z"/></svg>';
+                } else if (info.repeat === 'all') {
+                    repeatBtn.style.color = 'var(--accent-yt)';
+                    repeatBtn.innerHTML = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>';
+                } else {
+                    repeatBtn.style.color = '';
+                    repeatBtn.innerHTML = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>';
                 }
+            }
 
-                // Play/Pause icon
-                if (playBtn) {
-                    playBtn.innerHTML = info.paused
-                        ? '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>'
-                        : '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+            if (likeBtn) {
+                if (info.likeStatus) {
+                    likeBtn.classList.add('active');
+                    likeBtn.style.color = '#a855f7';
+                } else {
+                    likeBtn.classList.remove('active');
+                    likeBtn.style.color = 'var(--text-muted)';
                 }
+            }
 
-                // Shuffle/Repeat states
-
-                if (shuffleBtn) {
-                    if (info.shuffle) {
-                        shuffleBtn.style.color = 'var(--accent-yt)';
-                    } else {
-                        shuffleBtn.style.color = '';
-                    }
+            if (info.duration && info.duration > 0) {
+                vkCurrentDuration = info.duration;
+                if (!window.isVkDragging) {
+                    const pct = (info.currentTime / info.duration) * 100;
+                    if (progressFill) progressFill.style.width = pct + '%';
+                    if (timeCurrent) timeCurrent.textContent = fmtTime(info.currentTime);
                 }
-
-                if (repeatBtn) {
-                    if (info.repeat === 'one') {
-                        repeatBtn.style.color = 'var(--accent-yt)';
-                        repeatBtn.innerHTML = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4L13 15z"/></svg>';
-                    } else if (info.repeat === 'all') {
-                        repeatBtn.style.color = 'var(--accent-yt)';
-                        repeatBtn.innerHTML = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>';
-                    } else {
-                        repeatBtn.style.color = '';
-                        repeatBtn.innerHTML = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>';
-                    }
-                }
-
-                if (likeBtn) {
-                    if (info.likeStatus) {
-                        likeBtn.classList.add('active');
-                        likeBtn.style.color = '#a855f7'; // AMOLED purple tint
-                    } else {
-                        likeBtn.classList.remove('active');
-                        likeBtn.style.color = 'var(--text-muted)';
-                    }
-                }
-
-                // Progress
-                if (info.duration && info.duration > 0) {
-                    vkCurrentDuration = info.duration;
-                    if (typeof window.isVkDragging === 'undefined' || !window.isVkDragging) {
-                        const pct = (info.currentTime / info.duration) * 100;
-                        if (progressFill) progressFill.style.width = pct + '%';
-                        if (timeCurrent) timeCurrent.textContent = fmtTime(info.currentTime);
-                    }
-                    if (timeTotal) timeTotal.textContent = fmtTime(info.duration);
-                }
-            });
+                if (timeTotal) timeTotal.textContent = fmtTime(info.duration);
+            }
         }
 
-        // Click-to-seek & Drag on VK progress bar
+        if (window.api && window.api.onVkTrackUpdate) {
+            window.api.onVkTrackUpdate(updateVkPlayerUI);
+        }
+
+        async function pollStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const state = await res.json();
+                if (state) {
+                    const info = {
+                        title: state.track ? state.track.title : 'No track playing',
+                        artist: state.track ? state.track.artist : 'Select a song',
+                        albumArt: state.track ? state.track.art : '',
+                        paused: state.paused,
+                        currentTime: state.currentTime,
+                        duration: state.track ? state.track.duration : 0,
+                        shuffle: state.shuffle,
+                        repeat: state.repeat,
+                        likeStatus: state.likeStatus
+                    };
+                    updateVkPlayerUI(info);
+                }
+            } catch (e) {
+                console.error("Polling error:", e);
+            }
+        }
+
         let vkCurrentDuration = 0;
         window.isVkDragging = false;
         const vkProgressBg = document.querySelector('#vk-player-bar .vk-progress-bg');
@@ -567,39 +582,24 @@
                 const rect = vkProgressBg.getBoundingClientRect();
                 const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
                 const seekTime = pct * vkCurrentDuration;
-
-                // Immediate visual feedback
                 const fill = document.getElementById('vk-progress-fill');
                 if (fill) fill.style.width = (pct * 100) + '%';
                 const timeCur = document.getElementById('vk-time-current');
                 if (timeCur) timeCur.textContent = fmtTime(seekTime);
-
                 return seekTime;
             };
 
-            vkProgressBg.addEventListener('mousedown', (e) => {
-                window.isVkDragging = true;
-                updateProgress(e);
-            });
-
-            document.addEventListener('mousemove', (e) => {
-                if (window.isVkDragging) {
-                    updateProgress(e);
-                }
-            });
-
+            vkProgressBg.addEventListener('mousedown', (e) => { window.isVkDragging = true; updateProgress(e); });
+            document.addEventListener('mousemove', (e) => { if (window.isVkDragging) updateProgress(e); });
             document.addEventListener('mouseup', (e) => {
                 if (window.isVkDragging) {
                     window.isVkDragging = false;
-                    const seekTime = updateProgress(e);
-                    if (seekTime !== undefined) {
-                        window.api.vkCommand({ action: 'seek', time: seekTime });
-                    }
+                    const st = updateProgress(e);
+                    if (st !== undefined) callApi('vkCommand', { action: 'seek', time: st });
                 }
             });
         }
 
-        // VK Player control buttons
         const optimisticReset = () => {
             const fill = document.getElementById('vk-progress-fill');
             if (fill) fill.style.width = '0%';
@@ -607,29 +607,21 @@
             if (timeCur) timeCur.textContent = '0:00';
         };
 
-        document.getElementById('vk-btn-prev').addEventListener('click', () => {
-            window.api.vkCommand('prev');
-            optimisticReset();
-        });
+        document.getElementById('vk-btn-prev').addEventListener('click', () => { callApi('vkCommand', 'prev'); optimisticReset(); });
         document.getElementById('vk-btn-play').addEventListener('click', () => {
             const playBtn = document.getElementById('vk-btn-play');
-            const isCurrentlyPaused = playBtn.innerHTML.includes('M8 5v14l11-7z');
-            playBtn.innerHTML = !isCurrentlyPaused
+            const isPaused = playBtn.innerHTML.includes('M8 5v14l11-7z');
+            playBtn.innerHTML = !isPaused
                 ? '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>'
                 : '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
-            window.api.vkCommand('playpause');
+            callApi('vkCommand', 'playpause');
         });
-        document.getElementById('vk-btn-next').addEventListener('click', () => {
-            window.api.vkCommand('next');
-            optimisticReset();
-        });
-        document.getElementById('vk-btn-shuffle').addEventListener('click', () => window.api.vkCommand('shuffle'));
-        document.getElementById('vk-btn-repeat').addEventListener('click', () => window.api.vkCommand('repeat'));
+        document.getElementById('vk-btn-next').addEventListener('click', () => { callApi('vkCommand', 'next'); optimisticReset(); });
+        document.getElementById('vk-btn-shuffle').addEventListener('click', () => callApi('vkCommand', 'shuffle'));
+        document.getElementById('vk-btn-repeat').addEventListener('click', () => callApi('vkCommand', 'repeat'));
         document.getElementById('vk-btn-like').addEventListener('click', () => {
             const likeBtn = document.getElementById('vk-btn-like');
             const isLiked = likeBtn.classList.contains('active');
-
-            // Optimistic UI update
             if (isLiked) {
                 likeBtn.classList.remove('active');
                 likeBtn.style.color = 'var(--text-muted)';
@@ -637,34 +629,32 @@
                 likeBtn.classList.add('active');
                 likeBtn.style.color = '#a855f7';
             }
-
-            window.api.vkCommand('like');
+            callApi('vkCommand', 'like');
         });
-        document.getElementById('vk-btn-playlist').addEventListener('click', () => {
-            window.api.vkCommand('playlist');
-        });
+        document.getElementById('vk-btn-playlist').addEventListener('click', () => callApi('vkCommand', 'playlist'));
 
-        // Top Search Bar Logic
         const topSearchContainer = document.getElementById('top-search-container');
         const topSearchInput = document.getElementById('top-search-input');
 
-        window.api.getTopBarSearch().then(enabled => {
-            topSearchContainer.classList.toggle('visible', enabled);
-        });
-
-        window.api.onTopBarSearchVisibility(visible => {
-            topSearchContainer.classList.toggle('visible', visible);
-            if (visible) {
-                // optionally focus? No, maybe not intrusive focus
+        (async () => {
+            const res = await callApi('getTopBarSearch');
+            // Mock true for browser fallback where possible
+            if (res === true || (res && res.success)) {
+                topSearchContainer.classList.add('visible');
             }
-        });
+        })();
+
+        if (window.api && window.api.onTopBarSearchVisibility) {
+            window.api.onTopBarSearchVisibility(visible => {
+                topSearchContainer.classList.toggle('visible', visible);
+            });
+        }
 
         topSearchInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 const query = topSearchInput.value.trim();
                 if (query) {
-                    window.api.executeSearch(query);
-                    // blur to remove focus after search
+                    callApi('executeSearch', query);
                     topSearchInput.blur();
                 }
             }

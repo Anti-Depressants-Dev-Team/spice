@@ -175,14 +175,21 @@ function createWindow() {
     // mainWindow.webContents.openDevTools({ mode: "detach" }); // Disabled to stop DevTools console from popping up automatically
 
     // Check for Default Service Startup
-    const startupService = store ? store.get("defaultService", "yt") : "yt"; // Default to YT Music
+    // If not set, use 'yt' (YouTube Music)
+    const startupService = store ? store.get("defaultService", "yt") : "yt"; 
 
-    if (startupService && SERVICES[startupService]) {
+    if (startupService && startupService !== "home" && SERVICES[startupService]) {
       console.log(`Auto-loading Default Service: ${startupService}`);
-      loadService(startupService);
+      // Ensure we have a small delay so window is ready
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          loadService(startupService);
+        }
+      }, 500);
     } else {
       // If 'home' or invalid, stay on home (index.html)
       console.log("Staying on Home Screen");
+      mainWindow.webContents.send("service-active", false);
     }
   });
 
@@ -254,12 +261,15 @@ function updateViewBounds() {
   const vkEnabled = store ? store.get("vkPlayerEnabled", false) : false;
   const topOffset = TITLE_BAR_HEIGHT + (vkEnabled ? VK_PLAYER_HEIGHT : 0);
 
-  view.setBounds({
+  const newBounds = {
     x: 0,
-    y: topOffset,
-    width: bounds.width,
-    height: bounds.height - topOffset,
-  });
+    y: Math.round(topOffset),
+    width: Math.round(bounds.width),
+    height: Math.max(0, Math.round(bounds.height - topOffset)),
+  };
+
+  console.log(`[Main] Setting BrowserView bounds:`, newBounds);
+  view.setBounds(newBounds);
 
   // Tell renderer to show/hide the VK player bar
   mainWindow.webContents.send("vk-player-visibility", vkEnabled);
@@ -464,6 +474,7 @@ function loadService(serviceKey) {
         preload: path.join(__dirname, "preload-view.js"),
       },
     });
+    // view.setBackgroundColor('#121212'); // Prevent transparent black screen
     mainWindow.setBrowserView(view);
     console.log("BrowserView set to mainWindow");
   } else {
@@ -479,21 +490,29 @@ function loadService(serviceKey) {
   // Notify renderer that a service is active (to show top bar)
   mainWindow.webContents.send("service-active", true);
 
-  // Send VK player config once DOM is ready
-  view.webContents.on("dom-ready", () => {
+  // Send VK player config once DOM is interactive
+  view.webContents.once("dom-ready", () => {
     const vkPlayerEnabled = store ? store.get("vkPlayerEnabled", false) : false;
     console.log(
       `[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`,
     );
-    console.log(`[Main] DOM Ready.Sending vk- player - config = ${vkPlayerEnabled}`);
     view.webContents.send("vk-player-config", vkPlayerEnabled);
   });
+
+  // Check if already loading this URL to prevent duplicate calls
+  const currentUrl = view.webContents.getURL();
+  if (currentUrl && currentUrl.startsWith(SERVICES[serviceKey])) {
+      console.log(`[Main] Service URL already loaded or loading: ${SERVICES[serviceKey]}`);
+      return;
+  }
 
   console.log(`Loading service URL: ${SERVICES[serviceKey]} `);
   view.webContents
     .loadURL(SERVICES[serviceKey])
     .then(() => {
       console.log(`Successfully loaded ${serviceKey} `);
+      updateViewBounds(); // Re-apply bounds just in case
+
 
       // Inject CSS for Cosmetic Blocking
       view.webContents.insertCSS(AD_CSS);
@@ -511,88 +530,6 @@ function loadService(serviceKey) {
       console.error(`Failed to load ${serviceKey}: `, e);
     });
 }
-
-// Load a specific URL (only YT Music or SoundCloud allowed)
-ipcMain.on("load-url", (event, url) => {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase();
-
-    const isYtMusic =
-      host === "music.youtube.com" || host === "www.music.youtube.com";
-    const isSoundCloud =
-      host === "soundcloud.com" ||
-      host === "www.soundcloud.com" ||
-      host === "m.soundcloud.com";
-
-    if (!isYtMusic && !isSoundCloud) {
-      console.log("Invalid URL rejected:", url);
-      return;
-    }
-
-    const serviceKey = isYtMusic ? "yt" : "sc";
-    currentService = serviceKey;
-
-    if (view) {
-      console.log("Destroying existing BrowserView before loading URL...");
-      mainWindow.setBrowserView(null);
-      view.webContents.destroy();
-      view = null;
-    }
-
-    console.log("Creating new BrowserView for URL...");
-    view = new BrowserView({
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: false,
-        partition: "persist:main",
-        preload: path.join(__dirname, "preload-view.js"),
-      },
-    });
-    mainWindow.setBrowserView(view);
-
-    const viewSession = view.webContents.session;
-    const enabled = store ? store.get("adBlockerEnabled", true) : true;
-    if (enabled && adBlocker) {
-      adBlocker.enableBlockingInSession(viewSession);
-    }
-
-    mainWindow.setBrowserView(view);
-    updateViewBounds();
-    mainWindow.webContents.send("service-active", true);
-
-    // Send VK player config once DOM is ready
-    view.webContents.on("dom-ready", () => {
-      const vkPlayerEnabled = store
-        ? store.get("vkPlayerEnabled", false)
-        : false;
-      console.log(
-        `[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`,
-      );
-    view.webContents.on('dom-ready', () => {
-      const vkPlayerEnabled = store ? store.get("vkPlayerEnabled", false) : false;
-      console.log(`[Main] DOM Ready.Sending vk - player - config = ${vkPlayerEnabled} `);
-      view.webContents.send("vk-player-config", vkPlayerEnabled);
-    });
-
-    console.log(`Loading URL: ${url} `);
-    view.webContents
-      .loadURL(url)
-      .then(() => {
-        console.log(`Successfully loaded URL: ${url} `);
-
-        view.webContents.insertCSS(AD_CSS);
-        injectAdSkipper(view);
-        injectTrackDetection(serviceKey);
-        startTrackPolling();
-      })
-      .catch((e) => {
-        console.error(`Failed to load URL: `, e);
-      });
-  } catch (e) {
-    console.error("Failed to parse URL:", url, e);
-  }
-});
 
 function goHome() {
   console.log("goHome() called");
@@ -700,98 +637,31 @@ function startTrackPolling() {
 
                             repeatDebug = repeatBtn.outerHTML;
                         }
-    (function () {
-      const playerBar = document.querySelector('ytmusic-player-bar');
-      const video = document.querySelector('video');
-      const albumArtEl = document.querySelector('ytmusic-player-bar .image img, .thumbnail-image-wrapper img');
 
-      // Get shuffle/repeat state from the DOM
-      let shuffle = false;
-      let repeat = 'off';
-      let likeStatus = false;
+                        if (!playerBar || !video) return { videoOnly: true, paused: video ? video.paused : true, shuffle: shuffle, repeat: repeat, repeatDebug };
 
-      // Like/Heart button logic
-      const likeBtn = playerBar ? (playerBar.querySelector('ytmusic-like-button-renderer [icon="yt-icons:like"]') ||
-        playerBar.querySelector('ytmusic-like-button-renderer.like') ||
-        playerBar.querySelector('[aria-label="Like"]')) : null;
-      if (likeBtn) {
-        // YT Music uses aria-pressed on a parent tp-yt-paper-icon-button
-        const parentBtn = likeBtn.closest('tp-yt-paper-icon-button') || likeBtn;
-        likeStatus = parentBtn.getAttribute('aria-pressed') === 'true';
-      }
+                        // Get all the text from player bar
+                        const rawText = playerBar.innerText;
 
-      // Shuffle button logic
-      const shuffleBtn = playerBar ? (playerBar.querySelector('tp-yt-paper-icon-button.shuffle') || playerBar.querySelector('.shuffle.ytmusic-player-bar')) : null;
-      if (shuffleBtn) {
-        let isPressed = shuffleBtn.getAttribute('aria-pressed') === 'true';
-        const innerBtn = shuffleBtn.querySelector('button');
-        if (!isPressed && innerBtn) {
-          isPressed = innerBtn.getAttribute('aria-pressed') === 'true';
-        }
-        const title = (shuffleBtn.getAttribute('title') || '').toLowerCase();
-        const ariaLabel = (shuffleBtn.getAttribute('aria-label') || '').toLowerCase();
+                        // Try to get title directly
+                        let titleEl = document.querySelector('ytmusic-player-bar .title');
+                        let title = titleEl ? titleEl.textContent.trim() : '';
 
-        // Check literal tooltips / explicit active states
-        if (title.includes('shuffle on') || ariaLabel.includes('shuffle on') || shuffleBtn.hasAttribute('active') || shuffleBtn.classList.contains('active')) {
-          shuffle = true;
-        } else if (title.includes('shuffle off') || ariaLabel.includes('shuffle off')) {
-          shuffle = false;
-        } else {
-          shuffle = isPressed; // Fallback
-        }
-      }
-
-      // Repeat button logic
-      const repeatBtn = playerBar ? (playerBar.querySelector('tp-yt-paper-icon-button.repeat') || playerBar.querySelector('.repeat.ytmusic-player-bar')) : null;
-      let repeatDebug = '';
-      if (repeatBtn) {
-        let isPressed = repeatBtn.getAttribute('aria-pressed') === 'true';
-        const innerBtn = repeatBtn.querySelector('button');
-        if (!isPressed && innerBtn) {
-          isPressed = innerBtn.getAttribute('aria-pressed') === 'true';
-        }
-
-        const title = (repeatBtn.getAttribute('title') || '').toLowerCase();
-        const ariaLabel = (repeatBtn.getAttribute('aria-label') || '').toLowerCase();
-
-        // Check literal tooltips: YTM uses literal state strings for ARIA now
-        if (title.includes('repeat one') || ariaLabel.includes('repeat one') || title.includes('unul') || ariaLabel.includes('unul')) {
-          repeat = 'one';
-        } else if (title.includes('repeat off') || ariaLabel.includes('repeat off') || title.includes('dezactivează') || ariaLabel.includes('dezactivează')) {
-          repeat = 'off';
-        } else if (title.includes('repeat all') || ariaLabel.includes('repeat all') || title.includes('toate') || ariaLabel.includes('toate') || isPressed || repeatBtn.hasAttribute('active') || repeatBtn.classList.contains('active')) {
-          repeat = 'all';
-        } else {
-          repeat = 'off';
-        }
-
-        repeatDebug = repeatBtn.outerHTML;
-      }
-
-      if (!playerBar || !video) return { videoOnly: true, paused: video ? video.paused : true, shuffle: shuffle, repeat: repeat, repeatDebug };
-
-      // Get all the text from player bar
-      const rawText = playerBar.innerText;
-
-      // Try to get title directly
-      let titleEl = document.querySelector('ytmusic-player-bar .title');
-      let title = titleEl ? titleEl.textContent.trim() : '';
-
-      return {
-        rawText: rawText,
-        title: title,
-        albumArt: albumArtEl ? albumArtEl.src : '',
-        duration: video.duration || 0,
-        paused: video.paused,
-        currentTime: video.currentTime,
-        shuffle: shuffle,
-        repeat: repeat,
-        likeStatus: likeStatus,
-        shuffleDebug: '',
-        repeatDebug: repeatDebug
-      };
-    })();
-  `);
+                        return {
+                            rawText: rawText,
+                            title: title,
+                            albumArt: albumArtEl ? albumArtEl.src : '',
+                            duration: video.duration || 0,
+                            paused: video.paused,
+                            currentTime: video.currentTime,
+                            shuffle: shuffle,
+                            repeat: repeat,
+                            likeStatus: likeStatus,
+                            shuffleDebug: '',
+                            repeatDebug: repeatDebug
+                        };
+                    })();
+                `);
 
       // Parse the raw data in main process
       let track = null;
@@ -859,19 +729,16 @@ function startTrackPolling() {
         "[Main Poll] Result:",
         track ? `${track.title} by ${track.artist}` : "null",
         "repeat=" + (track ? track.repeat : ""),
-        track && track.repeatDebug ? `[DEBUG REPEAT] ${track.repeatDebug}` : "",
-        track ? `${track.title} by ${track.artist} ` : "null", "repeat=" + (track ? track.repeat : ''), (track && track.repeatDebug ? `[DEBUG REPEAT] ${track.repeatDebug} ` : "")
+        track && track.repeatDebug ? `[DEBUG REPEAT] ${track.repeatDebug}` : ""
       );
 
       if (track && track.repeatDebug) {
         try {
           require("fs").appendFileSync(
             "spice_debug.log",
-            `[DEBUG REPEAT] repeat=${track.repeat} ` + track.repeatDebug + "\n",
+            `[DEBUG REPEAT] repeat=${track.repeat} ` + track.repeatDebug + "\n"
           );
         } catch (e) {}
-          require('fs').appendFileSync('spice_debug.log', `[DEBUG REPEAT]repeat = ${track.repeat} ` + track.repeatDebug + '\n');
-        } catch (e) { }
       }
 
       if (track && track.title && track.artist) {
@@ -1326,11 +1193,46 @@ app.on("activate", () => {
 app.whenReady().then(async () => {
   try {
     await miniPlayerServer.startServer((action) => {
-      console.log("[MiniPlayer] Action received:", action);
+      console.log("[Server] Remote Action received:", action);
 
       if (action.action === "close") {
         if (miniPlayerWindow) {
           miniPlayerWindow.close();
+        }
+        return;
+      }
+
+      // Handle Service Loading from Remote
+      if (action.action === "loadService" || action.action === "load-service") {
+        const service = action.service || (action.args && action.args[0]);
+        if (service) {
+          console.log(`[Server] Remote load-service: ${service}`);
+          loadService(service);
+        }
+        return;
+      }
+
+      // Handle Navigation from Remote
+      if (action.action === "navigate") {
+        const navAction = action.navAction || (action.args && action.args[0]);
+        if (navAction) {
+          console.log(`[Server] Remote navigate: ${navAction}`);
+          if (navAction === "home") {
+            goHome();
+          } else if (view) {
+            switch (navAction) {
+              case "back":
+                if (view.webContents.canGoBack()) view.webContents.goBack();
+                break;
+              case "forward":
+                if (view.webContents.canGoForward()) view.webContents.goForward();
+                break;
+              case "reload":
+                app.relaunch();
+                app.exit();
+                break;
+            }
+          }
         }
         return;
       }
@@ -1434,18 +1336,19 @@ app.whenReady().then(async () => {
         .catch((e) => console.error(e));
 
       // Handle volume separately in main process (uses AudioContext gain, not video.volume)
-      if (action.action === "volume" && action.value !== undefined) {
+      if (action.action === "volume" && (action.value !== undefined || (action.args && action.args[0] !== undefined))) {
+        const val = action.value !== undefined ? action.value : action.args[0];
         // Emit internally — picked up by ipcMain.on('set-volume') which calls applyVolume
         ipcMain.emit(
           "set-volume",
           { sender: mainWindow?.webContents },
-          action.value,
+          val,
         );
         // Immediately update mini player server state so slider doesn't reset on next poll
-        miniPlayerServer.updateState({ volume: action.value });
+        miniPlayerServer.updateState({ volume: val });
         // Sync the main app's volume slider
         if (mainWindow)
-          mainWindow.webContents.send("volume-changed", action.value);
+          mainWindow.webContents.send("volume-changed", val);
       }
     });
   } catch (err) {
