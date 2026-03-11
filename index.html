@@ -275,6 +275,11 @@
             </button>
         </div>
 
+        <div id="web-queue-container" class="hidden">
+            <div class="web-queue-header">Up Next</div>
+            <div id="web-queue-list"></div>
+        </div>
+
         <!-- Homepage Selection -->
         <div id="home-container">
             <h1>Welcome to Spice</h1>
@@ -779,6 +784,55 @@
                             likeStatus: state.likeStatus,
                         };
                         updateVkPlayerUI(info);
+
+                        // Render queue in web UI if present and no window.api
+                        if (
+                            !window.api &&
+                            state.queue &&
+                            document.getElementById("web-queue-container")
+                        ) {
+                            const queueContainer = document.getElementById(
+                                "web-queue-container",
+                            );
+                            const queueList =
+                                document.getElementById("web-queue-list");
+
+                            // Only show if there is a track playing
+                            if (state.track) {
+                                queueContainer.classList.remove("hidden");
+
+                                queueList.innerHTML = state.queue
+                                    .map(
+                                        (item, i) => `
+                                    <div class="web-queue-item" data-selected="${item.selected}" onclick="callApi('vkCommand', {action: 'playQueueIndex', index: ${i}})">
+                                        <div class="web-queue-img-wrap">
+                                            <img src="${item.thumbnail || "icon.png"}" alt="Art">
+                                        </div>
+                                        <div class="web-queue-info">
+                                            <div class="web-queue-title" title="${item.title.replace(/"/g, "&quot;")}">${item.title}</div>
+                                            <div class="web-queue-artist" title="${item.artist.replace(/"/g, "&quot;")}">${item.artist}</div>
+                                        </div>
+                                        <div class="web-queue-duration">${item.duration}</div>
+                                    </div>
+                                `,
+                                    )
+                                    .join("");
+
+                                // Auto-scroll to selected if it's the first time we see it
+                                const selected = queueContainer.querySelector(
+                                    '[data-selected="true"]',
+                                );
+                                if (selected && !window.hasScrolledWebQueue) {
+                                    selected.scrollIntoView({
+                                        block: "center",
+                                        behavior: "smooth",
+                                    });
+                                    window.hasScrolledWebQueue = true;
+                                }
+                            } else {
+                                queueContainer.classList.add("hidden");
+                            }
+                        }
                     }
                 } catch (e) {
                     console.error("Polling error:", e);

@@ -348,12 +348,22 @@ ipcMain.on("vk-player-command", (event, cmd) => {
 
   const code = {
     playpause: `(function(){
+      // Try to click the native YouTube Music button first for reliable state management
       const barPlay = document.querySelector('ytmusic-player-bar #play-pause-button') || document.querySelector('ytmusic-player-bar tp-yt-paper-icon-button.play-pause-button');
-      if (barPlay && barPlay.offsetParent !== null) { barPlay.click(); return; }
+      if (barPlay && barPlay.offsetParent !== null) {
+          barPlay.click();
+          return;
+      }
       const anyPlay = document.querySelector('#play-pause-button');
-      if (anyPlay) { anyPlay.click(); return; }
+      if (anyPlay && anyPlay.offsetParent !== null) {
+          anyPlay.click();
+          return;
+      }
+      // Fallback to video element
       const v = document.querySelector('video');
-      if (v) { v.paused ? v.play() : v.pause(); }
+      if (v) {
+          v.paused ? v.play() : v.pause();
+      }
     })()`,
     next: `document.querySelector('.next-button')?.click() || document.querySelector('[aria-label="Next"]')?.click()`,
     prev: `document.querySelector('.previous-button')?.click() || document.querySelector('[aria-label="Previous"]')?.click()`,
@@ -580,7 +590,6 @@ let queuePollingInterval = null;
 function startQueuePolling() {
   if (queuePollingInterval) clearInterval(queuePollingInterval);
   queuePollingInterval = setInterval(async () => {
-    if (!queueWindow || queueWindow.isDestroyed()) return;
     const activeView = getActiveBackendView();
     if (!activeView || !activeView.webContents) return;
 
@@ -601,8 +610,11 @@ function startQueuePolling() {
           });
         })();
       `);
-      if (queueWindow && !queueWindow.isDestroyed() && queueData) {
-        queueWindow.webContents.send("queue-update", queueData);
+      if (queueData) {
+        miniPlayerServer.updateState({ queue: queueData });
+        if (queueWindow && !queueWindow.isDestroyed()) {
+          queueWindow.webContents.send("queue-update", queueData);
+        }
       }
     } catch (e) {
       // Ignore errors when page is still loading
@@ -1309,16 +1321,22 @@ app.whenReady().then(async () => {
                 const click = (sel) => document.querySelector(sel)?.click();
 
                 if ('${action.action}' === 'playpause') {
-                   // Generic toggle or service specific
+                   // Try to click the native YouTube Music button first for reliable state management
                    const barPlay = document.querySelector('ytmusic-player-bar #play-pause-button') || document.querySelector('ytmusic-player-bar tp-yt-paper-icon-button.play-pause-button');
-                   if (barPlay && barPlay.offsetParent !== null) { barPlay.click(); }
-                   else {
-                       const ytm = document.querySelector('#play-pause-button');
-                       if (ytm) ytm.click();
-                       else {
+                   if (barPlay && barPlay.offsetParent !== null) {
+                       barPlay.click();
+                   } else {
+                       const anyPlay = document.querySelector('#play-pause-button');
+                       if (anyPlay && anyPlay.offsetParent !== null) {
+                           anyPlay.click();
+                       } else {
+                           // Fallback to video element
                            const v = document.querySelector('video');
-                           if (v) v.paused ? v.play() : v.pause();
-                           else document.querySelector('.playControl')?.click();
+                           if (v) {
+                               v.paused ? v.play() : v.pause();
+                           } else {
+                               document.querySelector('.playControl')?.click();
+                           }
                        }
                    }
                 }
@@ -1331,6 +1349,16 @@ app.whenReady().then(async () => {
                     const ytm = document.querySelector('.previous-button');
                     if (ytm) ytm.click();
                     else click('.skipControl__previous');
+                }
+                else if ('${action.action}' === 'playQueueIndex') {
+                    const index = ${action.index !== undefined ? action.index : -1};
+                    if (index >= 0) {
+                        const items = document.querySelectorAll('ytmusic-player-queue-item');
+                        if (items && items[index]) {
+                            const playBtn = items[index].querySelector('ytmusic-play-button-renderer') || items[index];
+                            playBtn.click();
+                        }
+                    }
                 }
                 else if ('${action.action}' === 'volume') {
                     // Handled in main process below
