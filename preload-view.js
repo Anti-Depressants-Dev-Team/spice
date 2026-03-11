@@ -92,12 +92,8 @@ const AD_CSS = `
     .ytp-ad-button, .ytp-ad-progress-list, .ytp-ad-player-overlay,
     div.ad-showing, div.ad-interrupting {
         display: none !important;
-        visibility: hidden !important;
         opacity: 0 !important;
         pointer-events: none !important;
-        height: 0 !important;
-        width: 0 !important;
-        z-index: -9999 !important;
     }
 `;
 
@@ -291,21 +287,38 @@ interceptScript.textContent = getTrustedScript(`
                 return originalXhrOpen.apply(this, arguments);
             };
 
-            const originalXhrSend = window.XMLHttpRequest.prototype.send;
-            window.XMLHttpRequest.prototype.send = function (body) {
-                if (typeof body === 'string') {
-                    try {
-                        const bodyData = JSON.parse(body);
-                        if (bodyData.context) {
-                            window.postMessage({ type: 'SPICE_API_CONTEXT', context: bodyData.context }, '*');
-                        }
-                    } catch (e) { }
+    const originalXhrSend = window.XMLHttpRequest.prototype.send;
+    window.XMLHttpRequest.prototype.send = function (body) {
+        if (typeof body === 'string') {
+            try {
+                const bodyData = JSON.parse(body);
+                if (bodyData.context) {
+                    window.postMessage({ type: 'SPICE_API_CONTEXT', context: bodyData.context }, '*');
                 }
-                return originalXhrSend.apply(this, arguments);
-            };
-        })();
-    `);
-document.documentElement.appendChild(interceptScript);
+            } catch (e) { }
+        }
+        return originalXhrSend.apply(this, arguments);
+    };
+})();
+`);
+
+// SAFEST INJECTION METHOD: Append to whatever is available, or use window/document events.
+// Because preload scripts run BEFORE the DOM is constructed, document.head or document.documentElement might be null.
+function injectScript() {
+    try {
+        const parent = document.head || document.documentElement || document.body;
+        if (parent) {
+            parent.appendChild(interceptScript);
+        } else {
+            // Ultimate fallback
+            setTimeout(injectScript, 10);
+        }
+    } catch (e) {
+        console.error('[Preload] Failed to inject interceptScript:', e);
+    }
+}
+
+injectScript();
 
 // Listen for the stolen credentials and send them to the main process
 window.addEventListener('message', (event) => {

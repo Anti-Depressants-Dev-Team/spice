@@ -1,108 +1,250 @@
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
+const http = require("http");
+const fs = require("fs");
+const path = require("path");
 
 const PORT = 6969;
-const PUBLIC_DIR = path.join(__dirname, 'mini-player');
+const MINI_PLAYER_DIR = path.join(__dirname, "mini-player");
+const APP_ROOT_DIR = path.join(__dirname, "..");
 
 let server;
 let currentState = {
-    track: null,
-    currentTime: 0,
-    paused: true,
-    volume: 1.0
+  track: null,
+  currentTime: 0,
+  paused: true,
+  volume: 1.0,
+  shuffle: false,
+  repeat: "off",
 };
 
 let controlCallback = null;
 
+// --- MIME map ---
+const contentTypes = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".txt": "text/plain; charset=utf-8",
+};
+
+// --- App UI route mapping ---
+// These files live in project root: /spice
+const APP_UI_FILES = {
+  "/": "index.html",
+  "/index.html": "index.html",
+  "/settings": "settings.html",
+  "/settings.html": "settings.html",
+  "/lyrics": "lyrics.html",
+  "/lyrics.html": "lyrics.html",
+  "/queue": "queue.html",
+  "/queue.html": "queue.html",
+  "/styles.css": "styles.css",
+  "/lyrics.js": "lyrics.js",
+  "/icon.png": "icon.png",
+};
+
+function setCorsHeaders(res) {
+  // Keep broad CORS for mini-player and local API usability
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+function sendJson(res, statusCode, data) {
+  res.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+  });
+  res.end(JSON.stringify(data));
+}
+
+function sendText(res, statusCode, text) {
+  res.writeHead(statusCode, { "Content-Type": "text/plain; charset=utf-8" });
+  res.end(text);
+}
+
+function serveFile(res, filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  const type = contentTypes[ext] || "application/octet-stream";
+
+  fs.readFile(filePath, (err, content) => {
+    if (err) {
+      if (err.code === "ENOENT") {
+        sendText(res, 404, "404 Not Found");
+      } else {
+        sendText(res, 500, "500 Server Error");
+      }
+      return;
+    }
+
+    res.writeHead(200, { "Content-Type": type });
+    res.end(content);
+  });
+}
+
+function safeJoin(baseDir, requestPath) {
+  const normalized = path.normalize(requestPath).replace(/^(\.\.[/\\])+/, "");
+  return path.join(baseDir, normalized);
+}
+
+function handleApi(req, res, pathname) {
+  if (pathname === "/api/status" && req.method === "GET") {
+    return sendJson(res, 200, currentState);
+  }
+
+  if (pathname === "/api/control" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+      // Basic body size guard
+      if (body.length > 1024 * 1024) {
+        req.destroy();
+      }
+    });
+
+    req.on("end", () => {
+      try {
+        const data = JSON.parse(body || "{}");
+        if (controlCallback) controlCallback(data);
+        sendJson(res, 200, { success: true });
+      } catch (e) {
+        sendText(res, 400, "Invalid JSON");
+      }
+    });
+
+    return;
+  }
+
+  sendText(res, 404, "404 Not Found");
+}
+
+function handleMiniPlayerStatic(res, req, pathname) {
+  // Redirect /mini-player (no trailing slash) -> /mini-player/
+  // so that relative assets (styles.css, script.js) resolve correctly.
+  if (pathname === "/mini-player") {
+    const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+    res.writeHead(301, { Location: "/mini-player/" + qs });
+    res.end();
+    return;
+  }
+
+  // /mini-player/ -> index.html, /mini-player/foo.js -> foo.js, etc.
+  const rel =
+    pathname === "/mini-player/"
+      ? "/index.html"
+      : pathname.replace(/^\/mini-player/, "");
+
+  const filePath = safeJoin(MINI_PLAYER_DIR, rel);
+
+  // Anti-directory traversal
+  if (!filePath.startsWith(MINI_PLAYER_DIR)) {
+    return sendText(res, 403, "403 Forbidden");
+  }
+
+  serveFile(res, filePath);
+}
+
+function handleAppUiStatic(res, pathname) {
+  const mapped = APP_UI_FILES[pathname];
+  if (!mapped) {
+    return false;
+  }
+
+  const filePath = path.join(APP_ROOT_DIR, mapped);
+
+  // Safety check (should always pass due to map)
+  if (!filePath.startsWith(APP_ROOT_DIR)) {
+    sendText(res, 403, "403 Forbidden");
+    return true;
+  }
+
+  serveFile(res, filePath);
+  return true;
+}
+
 function startServer(callback) {
-    if (controlCallback) return; // Already running logic check
-    controlCallback = callback;
+  // If already running, only refresh callback
+  controlCallback = callback || controlCallback;
+
+  if (server) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const onListening = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+
+    const onError = (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
 
     server = http.createServer((req, res) => {
-        // CORs
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      setCorsHeaders(res);
 
-        if (req.method === 'OPTIONS') {
-            res.writeHead(204);
-            res.end();
-            return;
-        }
+      if (req.method === "OPTIONS") {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
 
-        // API Endpoints
-        if (req.url === '/api/status') {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(currentState));
-            return;
-        }
+      const host = req.headers.host || `localhost:${PORT}`;
+      const parsed = new URL(req.url, `http://${host}`);
+      const pathname = parsed.pathname;
 
-        if (req.url === '/api/control' && req.method === 'POST') {
-            let body = '';
-            req.on('data', chunk => body += chunk.toString());
-            req.on('end', () => {
-                try {
-                    const data = JSON.parse(body);
-                    if (controlCallback) controlCallback(data);
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ success: true }));
-                } catch (e) {
-                    res.writeHead(400);
-                    res.end('Invalid JSON');
-                }
-            });
-            return;
-        }
+      // API endpoints
+      if (pathname.startsWith("/api/")) {
+        return handleApi(req, res, pathname);
+      }
 
-        // Static Files
-        let filePath = req.url === '/' ? '/index.html' : req.url;
-        filePath = path.join(PUBLIC_DIR, filePath);
+      // Mini-player static: /mini-player, /mini-player/, /mini-player/*
+      if (
+        pathname === "/mini-player" ||
+        pathname === "/mini-player/" ||
+        pathname.startsWith("/mini-player/")
+      ) {
+        return handleMiniPlayerStatic(res, req, pathname);
+      }
 
-        // Anti-directory traversal
-        if (!filePath.startsWith(PUBLIC_DIR)) {
-            res.writeHead(403);
-            res.end();
-            return;
-        }
+      // App UI static routes
+      if (handleAppUiStatic(res, pathname)) {
+        return;
+      }
 
-        const ext = path.extname(filePath);
-        const contentTypes = {
-            '.html': 'text/html',
-            '.css': 'text/css',
-            '.js': 'text/javascript',
-            '.png': 'image/png',
-            '.jpg': 'image/jpeg',
-            '.svg': 'image/svg+xml'
-        };
-
-        fs.readFile(filePath, (err, content) => {
-            if (err) {
-                if (err.code === 'ENOENT') {
-                    res.writeHead(404);
-                    res.end('404 Not Found');
-                } else {
-                    res.writeHead(500);
-                    res.end('500 Server Error');
-                }
-            } else {
-                res.writeHead(200, { 'Content-Type': contentTypes[ext] || 'text/plain' });
-                res.end(content);
-            }
-        });
+      sendText(res, 404, "404 Not Found");
     });
+
+    server.once("listening", onListening);
+    server.once("error", onError);
 
     server.listen(PORT, () => {
-        console.log(`[MiniPlayer] Server running on http://localhost:${PORT}`);
+      console.log(`[Server] Running on http://localhost:${PORT}`);
+      console.log(`[Server] Main UI:      http://localhost:${PORT}/`);
+      console.log(
+        `[Server] Mini Player:  http://localhost:${PORT}/mini-player/`,
+      );
+      console.log(`[Server] Settings:     http://localhost:${PORT}/settings`);
+      console.log(`[Server] Lyrics:       http://localhost:${PORT}/lyrics`);
+      console.log(`[Server] API Status:   http://localhost:${PORT}/api/status`);
     });
 
-    server.on('error', (err) => {
-        console.error('[MiniPlayer] Server error:', err.message);
+    // Keep runtime logging after startup as well
+    server.on("error", (err) => {
+      console.error("[Server] Error:", err.message);
     });
+  });
 }
 
 function updateState(newState) {
-    currentState = { ...currentState, ...newState };
+  currentState = { ...currentState, ...newState };
 }
 
 module.exports = { startServer, updateState };

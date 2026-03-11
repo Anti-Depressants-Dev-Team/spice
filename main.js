@@ -16,7 +16,7 @@ function logToFile(msg) {
   try {
     const timestamp = new Date().toISOString();
     fs.appendFileSync(logFile, `[${timestamp}] ${msg}\n`);
-  } catch (e) { }
+  } catch (e) {}
 }
 
 // Override console methods to log to file in production
@@ -26,13 +26,13 @@ console.log = (...args) => {
   originalConsoleLog(...args);
   try {
     logToFile(`INFO: ${args.join(" ")}`);
-  } catch (e) { }
+  } catch (e) {}
 };
 console.error = (...args) => {
   originalConsoleError(...args);
   try {
     logToFile(`ERROR: ${args.join(" ")}`);
-  } catch (e) { }
+  } catch (e) {}
 };
 
 // Handle uncaught exceptions immediately
@@ -43,7 +43,7 @@ process.on("uncaughtException", (error) => {
       "Critical Error",
       `A critical error occurred:\n${error.message}\nCheck debug.log for details.`,
     );
-  } catch (e) { }
+  } catch (e) {}
 });
 
 console.log("App Starting...");
@@ -69,6 +69,7 @@ let scrobbler = null;
 let currentService = null; // Track which service is active for Discord RPC
 let lastTrack = null; // Store last track to send to lyrics on open
 let lyricsWindow = null;
+let queueWindow = null;
 let currentVolume = 1.0; // Volume gain value (0.0 - 10.0), shared across scopes
 
 const SERVICES = {
@@ -169,20 +170,31 @@ function createWindow() {
     }
   });
 
-  // Initial load
-  mainWindow.loadFile(path.join(__dirname, "index.html")).then(() => {
+  // Initial load via local server
+  mainWindow.loadURL("http://localhost:6969/").then(() => {
     mainWindow.show();
     // mainWindow.webContents.openDevTools({ mode: "detach" }); // Disabled to stop DevTools console from popping up automatically
 
     // Check for Default Service Startup
-    const startupService = store ? store.get("defaultService", "yt") : "yt"; // Default to YT Music
+    // If not set, use 'yt' (YouTube Music)
+    const startupService = store ? store.get("defaultService", "yt") : "yt";
 
-    if (startupService && SERVICES[startupService]) {
+    if (
+      startupService &&
+      startupService !== "home" &&
+      SERVICES[startupService]
+    ) {
       console.log(`Auto-loading Default Service: ${startupService}`);
-      loadService(startupService);
+      // Ensure we have a small delay so window is ready
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          loadService(startupService);
+        }
+      }, 500);
     } else {
       // If 'home' or invalid, stay on home (index.html)
       console.log("Staying on Home Screen");
+      mainWindow.webContents.send("service-active", false);
     }
   });
 
@@ -236,139 +248,14 @@ function createMiniPlayerWindow() {
   });
 
   miniPlayerWindow.setMenuBarVisibility(false);
-  miniPlayerWindow.loadURL("http://localhost:6969"); // Load from local server
+  miniPlayerWindow.loadURL("http://localhost:6969/mini-player/"); // Load from local server
 
   miniPlayerWindow.on("closed", () => {
     miniPlayerWindow = null;
   });
 }
 
-// Initialize Server
-app.whenReady().then(() => {
-  miniPlayerServer.startServer((action) => {
-    console.log("[MiniPlayer] Action received:", action);
-
-    if (action.action === "close") {
-      if (miniPlayerWindow) {
-        miniPlayerWindow.close();
-      }
-      return;
-    }
-
-    const playerView = getActiveBackendView();
-    if (!playerView) return;
-
-    // Execute actions on the main player view
-    const code = `
-            (function() {
-                const click = (sel) => document.querySelector(sel)?.click();
-
-                if ('${action.action}' === 'playpause') {
-                   // Generic toggle or service specific
-                   const ytm = document.querySelector('#play-pause-button');
-                   if (ytm) ytm.click();
-                   else click('.playControl');
-                }
-                else if ('${action.action}' === 'next') {
-                    const ytm = document.querySelector('.next-button');
-                    if (ytm) ytm.click();
-                    else click('.skipControl__next');
-                }
-                else if ('${action.action}' === 'prev') {
-                    const ytm = document.querySelector('.previous-button');
-                    if (ytm) ytm.click();
-                    else click('.skipControl__previous');
-                }
-                else if ('${action.action}' === 'volume') {
-                    // Handled in main process below
-                }
-                else if ('${action.action}' === 'shuffle') {
-                    console.log('[MiniPlayer] Shuffle requested');
-
-                    const findBtn = (selectors) => {
-                        for (const s of selectors) {
-                            const el = document.querySelector(s);
-                            if (el) return el;
-                        }
-                        return null;
-                    };
-
-                    // YTM Selectors (various states)
-                    const ytmShuffle = findBtn([
-                        '.shuffle-button',
-                        'tp-yt-paper-icon-button[aria-label="Shuffle"]',
-                        'tp-yt-paper-icon-button[aria-label="Shuffle on"]',
-                        'tp-yt-paper-icon-button[aria-label="Shuffle off"]',
-                        'ytmusic-player-bar .shuffle',
-                        '[class*="shuffle"]'
-                    ]);
-
-                    if (ytmShuffle) {
-                        console.log('[MiniPlayer] YTM Shuffle found:', ytmShuffle);
-                        ytmShuffle.click();
-                    } else {
-                         console.log('[MiniPlayer] YTM Shuffle NOT found');
-                    }
-
-                    // SoundCloud
-                    const scShuffle = document.querySelector('.shuffleControl');
-                    if (scShuffle) scShuffle.click();
-                }
-                else if ('${action.action}' === 'repeat') {
-                    console.log('[MiniPlayer] Repeat requested');
-
-                    const findBtn = (selectors) => {
-                        for (const s of selectors) {
-                            const el = document.querySelector(s);
-                            if (el) return el;
-                        }
-                        return null;
-                    };
-
-                    // YTM Selectors (various states)
-                    const ytmRepeat = findBtn([
-                        '.repeat-button',
-                        'tp-yt-paper-icon-button[aria-label="Repeat"]',
-                        'tp-yt-paper-icon-button[aria-label="Repeat all"]',
-                        'tp-yt-paper-icon-button[aria-label="Repeat one"]',
-                        'tp-yt-paper-icon-button[aria-label="Repeat off"]',
-                        'ytmusic-player-bar .repeat',
-                        '[class*="repeat"]'
-                    ]);
-
-                    if (ytmRepeat) {
-                        console.log('[MiniPlayer] YTM Repeat found:', ytmRepeat);
-                        ytmRepeat.click();
-                    } else {
-                         console.log('[MiniPlayer] YTM Repeat NOT found');
-                    }
-
-                    // SoundCloud
-                    const scRepeat = document.querySelector('.repeatControl');
-                    if (scRepeat) scRepeat.click();
-                }
-            })();
-        `;
-    playerView.webContents
-      .executeJavaScript(code)
-      .catch((e) => console.error(e));
-
-    // Handle volume separately in main process (uses AudioContext gain, not video.volume)
-    if (action.action === "volume" && action.value !== undefined) {
-      // Emit internally — picked up by ipcMain.on('set-volume') which calls applyVolume
-      ipcMain.emit(
-        "set-volume",
-        { sender: mainWindow?.webContents },
-        action.value,
-      );
-      // Immediately update mini player server state so slider doesn't reset on next poll
-      miniPlayerServer.updateState({ volume: action.value });
-      // Sync the main app's volume slider
-      if (mainWindow)
-        mainWindow.webContents.send("volume-changed", action.value);
-    }
-  });
-});
+// Mini player control handler is registered in the main startup flow.
 
 const TITLE_BAR_HEIGHT = 40;
 const VK_PLAYER_HEIGHT = 50;
@@ -379,12 +266,15 @@ function updateViewBounds() {
   const vkEnabled = store ? store.get("vkPlayerEnabled", false) : false;
   const topOffset = TITLE_BAR_HEIGHT + (vkEnabled ? VK_PLAYER_HEIGHT : 0);
 
-  view.setBounds({
+  const newBounds = {
     x: 0,
-    y: topOffset,
-    width: bounds.width,
-    height: bounds.height - topOffset,
-  });
+    y: Math.round(topOffset),
+    width: Math.round(bounds.width),
+    height: Math.max(0, Math.round(bounds.height - topOffset)),
+  };
+
+  console.log(`[Main] Setting BrowserView bounds:`, newBounds);
+  view.setBounds(newBounds);
 
   // Tell renderer to show/hide the VK player bar
   mainWindow.webContents.send("vk-player-visibility", vkEnabled);
@@ -450,47 +340,140 @@ ipcMain.on("vk-player-command", (event, cmd) => {
   if (!view) return;
 
   // Handle seek command (object: {action: 'seek', time: seconds})
-  if (typeof cmd === 'object' && cmd.action === 'seek') {
+  if (typeof cmd === "object" && cmd.action === "seek") {
     const seekCode = `(function(){ const v = document.querySelector('video'); if(v && v.duration) v.currentTime = ${Number(cmd.time)}; })()`;
-    view.webContents.executeJavaScript(seekCode).catch(() => { });
+    view.webContents.executeJavaScript(seekCode).catch(() => {});
     return;
   }
 
   const code = {
-    playpause: `document.querySelector('#play-pause-button')?.click()`,
+    playpause: `(function(){
+      // Try to click the native YouTube Music button first for reliable state management
+      const barPlay = document.querySelector('ytmusic-player-bar #play-pause-button') || document.querySelector('ytmusic-player-bar tp-yt-paper-icon-button.play-pause-button');
+      if (barPlay && barPlay.offsetParent !== null) {
+          barPlay.click();
+          return;
+      }
+      const anyPlay = document.querySelector('#play-pause-button');
+      if (anyPlay && anyPlay.offsetParent !== null) {
+          anyPlay.click();
+          return;
+      }
+      // Fallback to video element
+      const v = document.querySelector('video');
+      if (v) {
+          v.paused ? v.play() : v.pause();
+      }
+    })()`,
     next: `document.querySelector('.next-button')?.click() || document.querySelector('[aria-label="Next"]')?.click()`,
     prev: `document.querySelector('.previous-button')?.click() || document.querySelector('[aria-label="Previous"]')?.click()`,
     like: `(function(){
       const bar = document.querySelector('ytmusic-player-bar');
       if (!bar) return;
-      const b = bar.querySelector('.ytmusic-like-button-renderer[aria-pressed="false"]') || 
+      const b = bar.querySelector('.ytmusic-like-button-renderer[aria-pressed="false"]') ||
                 bar.querySelector('ytmusic-like-button-renderer [icon="yt-icons:like"]') ||
                 bar.querySelector('[aria-label="Like"]') ||
                 bar.querySelector('ytmusic-like-button-renderer.like');
       if(b) b.click();
     })()`,
-    shuffle: `(function(){ 
+    shuffle: `(function(){
       const bar = document.querySelector('ytmusic-player-bar');
       if (!bar) return;
-      const b = bar.querySelector('tp-yt-paper-icon-button.shuffle') || 
+      const b = bar.querySelector('tp-yt-paper-icon-button.shuffle') ||
                 bar.querySelector('.shuffle.ytmusic-player-bar') ||
-                bar.querySelector('[aria-label*="Shuffle"]'); 
-      if(b) b.click(); 
+                bar.querySelector('[aria-label*="Shuffle"]');
+      if(b) b.click();
     })()`,
-    repeat: `(function(){ 
+    repeat: `(function(){
       const bar = document.querySelector('ytmusic-player-bar');
       if (!bar) return;
-      const b = bar.querySelector('tp-yt-paper-icon-button.repeat') || 
+      const b = bar.querySelector('tp-yt-paper-icon-button.repeat') ||
                 bar.querySelector('.repeat.ytmusic-player-bar') ||
-                bar.querySelector('[aria-label*="Repeat"]'); 
-      if(b) b.click(); 
+                bar.querySelector('[aria-label*="Repeat"]');
+      if(b) b.click();
+    })()`,
+    playlist: `(function(){
+      return new Promise((resolve) => {
+        let menuBtn = document.querySelector('ytmusic-player-bar ytmusic-menu-renderer button[aria-label="Action menu"]') ||
+                      document.querySelector('ytmusic-player-bar button[aria-label="Action menu"]') ||
+                      document.querySelector('ytmusic-player-bar ytmusic-menu-renderer tp-yt-paper-icon-button') ||
+                      document.querySelector('ytmusic-player-bar tp-yt-paper-icon-button.expand-button') ||
+                      document.querySelector('ytmusic-player-bar tp-yt-paper-icon-button[aria-label="More player controls"]');
+
+        if (!menuBtn) {
+            const art = document.querySelector('ytmusic-player-bar .thumbnail-image-wrapper img, ytmusic-player-bar img');
+            if (art) {
+                art.dispatchEvent(new MouseEvent('contextmenu', {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window,
+                    button: 2
+                }));
+            } else {
+                return resolve({success: false, html: 'No menu button or art found'});
+            }
+        } else {
+            menuBtn.click();
+        }
+
+        let attempts = 0;
+        const interval = setInterval(() => {
+          attempts++;
+
+          const popup = document.querySelector('ytmusic-popup-container, tp-yt-iron-dropdown');
+          if (!popup && attempts < 15) return;
+
+          const paths = Array.from(document.querySelectorAll('ytmusic-popup-container path, tp-yt-iron-dropdown path'));
+          const playlistIconPath = paths.find(p => p.getAttribute('d') === 'M22 13h-4v4h-2v-4h-4v-2h4V7h2v4h4v2zm-8-6H2v1h12V7zM2 12h8v-1H2v1zm0 4h8v-1H2v1z' ||
+                                                     (p.getAttribute('d') && p.getAttribute('d').includes('M22 13h-4v4h-2v-4h-4v-2h4V7h2v4h4v2zm-8-6H2v1h12V7zM2 12h8v-1H2v1zm0 4h8v-1H2v1z')));
+
+          let playlistItem = null;
+
+          if (playlistIconPath) {
+              playlistItem = playlistIconPath.closest('ytmusic-menu-navigation-item-renderer, ytmusic-menu-service-item-renderer, ytmusic-toggle-menu-service-item-renderer, tp-yt-paper-icon-item, ytmusic-menu-item-renderer');
+          }
+
+          if (!playlistItem) {
+              const items = Array.from(document.querySelectorAll('ytmusic-popup-container ytmusic-menu-navigation-item-renderer, ytmusic-popup-container ytmusic-menu-service-item-renderer, ytmusic-popup-container ytmusic-toggle-menu-service-item-renderer, ytmusic-popup-container tp-yt-paper-icon-item, tp-yt-iron-dropdown ytmusic-menu-item-renderer, tp-yt-iron-dropdown ytmusic-menu-navigation-item-renderer'));
+              playlistItem = items.find(el => {
+                  const text = el.textContent.toLowerCase();
+                  return text.includes('playlist') || text.includes('save to');
+              });
+          }
+
+          if (playlistItem) {
+            clearInterval(interval);
+            setTimeout(() => {
+              // YouTube music often expects the inner anchor tag or formatted string to be clicked to trigger the actual navigation/action
+              const clickable = playlistItem.querySelector('a') || playlistItem.querySelector('yt-formatted-string') || playlistItem;
+              clickable.click();
+              resolve({success: true, msg: 'Clicked add to playlist'});
+            }, 50);
+          } else if (attempts >= 15) {
+            clearInterval(interval);
+            resolve({success: false, html: popup ? popup.innerHTML : 'no popup html'});
+          }
+        }, 50);
+      });
     })()`,
   };
   if (code[cmd]) {
-    view.webContents.executeJavaScript(code[cmd]).catch(() => { });
+    view.webContents.executeJavaScript(code[cmd]).catch(() => {});
+    view.webContents
+      .executeJavaScript(code[cmd])
+      .then((res) => {
+        if (cmd === "playlist" && res && res.success === false) {
+          try {
+            require("fs").writeFileSync(
+              "debug_playlist_popup_dump.html",
+              res.html,
+            );
+          } catch (e) {}
+        }
+      })
+      .catch(() => {});
   }
 });
-
 
 function loadService(serviceKey) {
   if (!SERVICES[serviceKey]) return;
@@ -521,6 +504,7 @@ function loadService(serviceKey) {
         preload: path.join(__dirname, "preload-view.js"),
       },
     });
+    // view.setBackgroundColor('#121212'); // Prevent transparent black screen
     mainWindow.setBrowserView(view);
     console.log("BrowserView set to mainWindow");
   } else {
@@ -536,18 +520,30 @@ function loadService(serviceKey) {
   // Notify renderer that a service is active (to show top bar)
   mainWindow.webContents.send("service-active", true);
 
-  // Send VK player config once DOM is ready
-  view.webContents.on('dom-ready', () => {
+  // Send VK player config once DOM is interactive
+  view.webContents.once("dom-ready", () => {
     const vkPlayerEnabled = store ? store.get("vkPlayerEnabled", false) : false;
-    console.log(`[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`);
+    console.log(
+      `[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`,
+    );
     view.webContents.send("vk-player-config", vkPlayerEnabled);
   });
+
+  // Check if already loading this URL to prevent duplicate calls
+  const currentUrl = view.webContents.getURL();
+  if (currentUrl && currentUrl.startsWith(SERVICES[serviceKey])) {
+    console.log(
+      `[Main] Service URL already loaded or loading: ${SERVICES[serviceKey]}`,
+    );
+    return;
+  }
 
   console.log(`Loading service URL: ${SERVICES[serviceKey]} `);
   view.webContents
     .loadURL(SERVICES[serviceKey])
     .then(() => {
       console.log(`Successfully loaded ${serviceKey} `);
+      updateViewBounds(); // Re-apply bounds just in case
 
       // Inject CSS for Cosmetic Blocking
       view.webContents.insertCSS(AD_CSS);
@@ -565,81 +561,6 @@ function loadService(serviceKey) {
       console.error(`Failed to load ${serviceKey}: `, e);
     });
 }
-
-// Load a specific URL (only YT Music or SoundCloud allowed)
-ipcMain.on("load-url", (event, url) => {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase();
-
-    const isYtMusic =
-      host === "music.youtube.com" || host === "www.music.youtube.com";
-    const isSoundCloud =
-      host === "soundcloud.com" ||
-      host === "www.soundcloud.com" ||
-      host === "m.soundcloud.com";
-
-    if (!isYtMusic && !isSoundCloud) {
-      console.log("Invalid URL rejected:", url);
-      return;
-    }
-
-    const serviceKey = isYtMusic ? "yt" : "sc";
-    currentService = serviceKey;
-
-    if (view) {
-      console.log("Destroying existing BrowserView before loading URL...");
-      mainWindow.setBrowserView(null);
-      view.webContents.destroy();
-      view = null;
-    }
-
-    console.log("Creating new BrowserView for URL...");
-    view = new BrowserView({
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: false,
-        partition: "persist:main",
-        preload: path.join(__dirname, "preload-view.js"),
-      },
-    });
-    mainWindow.setBrowserView(view);
-
-    const viewSession = view.webContents.session;
-    const enabled = store ? store.get("adBlockerEnabled", true) : true;
-    if (enabled && adBlocker) {
-      adBlocker.enableBlockingInSession(viewSession);
-    }
-
-    mainWindow.setBrowserView(view);
-    updateViewBounds();
-    mainWindow.webContents.send("service-active", true);
-
-    // Send VK player config once DOM is ready
-    view.webContents.on('dom-ready', () => {
-      const vkPlayerEnabled = store ? store.get("vkPlayerEnabled", false) : false;
-      console.log(`[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`);
-      view.webContents.send("vk-player-config", vkPlayerEnabled);
-    });
-
-    console.log(`Loading URL: ${url} `);
-    view.webContents
-      .loadURL(url)
-      .then(() => {
-        console.log(`Successfully loaded URL: ${url} `);
-
-        view.webContents.insertCSS(AD_CSS);
-        injectAdSkipper(view);
-        injectTrackDetection(serviceKey);
-        startTrackPolling();
-      })
-      .catch((e) => {
-        console.error(`Failed to load URL: `, e);
-      });
-  } catch (e) {
-    console.error("Failed to parse URL:", url, e);
-  }
-});
 
 function goHome() {
   console.log("goHome() called");
@@ -664,10 +585,49 @@ let trackPollingInterval = null;
 let lastPolledTrackKey = null;
 let lastPolledTime = 0;
 
+let queuePollingInterval = null;
+
+function startQueuePolling() {
+  if (queuePollingInterval) clearInterval(queuePollingInterval);
+  queuePollingInterval = setInterval(async () => {
+    const activeView = getActiveBackendView();
+    if (!activeView || !activeView.webContents) return;
+
+    try {
+      const queueData = await activeView.webContents.executeJavaScript(`
+        (function() {
+          const items = document.querySelectorAll('ytmusic-player-queue-item');
+          if (!items.length) return [];
+          return Array.from(items).map((item, index) => {
+            return {
+              title: item.querySelector('.song-title')?.innerText || '',
+              artist: item.querySelector('.byline')?.innerText || '',
+              duration: item.querySelector('.duration')?.innerText || '',
+              thumbnail: item.querySelector('yt-img-shadow img')?.src || '',
+              selected: item.hasAttribute('selected'),
+              index: index
+            };
+          });
+        })();
+      `);
+      if (queueData) {
+        miniPlayerServer.updateState({ queue: queueData });
+        if (queueWindow && !queueWindow.isDestroyed()) {
+          queueWindow.webContents.send("queue-update", queueData);
+        }
+      }
+    } catch (e) {
+      // Ignore errors when page is still loading
+    }
+  }, 1000);
+}
+
 function startTrackPolling() {
   if (trackPollingInterval) {
     clearInterval(trackPollingInterval);
   }
+
+  startQueuePolling();
 
   console.log("[Main] Starting track polling...");
 
@@ -689,9 +649,9 @@ function startTrackPolling() {
                         let shuffle = false;
                         let repeat = 'off';
                         let likeStatus = false;
-                        
+
                         // Like/Heart button logic
-                        const likeBtn = playerBar ? (playerBar.querySelector('ytmusic-like-button-renderer [icon="yt-icons:like"]') || 
+                        const likeBtn = playerBar ? (playerBar.querySelector('ytmusic-like-button-renderer [icon="yt-icons:like"]') ||
                                         playerBar.querySelector('ytmusic-like-button-renderer.like') ||
                                         playerBar.querySelector('[aria-label="Like"]')) : null;
                         if (likeBtn) {
@@ -710,7 +670,7 @@ function startTrackPolling() {
                             }
                             const title = (shuffleBtn.getAttribute('title') || '').toLowerCase();
                             const ariaLabel = (shuffleBtn.getAttribute('aria-label') || '').toLowerCase();
-                            
+
                             // Check literal tooltips / explicit active states
                             if (title.includes('shuffle on') || ariaLabel.includes('shuffle on') || shuffleBtn.hasAttribute('active') || shuffleBtn.classList.contains('active')) {
                                 shuffle = true;
@@ -720,7 +680,7 @@ function startTrackPolling() {
                                 shuffle = isPressed; // Fallback
                             }
                         }
-                        
+
                         // Repeat button logic
                         const repeatBtn = playerBar ? (playerBar.querySelector('tp-yt-paper-icon-button.repeat') || playerBar.querySelector('.repeat.ytmusic-player-bar')) : null;
                         let repeatDebug = '';
@@ -730,10 +690,10 @@ function startTrackPolling() {
                             if (!isPressed && innerBtn) {
                                 isPressed = innerBtn.getAttribute('aria-pressed') === 'true';
                             }
-                            
+
                             const title = (repeatBtn.getAttribute('title') || '').toLowerCase();
                             const ariaLabel = (repeatBtn.getAttribute('aria-label') || '').toLowerCase();
-                            
+
                             // Check literal tooltips: YTM uses literal state strings for ARIA now
                             if (title.includes('repeat one') || ariaLabel.includes('repeat one') || title.includes('unul') || ariaLabel.includes('unul')) {
                                 repeat = 'one';
@@ -744,7 +704,7 @@ function startTrackPolling() {
                             } else {
                                 repeat = 'off';
                             }
-                            
+
                             repeatDebug = repeatBtn.outerHTML;
                         }
 
@@ -785,8 +745,18 @@ function startTrackPolling() {
           "[Main Poll] Raw lines:",
           lines.slice(0, 3).map((l) => l.substring(0, 50)),
         );
-        console.log("[Main Poll] Shuffle state:", rawData.shuffle, "Debug:", rawData.shuffleDebug);
-        console.log("[Main Poll] Repeat state:", rawData.repeat, "Debug:", rawData.repeatDebug);
+        console.log(
+          "[Main Poll] Shuffle state:",
+          rawData.shuffle,
+          "Debug:",
+          rawData.shuffleDebug,
+        );
+        console.log(
+          "[Main Poll] Repeat state:",
+          rawData.repeat,
+          "Debug:",
+          rawData.repeatDebug,
+        );
 
         // Third line has "Artist • Album • Year" (line 0 = time, line 1 = title, line 2 = artist)
         if (lines.length >= 3) {
@@ -818,22 +788,27 @@ function startTrackPolling() {
             paused: rawData.paused,
             currentTime: rawData.currentTime,
             shuffle: rawData.shuffle || false,
-            repeat: rawData.repeat || 'off',
+            repeat: rawData.repeat || "off",
             likeStatus: rawData.likeStatus || false,
-            repeatDebug: rawData.repeatDebug || '',
+            repeatDebug: rawData.repeatDebug || "",
           };
         }
       }
 
       console.log(
         "[Main Poll] Result:",
-        track ? `${track.title} by ${track.artist}` : "null", "repeat=" + (track ? track.repeat : ''), (track && track.repeatDebug ? `[DEBUG REPEAT] ${track.repeatDebug}` : "")
+        track ? `${track.title} by ${track.artist}` : "null",
+        "repeat=" + (track ? track.repeat : ""),
+        track && track.repeatDebug ? `[DEBUG REPEAT] ${track.repeatDebug}` : "",
       );
 
       if (track && track.repeatDebug) {
         try {
-          require('fs').appendFileSync('spice_debug.log', `[DEBUG REPEAT] repeat=${track.repeat} ` + track.repeatDebug + '\n');
-        } catch (e) { }
+          require("fs").appendFileSync(
+            "spice_debug.log",
+            `[DEBUG REPEAT] repeat=${track.repeat} ` + track.repeatDebug + "\n",
+          );
+        } catch (e) {}
       }
 
       if (track && track.title && track.artist) {
@@ -963,6 +938,10 @@ function stopTrackPolling() {
     clearInterval(trackPollingInterval);
     trackPollingInterval = null;
   }
+  if (queuePollingInterval) {
+    clearInterval(queuePollingInterval);
+    queuePollingInterval = null;
+  }
   lastPolledTrackKey = null;
 }
 // ============== END TRACK POLLING ==============
@@ -981,257 +960,257 @@ function injectTrackDetection(serviceKey) {
   if (serviceKey === "yt") {
     // YouTube Music track detection
     script = `
-                    (function () {
-                        console.log('[Spice Scrobbler] YouTube Music track detection injected');
-                        console.log('[Spice Scrobbler] Checking for spiceReportTrack:', typeof window.spiceReportTrack);
+    (function () {
+      console.log('[Spice Scrobbler] YouTube Music track detection injected');
+      console.log('[Spice Scrobbler] Checking for spiceReportTrack:', typeof window.spiceReportTrack);
 
-                        let lastTrackKey = null;
-                        let lastTime = 0;
+      let lastTrackKey = null;
+      let lastTime = 0;
 
-                        function getTrackInfo() {
-                            // Title selectors - try multiple options
-                            let titleEl = document.querySelector('ytmusic-player-bar .title.ytmusic-player-bar');
-                            if (!titleEl) titleEl = document.querySelector('.content-info-wrapper .title');
-                            if (!titleEl) titleEl = document.querySelector('ytmusic-player-bar .title');
-                            if (!titleEl) titleEl = document.querySelector('.ytmusic-player-bar-title');
+      function getTrackInfo() {
+        // Title selectors - try multiple options
+        let titleEl = document.querySelector('ytmusic-player-bar .title.ytmusic-player-bar');
+        if (!titleEl) titleEl = document.querySelector('.content-info-wrapper .title');
+        if (!titleEl) titleEl = document.querySelector('ytmusic-player-bar .title');
+        if (!titleEl) titleEl = document.querySelector('.ytmusic-player-bar-title');
 
-                            // Artist selectors - YT Music changed their DOM structure
-                            let artistEl = null;
-                            // Try byline link first (traditional approach)
-                            artistEl = document.querySelector('ytmusic-player-bar .byline a');
-                            if (!artistEl) artistEl = document.querySelector('.content-info-wrapper .byline a');
-                            // Try complex title (newer structure has yt-formatted-string)
-                            if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline yt-formatted-string a');
-                            if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline .yt-formatted-string a');
-                            // Fallback: Get entire byline text (may include extra info but better than nothing)
-                            if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline yt-formatted-string');
-                            if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline .yt-formatted-string');
-                            // Ultimate fallback: Any span/text in subtitle or byline
-                            if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .subtitle span');
-                            if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline span');
-                            if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline');
-                            if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .subtitle');
+        // Artist selectors - YT Music changed their DOM structure
+        let artistEl = null;
+        // Try byline link first (traditional approach)
+        artistEl = document.querySelector('ytmusic-player-bar .byline a');
+        if (!artistEl) artistEl = document.querySelector('.content-info-wrapper .byline a');
+        // Try complex title (newer structure has yt-formatted-string)
+        if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline yt-formatted-string a');
+        if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline .yt-formatted-string a');
+        // Fallback: Get entire byline text (may include extra info but better than nothing)
+        if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline yt-formatted-string');
+        if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline .yt-formatted-string');
+        // Ultimate fallback: Any span/text in subtitle or byline
+        if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .subtitle span');
+        if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline span');
+        if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .byline');
+        if (!artistEl) artistEl = document.querySelector('ytmusic-player-bar .subtitle');
 
-                            // Debug what we found
-                            if (!artistEl) {
-                                const playerBar = document.querySelector('ytmusic-player-bar');
-                                if (playerBar && (!window._lastDump || Date.now() - window._lastDump > 5000)) {
-                                    window._lastDump = Date.now();
-                                    const rawText = playerBar.innerText;
-                                    console.log('[Spice Scrobbler] Player Bar Text:', rawText.substring(0, 200));
-                                    // Split on actual newline character
-                                    const lines = rawText.split(String.fromCharCode(10));
-                                    console.log('[Spice Scrobbler] Lines count:', lines.length);
-                                    if (lines.length >= 2) {
-                                        let artistLine = lines[1]; // Second line usually has artist
-                                        if (artistLine && artistLine.includes(' \\u2022 ')) {
-                                            artistLine = artistLine.split(' \\u2022 ')[0];
-                                        }
-                                        if (artistLine && artistLine.trim()) {
-                                            console.log('[Spice Scrobbler] Extracted artist:', artistLine.trim());
-                                            artistEl = { textContent: artistLine.trim() };
-                                        }
-                                    }
-                                }
-                            }
+        // Debug what we found
+        if (!artistEl) {
+          const playerBar = document.querySelector('ytmusic-player-bar');
+          if (playerBar && (!window._lastDump || Date.now() - window._lastDump > 5000)) {
+            window._lastDump = Date.now();
+            const rawText = playerBar.innerText;
+            console.log('[Spice Scrobbler] Player Bar Text:', rawText.substring(0, 200));
+            // Split on actual newline character
+            const lines = rawText.split(String.fromCharCode(10));
+            console.log('[Spice Scrobbler] Lines count:', lines.length);
+            if (lines.length >= 2) {
+              let artistLine = lines[1]; // Second line usually has artist
+              if (artistLine && artistLine.includes(' \\u2022 ')) {
+                artistLine = artistLine.split(' \\u2022 ')[0];
+              }
+              if (artistLine && artistLine.trim()) {
+                console.log('[Spice Scrobbler] Extracted artist:', artistLine.trim());
+                artistEl = { textContent: artistLine.trim() };
+              }
+            }
+          }
+        }
 
-                            const albumEl = document.querySelector('ytmusic-player-bar .subtitle .yt-formatted-string[href*="browse"]');
-                            const video = document.querySelector('video');
+        const albumEl = document.querySelector('ytmusic-player-bar .subtitle .yt-formatted-string[href*="browse"]');
+        const video = document.querySelector('video');
 
-                            if (!titleEl || !artistEl) {
-                                // Only log once every 10 seconds to reduce spam
-                                if (!window._lastSelectorLog || Date.now() - window._lastSelectorLog > 10000) {
-                                    console.log('[Spice Scrobbler] Waiting for player... Title:', !!titleEl, 'Artist:', !!artistEl);
-                                    window._lastSelectorLog = Date.now();
-                                }
-                                return null;
-                            }
+        if (!titleEl || !artistEl) {
+          // Only log once every 10 seconds to reduce spam
+          if (!window._lastSelectorLog || Date.now() - window._lastSelectorLog > 10000) {
+            console.log('[Spice Scrobbler] Waiting for player... Title:', !!titleEl, 'Artist:', !!artistEl);
+            window._lastSelectorLog = Date.now();
+          }
+          return null;
+        }
 
-                            // Get album art
-                            const albumArtEl = document.querySelector('ytmusic-player-bar .image img, .thumbnail-image-wrapper img, img.ytmusic-player-bar');
-                            let albumArt = albumArtEl?.src || '';
-                            if (albumArt) {
-                                albumArt = albumArt.replace(/w\\d+-h\\d+/, 'w1200-h1200').replace(/=w\\d+-h\\d+/, '=w1200-h1200').replace(/s\\d+-/, 's1200-');
-                            }
+        // Get album art
+        const albumArtEl = document.querySelector('ytmusic-player-bar .image img, .thumbnail-image-wrapper img, img.ytmusic-player-bar');
+        let albumArt = albumArtEl?.src || '';
+        if (albumArt) {
+          albumArt = albumArt.replace(/w\\d+-h\\d+/, 'w1200-h1200').replace(/=w\\d+-h\\d+/, '=w1200-h1200').replace(/s\\d+-/, 's1200-');
+        }
 
-                            const title = titleEl.textContent?.trim();
-                            let artist = artistEl.textContent?.trim();
+        const title = titleEl.textContent?.trim();
+        let artist = artistEl.textContent?.trim();
 
-                            // Clean artist if it contains extra info (like " • Album Name • 2024")
-                            if (artist && artist.includes(' • ')) {
-                                artist = artist.split(' • ')[0].trim();
-                            }
+        // Clean artist if it contains extra info (like " • Album Name • 2024")
+        if (artist && artist.includes(' • ')) {
+          artist = artist.split(' • ')[0].trim();
+        }
 
-                            const album = albumEl?.textContent?.trim() || '';
-                            const duration = video?.duration || 0;
+        const album = albumEl?.textContent?.trim() || '';
+        const duration = video?.duration || 0;
 
-                            if (!title || !artist) return null;
+        if (!title || !artist) return null;
 
-                            console.log('[Spice Scrobbler] Track detected: ' + title + ' by ' + artist);
-                            return { track: title, artist, album, duration, albumArt };
-                        }
+        console.log('[Spice Scrobbler] Track detected: ' + title + ' by ' + artist);
+        return { track: title, artist, album, duration, albumArt };
+      }
 
-                        function checkForTrackChange() {
-                            const video = document.querySelector('video');
-                            if (!video) return;
-                            // Note: We check even if paused to detect track changes while paused? Usually not needed but good for seeking.
+      function checkForTrackChange() {
+        const video = document.querySelector('video');
+        if (!video) return;
+        // Note: We check even if paused to detect track changes while paused? Usually not needed but good for seeking.
 
-                            const track = getTrackInfo();
-                            if (!track) return;
+        const track = getTrackInfo();
+        if (!track) return;
 
-                            const trackKey = track.artist + ' - ' + track.track;
-                            const currentTime = video.currentTime;
-                            const duration = video.duration || 180;
+        const trackKey = track.artist + ' - ' + track.track;
+        const currentTime = video.currentTime;
+        const duration = video.duration || 180;
 
-                            if (lastTrackKey === trackKey) {
-                                // If time jumped back by more than 5 seconds, consider it a seek-to-start or loop
-                                // This handles both automatic loops and manual restarts
-                                if (currentTime < lastTime && (lastTime - currentTime) > 5) {
-                                    console.log('[Spice Scrobbler] Repeat detected! (Time jump: ' + lastTime.toFixed(1) + ' -> ' + currentTime.toFixed(1) + ')');
-                                    track.isRepeat = true;
-                                    window.spiceReportTrack(track); // Report as repeat
-                                    lastTime = currentTime;
-                                    return;
-                                }
-                            }
+        if (lastTrackKey === trackKey) {
+          // If time jumped back by more than 5 seconds, consider it a seek-to-start or loop
+          // This handles both automatic loops and manual restarts
+          if (currentTime < lastTime && (lastTime - currentTime) > 5) {
+            console.log('[Spice Scrobbler] Repeat detected! (Time jump: ' + lastTime.toFixed(1) + ' -> ' + currentTime.toFixed(1) + ')');
+            track.isRepeat = true;
+            window.spiceReportTrack(track); // Report as repeat
+            lastTime = currentTime;
+            return;
+          }
+        }
 
-                            if (lastTrackKey !== trackKey) {
-                                lastTrackKey = trackKey;
-                                console.log('[Spice Scrobbler] Now Playing:', trackKey);
-                                console.log('[Spice Scrobbler] spiceReportTrack available:', typeof window.spiceReportTrack);
+        if (lastTrackKey !== trackKey) {
+          lastTrackKey = trackKey;
+          console.log('[Spice Scrobbler] Now Playing:', trackKey);
+          console.log('[Spice Scrobbler] spiceReportTrack available:', typeof window.spiceReportTrack);
 
-                                // Send to main process
-                                if (typeof window.spiceReportTrack === 'function') {
-                                    console.log('[Spice Scrobbler] Calling spiceReportTrack...');
-                                    window.spiceReportTrack(track);
-                                    console.log('[Spice Scrobbler] spiceReportTrack called successfully');
-                                } else {
-                                    console.log('[Spice Scrobbler] ERROR: spiceReportTrack is NOT a function!');
-                                }
-                            }
+          // Send to main process
+          if (typeof window.spiceReportTrack === 'function') {
+            console.log('[Spice Scrobbler] Calling spiceReportTrack...');
+            window.spiceReportTrack(track);
+            console.log('[Spice Scrobbler] spiceReportTrack called successfully');
+          } else {
+            console.log('[Spice Scrobbler] ERROR: spiceReportTrack is NOT a function!');
+          }
+        }
 
-                            lastTime = currentTime;
-                        }
+        lastTime = currentTime;
+      }
 
-                        // Check every 1 second
-                        setInterval(checkForTrackChange, 1000);
+      // Check every 1 second
+      setInterval(checkForTrackChange, 1000);
 
-                        function getControlsState() {
-                            return { shuffle: false, repeat: 'off' };
-                        }
+      function getControlsState() {
+        return { shuffle: false, repeat: 'off' };
+      }
 
-                        // Report progress/pause state every 500ms
-                        setInterval(() => {
-                            const video = document.querySelector('video');
-                            if (video) {
-                                const controls = getControlsState();
-                                const progress = {
-                                    currentTime: video.currentTime,
-                                    duration: video.duration || 0,
-                                    paused: video.paused,
-                                    shuffle: controls.shuffle,
-                                    repeat: controls.repeat
-                                };
-                                if (typeof window.spiceReportProgress === 'function') {
-                                    window.spiceReportProgress(progress);
-                                }
-                            }
-                        }, 500);
+      // Report progress/pause state every 500ms
+      setInterval(() => {
+        const video = document.querySelector('video');
+        if (video) {
+          const controls = getControlsState();
+          const progress = {
+            currentTime: video.currentTime,
+            duration: video.duration || 0,
+            paused: video.paused,
+            shuffle: controls.shuffle,
+            repeat: controls.repeat
+          };
+          if (typeof window.spiceReportProgress === 'function') {
+            window.spiceReportProgress(progress);
+          }
+        }
+      }, 500);
 
-                        // Also check on video play events to catch immediate changes
-                        document.addEventListener('play', (e) => {
-                            if (e.target.tagName === 'VIDEO') {
-                                setTimeout(checkForTrackChange, 200);
-                            }
-                        }, true);
-                    })();
-                `;
+      // Also check on video play events to catch immediate changes
+      document.addEventListener('play', (e) => {
+        if (e.target.tagName === 'VIDEO') {
+          setTimeout(checkForTrackChange, 200);
+        }
+      }, true);
+    })();
+  `;
   } else if (serviceKey === "sc") {
     // SoundCloud track detection
     script = `
-                    (function () {
-                        console.log('[Spice Scrobbler] SoundCloud track detection injected');
+    (function () {
+      console.log('[Spice Scrobbler] SoundCloud track detection injected');
 
-                        let lastTrackKey = null;
-                        let lastTime = 0;
+      let lastTrackKey = null;
+      let lastTime = 0;
 
-                        function parseTime(timeStr) {
-                            if (!timeStr) return 0;
-                            const parts = timeStr.split(':');
-                            if (parts.length === 2) {
-                                return parseInt(parts[0]) * 60 + parseInt(parts[1]);
-                            } else if (parts.length === 3) {
-                                return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
-                            }
-                            return 0;
-                        }
+      function parseTime(timeStr) {
+        if (!timeStr) return 0;
+        const parts = timeStr.split(':');
+        if (parts.length === 2) {
+          return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+        } else if (parts.length === 3) {
+          return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
+        }
+        return 0;
+      }
 
-                        function getTrackInfo() {
-                            const titleEl = document.querySelector('.playbackSoundBadge__titleLink span:last-child');
-                            const artistEl = document.querySelector('.playbackSoundBadge__lightLink');
+      function getTrackInfo() {
+        const titleEl = document.querySelector('.playbackSoundBadge__titleLink span:last-child');
+        const artistEl = document.querySelector('.playbackSoundBadge__lightLink');
 
-                            if (!titleEl || !artistEl) return null;
+        if (!titleEl || !artistEl) return null;
 
-                            const title = titleEl.textContent?.trim();
-                            const artist = artistEl.textContent?.trim();
+        const title = titleEl.textContent?.trim();
+        const artist = artistEl.textContent?.trim();
 
-                            if (!title || !artist) return null;
+        if (!title || !artist) return null;
 
-                            // Get album art
-                            const albumArtEl = document.querySelector('.playbackSoundBadge__avatar .image span');
-                            let albumArt = '';
-                            if (albumArtEl) {
-                                const bgImage = getComputedStyle(albumArtEl).backgroundImage;
-                                const match = bgImage.match(/url\\(["']?([^"')]+)["']?\\)/);
-                                if (match) {
-                                    albumArt = match[1].replace(/-t\d+x\d+/, '-t500x500');
-                                }
-                            }
+        // Get album art
+        const albumArtEl = document.querySelector('.playbackSoundBadge__avatar .image span');
+        let albumArt = '';
+        if (albumArtEl) {
+          const bgImage = getComputedStyle(albumArtEl).backgroundImage;
+          const match = bgImage.match(/url\\(["']?([^"')]+)["']?\\)/);
+          if (match) {
+            albumArt = match[1].replace(/-t\d+x\d+/, '-t500x500');
+          }
+        }
 
-                            // Parse duration from UI
-                            const progressEl = document.querySelector('.playbackTimeline__duration span[aria-hidden="true"]');
-                            const duration = progressEl ? parseTime(progressEl.textContent) : 0;
+        // Parse duration from UI
+        const progressEl = document.querySelector('.playbackTimeline__duration span[aria-hidden="true"]');
+        const duration = progressEl ? parseTime(progressEl.textContent) : 0;
 
-                            return { track: title, artist, album: '', duration, albumArt };
-                        }
+        return { track: title, artist, album: '', duration, albumArt };
+      }
 
-                        function getPlaybackState() {
-                            // Try to find audio element first
-                            const audio = document.querySelector('media') || document.querySelector('audio');
-                            if (audio) {
-                                return {
-                                    currentTime: audio.currentTime,
-                                    duration: audio.duration,
-                                    paused: audio.paused
-                                };
-                            }
+      function getPlaybackState() {
+        // Try to find audio element first
+        const audio = document.querySelector('media') || document.querySelector('audio');
+        if (audio) {
+          return {
+            currentTime: audio.currentTime,
+            duration: audio.duration,
+            paused: audio.paused
+          };
+        }
 
-                            // Fallback to UI scraping
-                            const timePassedEl = document.querySelector('.playbackTimeline__timePassed span[aria-hidden="true"]');
-                            const currentTime = timePassedEl ? parseTime(timePassedEl.textContent) : 0;
+        // Fallback to UI scraping
+        const timePassedEl = document.querySelector('.playbackTimeline__timePassed span[aria-hidden="true"]');
+        const currentTime = timePassedEl ? parseTime(timePassedEl.textContent) : 0;
 
-                            const playBtn = document.querySelector('.playControl');
-                            const paused = !playBtn || !playBtn.classList.contains('playing');
+        const playBtn = document.querySelector('.playControl');
+        const paused = !playBtn || !playBtn.classList.contains('playing');
 
-                            return { currentTime, paused };
-                        }
+        return { currentTime, paused };
+      }
 
-                        function checkForTrackChange() {
-                            const state = getPlaybackState();
-                            // If UI based, only proceed if not paused? No, we want to update state even if paused but only if track exists.
+      function checkForTrackChange() {
+        const state = getPlaybackState();
+        // If UI based, only proceed if not paused? No, we want to update state even if paused but only if track exists.
 
-                            const track = getTrackInfo();
-                            if (!track) return;
+        const track = getTrackInfo();
+        if (!track) return;
 
-                            const trackKey = track.artist + ' - ' + track.track;
-                            const currentTime = state.currentTime;
-                            const duration = track.duration || 180;
+        const trackKey = track.artist + ' - ' + track.track;
+        const currentTime = state.currentTime;
+        const duration = track.duration || 180;
 
-                            // Repeat Detection
-                            if (lastTrackKey === trackKey) {
-                                // Relaxed logic: Any significant backward jump
-                                if (currentTime < lastTime && (lastTime - currentTime) > 5) {
-                                    console.log(\`[Spice Scrobbler] Repeat detected(SC)! (Time jump: \${lastTime.toFixed(1)} -> \${currentTime.toFixed(1)})\`);
+        // Repeat Detection
+        if (lastTrackKey === trackKey) {
+          // Relaxed logic: Any significant backward jump
+          if (currentTime < lastTime && (lastTime - currentTime) > 5) {
+            console.log(\`[Spice Scrobbler] Repeat detected(SC)! (Time jump: \${lastTime.toFixed(1)} -> \${currentTime.toFixed(1)})\`);
                             track.isRepeat = true;
                             window.spiceReportTrack(track);
                             lastTime = currentTime;
@@ -1286,6 +1265,263 @@ app.on("activate", () => {
 });
 
 app.whenReady().then(async () => {
+  try {
+    await miniPlayerServer.startServer((action) => {
+      console.log("[Server] Remote Action received:", action);
+
+      if (action.action === "close") {
+        if (miniPlayerWindow) {
+          miniPlayerWindow.close();
+        }
+        return;
+      }
+
+      // Handle Service Loading from Remote
+      if (action.action === "loadService" || action.action === "load-service") {
+        const service = action.service || (action.args && action.args[0]);
+        if (service) {
+          console.log(`[Server] Remote load-service: ${service}`);
+          loadService(service);
+        }
+        return;
+      }
+
+      // Handle Navigation from Remote
+      if (action.action === "navigate") {
+        const navAction = action.navAction || (action.args && action.args[0]);
+        if (navAction) {
+          console.log(`[Server] Remote navigate: ${navAction}`);
+          if (navAction === "home") {
+            goHome();
+          } else if (view) {
+            switch (navAction) {
+              case "back":
+                if (view.webContents.canGoBack()) view.webContents.goBack();
+                break;
+              case "forward":
+                if (view.webContents.canGoForward())
+                  view.webContents.goForward();
+                break;
+              case "reload":
+                app.relaunch();
+                app.exit();
+                break;
+            }
+          }
+        }
+        return;
+      }
+
+      const playerView = getActiveBackendView();
+      if (!playerView) return;
+
+      // Execute actions on the main player view
+      const code = `
+            (function() {
+                const click = (sel) => document.querySelector(sel)?.click();
+
+                if ('${action.action}' === 'playpause') {
+                   // Try to click the native YouTube Music button first for reliable state management
+                   const barPlay = document.querySelector('ytmusic-player-bar #play-pause-button') || document.querySelector('ytmusic-player-bar tp-yt-paper-icon-button.play-pause-button');
+                   if (barPlay && barPlay.offsetParent !== null) {
+                       barPlay.click();
+                   } else {
+                       const anyPlay = document.querySelector('#play-pause-button');
+                       if (anyPlay && anyPlay.offsetParent !== null) {
+                           anyPlay.click();
+                       } else {
+                           // Fallback to video element
+                           const v = document.querySelector('video');
+                           if (v) {
+                               v.paused ? v.play() : v.pause();
+                           } else {
+                               document.querySelector('.playControl')?.click();
+                           }
+                       }
+                   }
+                }
+                else if ('${action.action}' === 'next') {
+                    const ytm = document.querySelector('.next-button');
+                    if (ytm) ytm.click();
+                    else click('.skipControl__next');
+                }
+                else if ('${action.action}' === 'prev') {
+                    const ytm = document.querySelector('.previous-button');
+                    if (ytm) ytm.click();
+                    else click('.skipControl__previous');
+                }
+                else if ('${action.action}' === 'playQueueIndex') {
+                    const index = ${action.index !== undefined ? action.index : -1};
+                    if (index >= 0) {
+                        const items = document.querySelectorAll('ytmusic-player-queue-item');
+                        if (items && items[index]) {
+                            const playBtn = items[index].querySelector('ytmusic-play-button-renderer') || items[index];
+                            playBtn.click();
+                        }
+                    }
+                }
+                else if ('${action.action}' === 'volume') {
+                    // Handled in main process below
+                }
+                else if ('${action.action}' === 'shuffle') {
+                    console.log('[MiniPlayer] Shuffle requested');
+
+                    const findBtn = (selectors) => {
+                        for (const s of selectors) {
+                            const el = document.querySelector(s);
+                            if (el) return el;
+                        }
+                        return null;
+                    };
+
+                    // YTM Selectors (various states)
+                    const ytmShuffle = findBtn([
+                        '.shuffle-button',
+                        'tp-yt-paper-icon-button[aria-label="Shuffle"]',
+                        'tp-yt-paper-icon-button[aria-label="Shuffle on"]',
+                        'tp-yt-paper-icon-button[aria-label="Shuffle off"]',
+                        'ytmusic-player-bar .shuffle',
+                        '[class*="shuffle"]'
+                    ]);
+
+                    if (ytmShuffle) {
+                        console.log('[MiniPlayer] YTM Shuffle found:', ytmShuffle);
+                        ytmShuffle.click();
+                    } else {
+                         console.log('[MiniPlayer] YTM Shuffle NOT found');
+                    }
+
+                    // SoundCloud
+                    const scShuffle = document.querySelector('.shuffleControl');
+                    if (scShuffle) scShuffle.click();
+                }
+                else if ('${action.action}' === 'repeat') {
+                    console.log('[MiniPlayer] Repeat requested');
+
+                    const findBtn = (selectors) => {
+                        for (const s of selectors) {
+                            const el = document.querySelector(s);
+                            if (el) return el;
+                        }
+                        return null;
+                    };
+
+                    // YTM Selectors (various states)
+                    const ytmRepeat = findBtn([
+                        '.repeat-button',
+                        'tp-yt-paper-icon-button[aria-label="Repeat"]',
+                        'tp-yt-paper-icon-button[aria-label="Repeat all"]',
+                        'tp-yt-paper-icon-button[aria-label="Repeat one"]',
+                        'tp-yt-paper-icon-button[aria-label="Repeat off"]',
+                        'ytmusic-player-bar .repeat',
+                        '[class*="repeat"]'
+                    ]);
+
+                    if (ytmRepeat) {
+                        console.log('[MiniPlayer] YTM Repeat found:', ytmRepeat);
+                        ytmRepeat.click();
+                    } else {
+                         console.log('[MiniPlayer] YTM Repeat NOT found');
+                    }
+
+                    // SoundCloud
+                    const scRepeat = document.querySelector('.repeatControl');
+                    if (scRepeat) scRepeat.click();
+                }
+            })();
+        `;
+      playerView.webContents
+        .executeJavaScript(code)
+        .catch((e) => console.error(e));
+
+      // Handle volume separately in main process (uses AudioContext gain, not video.volume)
+      if (
+        action.action === "volume" &&
+        (action.value !== undefined ||
+          (action.args && action.args[0] !== undefined))
+      ) {
+        const val = action.value !== undefined ? action.value : action.args[0];
+        // Emit internally — picked up by ipcMain.on('set-volume') which calls applyVolume
+        ipcMain.emit("set-volume", { sender: mainWindow?.webContents }, val);
+        // Immediately update mini player server state so slider doesn't reset on next poll
+        miniPlayerServer.updateState({ volume: val });
+        // Sync the main app's volume slider
+        if (mainWindow) mainWindow.webContents.send("volume-changed", val);
+      }
+
+      if (action.action === "queue") {
+        if (queueWindow) {
+          queueWindow.focus();
+        } else {
+          queueWindow = new BrowserWindow({
+            width: 400,
+            height: 600,
+            title: "Spice Queue",
+            icon: path.join(__dirname, "icon.png"),
+            frame: false,
+            autoHideMenuBar: true,
+            backgroundColor: "#121212",
+            webPreferences: {
+              nodeIntegration: false,
+              contextIsolation: true,
+              preload: path.join(__dirname, "preload.js"),
+            },
+          });
+          queueWindow.loadURL(`http://localhost:6969/queue`);
+          queueWindow.on("closed", () => {
+            queueWindow = null;
+          });
+        }
+      }
+    });
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err);
+    console.error("[Server] Failed to start:", message);
+
+    const portInUse =
+      (err && (err.code === "EADDRINUSE" || err.errno === "EADDRINUSE")) ||
+      /EADDRINUSE|address already in use/i.test(message);
+
+    if (portInUse) {
+      const probeTargets = [
+        "http://localhost:6969/api/status",
+        "http://127.0.0.1:6969/api/status",
+      ];
+
+      let existingServerDetected = false;
+      for (const url of probeTargets) {
+        try {
+          const res = await fetch(url);
+          if (res && res.ok) {
+            existingServerDetected = true;
+            console.log(
+              `[Server] Port 6969 is already in use by a compatible local server (${url}). Continuing startup.`,
+            );
+            break;
+          }
+        } catch (_) {
+          // Keep probing alternatives
+        }
+      }
+
+      if (!existingServerDetected) {
+        dialog.showErrorBox(
+          "Port 6969 is already in use",
+          "Spice could not start its local server because port 6969 is occupied by another process. Close the conflicting app/process and launch Spice again.",
+        );
+        app.quit();
+        return;
+      }
+    } else {
+      dialog.showErrorBox(
+        "Local server startup failed",
+        `Spice failed to start its local server.\n\n${message}`,
+      );
+      app.quit();
+      return;
+    }
+  }
+
   initStore();
 
   // NUCLEAR OPTION: Clear Cache on Startup
@@ -1479,9 +1715,13 @@ app.whenReady().then(async () => {
       mainWindow.webContents.send("service-active", true);
 
       // Dispatch settings once DOM is interactive
-      view.webContents.on('dom-ready', () => {
-        const vkPlayerEnabled = store ? store.get("vkPlayerEnabled", false) : false;
-        console.log(`[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`);
+      view.webContents.on("dom-ready", () => {
+        const vkPlayerEnabled = store
+          ? store.get("vkPlayerEnabled", false)
+          : false;
+        console.log(
+          `[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`,
+        );
         view.webContents.send("vk-player-config", vkPlayerEnabled);
       });
 
@@ -1552,6 +1792,53 @@ app.whenReady().then(async () => {
     }
   });
 
+  // Queue Window Handler
+  ipcMain.on("open-queue", () => {
+    if (queueWindow) {
+      queueWindow.focus();
+      return;
+    }
+
+    queueWindow = new BrowserWindow({
+      width: 400,
+      height: 600,
+      title: "Spice Queue",
+      icon: path.join(__dirname, "icon.png"),
+      frame: false,
+      autoHideMenuBar: true,
+      backgroundColor: "#121212",
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: path.join(__dirname, "preload.js"),
+      },
+    });
+
+    queueWindow.loadURL(`http://localhost:6969/queue`);
+
+    queueWindow.on("closed", () => {
+      queueWindow = null;
+    });
+  });
+
+  ipcMain.on("play-queue-index", (event, index) => {
+    if (view && view.webContents) {
+      view.webContents
+        .executeJavaScript(
+          `
+        (function() {
+          const items = document.querySelectorAll('ytmusic-player-queue-item');
+          if (items && items[${index}]) {
+             const playBtn = items[${index}].querySelector('ytmusic-play-button-renderer') || items[${index}];
+             playBtn.click();
+          }
+        })();
+      `,
+        )
+        .catch((err) => console.error("Error clicking queue index:", err));
+    }
+  });
+
   // Lyrics Window Handler
   ipcMain.on("open-lyrics", () => {
     if (lyricsWindow) {
@@ -1574,7 +1861,7 @@ app.whenReady().then(async () => {
       },
     });
 
-    lyricsWindow.loadFile(path.join(__dirname, "lyrics.html"));
+    lyricsWindow.loadURL("http://localhost:6969/lyrics");
 
     lyricsWindow.once("ready-to-show", () => {
       lyricsWindow.show();
@@ -1594,12 +1881,9 @@ app.whenReady().then(async () => {
     return lastTrack || null;
   });
 
-
   ipcMain.on("open-mini-player", () => {
     createMiniPlayerWindow();
   });
-
-
 
   ipcMain.handle("fetch-lyrics", async (event, args) => {
     // args can be just {title, artist} (legacy) or {title, artist, provider}
@@ -1800,7 +2084,7 @@ app.whenReady().then(async () => {
       },
     });
 
-    settingsWindow.loadFile("settings.html");
+    settingsWindow.loadURL("http://localhost:6969/settings");
 
     settingsWindow.on("closed", () => {
       settingsWindow = null;
@@ -1874,7 +2158,7 @@ app.whenReady().then(async () => {
     if (!targetView) return;
     targetView.webContents
       .executeJavaScript(getVolumeScript(currentVolume))
-      .catch(() => { });
+      .catch(() => {});
   }
 
   // Set Volume IPC
@@ -1907,7 +2191,9 @@ app.whenReady().then(async () => {
       defaultService: store ? store.get("defaultService", "yt") : "yt",
       discordRpcEnabled: store ? store.get("discordRpcEnabled", true) : true,
       vkPlayerEnabled: store ? store.get("vkPlayerEnabled", false) : false,
-      topBarSearchEnabled: store ? store.get("topBarSearchEnabled", false) : false,
+      topBarSearchEnabled: store
+        ? store.get("topBarSearchEnabled", false)
+        : false,
     };
   });
 
@@ -1924,7 +2210,7 @@ app.whenReady().then(async () => {
 
   ipcMain.on("execute-search", (event, query) => {
     const searchUrl = `https://music.youtube.com/search?q=${encodeURIComponent(query)}`;
-    if (view && currentService === 'yt') {
+    if (view && currentService === "yt") {
       const code = `
         (function() {
           var a = document.createElement('a');
@@ -1934,12 +2220,12 @@ app.whenReady().then(async () => {
           a.remove();
         })();
       `;
-      view.webContents.executeJavaScript(code).catch(e => {
+      view.webContents.executeJavaScript(code).catch((e) => {
         console.error("SPA Search failed, falling back to load-url:", e);
-        ipcMain.emit('load-url', event, searchUrl);
+        ipcMain.emit("load-url", event, searchUrl);
       });
     } else {
-      ipcMain.emit('load-url', event, searchUrl);
+      ipcMain.emit("load-url", event, searchUrl);
     }
   });
 

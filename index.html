@@ -1,667 +1,970 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Spice</title>
+        <link rel="stylesheet" href="/styles.css" />
+    </head>
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Spice</title>
-    <link rel="stylesheet" href="styles.css">
-</head>
-
-<body>
-
-    <!-- Custom Title Bar -->
-    <div id="title-bar">
-        <div class="nav-controls" id="nav-container">
-            <button id="btn-back" class="nav-btn" title="Back">
-                <svg viewBox="0 0 24 24">
-                    <path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
-                </svg>
-            </button>
-
-            <button id="btn-reload" class="nav-btn" title="Reload">
-                <svg viewBox="0 0 24 24">
-                    <path fill="currentColor"
-                        d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
-                </svg>
-            </button>
-            <button id="btn-url" class="nav-btn" title="Open URL">
-                <svg viewBox="0 0 24 24">
-                    <path fill="currentColor"
-                        d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z" />
-                </svg>
-            </button>
-
-            <button id="btn-home" class="nav-btn" title="Home">
-                <svg viewBox="0 0 24 24">
-                    <path fill="currentColor" d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" />
-                </svg>
-            </button>
-        </div>
-
-        <!-- Top Search Bar -->
-        <div class="top-search-container" id="top-search-container">
-            <input type="text" id="top-search-input" class="top-search-input" placeholder="Search YouTube Music...">
-        </div>
-
-        <!-- Right Side Controls (Settings + Window Ops) -->
-        <div class="title-right">
-            <button id="btn-volume" class="nav-btn" title="Volume">
-                <svg viewBox="0 0 24 24">
-                    <path fill="currentColor"
-                        d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
-                </svg>
-            </button>
-            <!-- Volume Slider Popup -->
-            <div id="volume-popup" class="volume-popup hidden">
-                <div class="volume-slider-container">
-                    <input type="range" min="0" max="200" step="10" value="100" class="volume-slider" id="volume-range"
-                        title="Volume">
-                </div>
-                <div class="volume-value" id="volume-text">100%</div>
-                <button id="btn-boost" class="boost-btn" title="Unlock 1000% Volume">Boost</button>
-            </div>
-            <!-- Lyrics Button -->
-            <button class="nav-btn" id="lyrics-btn" title="Lyrics">
-                <svg viewBox="0 0 24 24">
-                    <path fill="currentColor"
-                        d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                    <path fill="currentColor"
-                        d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
-                </svg>
-            </button>
-            <button class="nav-btn" id="mini-player-btn" title="Mini Player">
-                <svg viewBox="0 0 24 24">
-                    <path fill="currentColor"
-                        d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zm-10-7h9v6h-9z" />
-                </svg>
-            </button>
-            <button id="btn-settings" class="nav-btn" title="Settings">
-                <svg viewBox="0 0 24 24">
-                    <path fill="currentColor"
-                        d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L3.16 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.04.64.09.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.58 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" />
-                </svg>
-            </button>
-            <div class="window-controls">
-                <button id="btn-min" class="win-btn" title="Minimize">
-                    <svg viewBox="0 0 12 12">
-                        <path fill="currentColor" d="M11 6H1V5h10v1z" />
+    <body>
+        <!-- Custom Title Bar -->
+        <div id="title-bar">
+            <div class="nav-controls" id="nav-container">
+                <button id="btn-back" class="nav-btn" title="Back">
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            fill="currentColor"
+                            d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"
+                        />
                     </svg>
                 </button>
-                <button id="btn-max" class="win-btn" title="Maximize">
-                    <svg viewBox="0 0 12 12">
-                        <path fill="currentColor" d="M1 1v10h10V1H1zm1 9V2h8v8H2z" />
+
+                <button id="btn-reload" class="nav-btn" title="Reload">
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            fill="currentColor"
+                            d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
+                        />
                     </svg>
                 </button>
-                <button id="btn-close" class="win-btn win-close" title="Close">
-                    <svg viewBox="0 0 12 12">
-                        <path fill="currentColor"
-                            d="M11 1.7L10.3 1 6 5.3 1.7 1 1 1.7 5.3 6 1 10.3 1.7 11 6 6.7 10.3 11 11 10.3 6.7 6z" />
+                <button id="btn-url" class="nav-btn" title="Open URL">
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            fill="currentColor"
+                            d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"
+                        />
+                    </svg>
+                </button>
+
+                <button id="btn-home" class="nav-btn" title="Home">
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            fill="currentColor"
+                            d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"
+                        />
                     </svg>
                 </button>
             </div>
-        </div>
-    </div>
 
-    <!-- URL Input Modal -->
-    <div id="url-modal" class="modal hidden">
-        <div class="modal-content">
-            <h3>Open URL</h3>
-            <p class="modal-hint">Only YouTube Music and SoundCloud links are allowed</p>
-            <input type="url" id="url-input" placeholder="https://music.youtube.com/... or https://soundcloud.com/..."
-                autocomplete="off">
-            <div class="modal-error hidden" id="url-error">Invalid URL. Only YouTube Music and SoundCloud links are
-                allowed.</div>
-            <div class="modal-buttons">
-                <button id="url-cancel" class="modal-btn cancel">Cancel</button>
-                <button id="url-go" class="modal-btn primary">Go</button>
+            <!-- Top Search Bar -->
+            <div class="top-search-container" id="top-search-container">
+                <input
+                    type="text"
+                    id="top-search-input"
+                    class="top-search-input"
+                    placeholder="Search YouTube Music..."
+                />
             </div>
-        </div>
-    </div>
 
-    <!-- VK Player Bar (between title bar and BrowserView) -->
-    <div id="vk-player-bar" class="hidden">
-        <button class="vk-ctrl-btn" id="vk-btn-prev"><svg viewBox="0 0 24 24">
-                <path fill="currentColor" d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
-            </svg></button>
-        <button class="vk-play-btn" id="vk-btn-play"><svg viewBox="0 0 24 24">
-                <path fill="currentColor" d="M8 5v14l11-7z" />
-            </svg></button>
-        <button class="vk-ctrl-btn" id="vk-btn-next"><svg viewBox="0 0 24 24">
-                <path fill="currentColor" d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-            </svg></button>
-        <button class="vk-ctrl-btn" id="vk-btn-like" style="color: var(--text-muted);"><svg viewBox="0 0 24 24">
-                <path fill="currentColor"
-                    d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
-            </svg></button>
-        <div class="vk-track-info">
-            <img class="vk-track-art" id="vk-track-art" src="" style="display:none;">
-            <div class="vk-track-text">
-                <div class="vk-track-title" id="vk-track-title">No track playing</div>
-                <div class="vk-track-artist" id="vk-track-artist">Select a song</div>
-            </div>
-        </div>
-
-        <div class="vk-progress-wrap">
-            <span class="vk-time" id="vk-time-current">0:00</span>
-            <div class="vk-progress-bg">
-                <div class="vk-progress-fill" id="vk-progress-fill"></div>
-            </div>
-            <span class="vk-time" id="vk-time-total">0:00</span>
-        </div>
-
-        <button class="vk-ctrl-btn" id="vk-btn-shuffle"><svg viewBox="0 0 24 24">
-                <path fill="currentColor"
-                    d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
-            </svg></button>
-        <button class="vk-ctrl-btn" id="vk-btn-repeat"><svg viewBox="0 0 24 24">
-                <path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
-            </svg></button>
-    </div>
-
-    <!-- Homepage Selection -->
-    <div id="home-container">
-        <h1>Welcome to Spice</h1>
-        <div class="card-container">
-            <button class="service-card yt-music" onclick="window.api.loadService('yt')">
-                <div class="card-icon">
-                    <!-- Simple Play Icon for visual -->
-                    <svg viewBox="0 0 24 24" width="64" height="64">
-                        <path fill="currentColor" d="M8 5v14l11-7z" />
+            <!-- Right Side Controls (Settings + Window Ops) -->
+            <div class="title-right">
+                <button id="btn-volume" class="nav-btn" title="Volume">
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            fill="currentColor"
+                            d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"
+                        />
                     </svg>
+                </button>
+                <!-- Volume Slider Popup -->
+                <div id="volume-popup" class="volume-popup hidden">
+                    <div class="volume-slider-container">
+                        <input
+                            type="range"
+                            min="0"
+                            max="200"
+                            step="10"
+                            value="100"
+                            class="volume-slider"
+                            id="volume-range"
+                            title="Volume"
+                        />
+                    </div>
+                    <div class="volume-value" id="volume-text">100%</div>
+                    <button
+                        id="btn-boost"
+                        class="boost-btn"
+                        title="Unlock 1000% Volume"
+                    >
+                        Boost
+                    </button>
                 </div>
-                <h2>YouTube Music</h2>
-            </button>
-            <button class="service-card soundcloud" onclick="window.api.loadService('sc')">
-                <div class="card-icon">
-                    <!-- Cloud Icon for visual -->
-                    <svg viewBox="0 0 24 24" width="64" height="64">
-                        <path fill="currentColor"
-                            d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" />
+                <!-- Lyrics Button -->
+                <button class="nav-btn" id="lyrics-btn" title="Lyrics">
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            fill="currentColor"
+                            d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"
+                        />
+                        <path
+                            fill="currentColor"
+                            d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"
+                        />
                     </svg>
+                </button>
+                <button
+                    class="nav-btn"
+                    id="mini-player-btn"
+                    title="Mini Player"
+                >
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            fill="currentColor"
+                            d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zm-10-7h9v6h-9z"
+                        />
+                    </svg>
+                </button>
+                <button class="nav-btn" id="queue-btn" title="Queue">
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            fill="currentColor"
+                            d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"
+                        />
+                    </svg>
+                </button>
+                <button id="btn-settings" class="nav-btn" title="Settings">
+                    <svg viewBox="0 0 24 24">
+                        <path
+                            fill="currentColor"
+                            d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L3.16 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.04.64.09.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.58 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"
+                        />
+                    </svg>
+                </button>
+                <div class="window-controls">
+                    <button id="btn-min" class="win-btn" title="Minimize">
+                        <svg viewBox="0 0 12 12">
+                            <path fill="currentColor" d="M11 6H1V5h10v1z" />
+                        </svg>
+                    </button>
+                    <button id="btn-max" class="win-btn" title="Maximize">
+                        <svg viewBox="0 0 12 12">
+                            <path
+                                fill="currentColor"
+                                d="M1 1v10h10V1H1zm1 9V2h8v8H2z"
+                            />
+                        </svg>
+                    </button>
+                    <button
+                        id="btn-close"
+                        class="win-btn win-close"
+                        title="Close"
+                    >
+                        <svg viewBox="0 0 12 12">
+                            <path
+                                fill="currentColor"
+                                d="M11 1.7L10.3 1 6 5.3 1.7 1 1 1.7 5.3 6 1 10.3 1.7 11 6 6.7 10.3 11 11 10.3 6.7 6z"
+                            />
+                        </svg>
+                    </button>
                 </div>
-                <h2>SoundCloud (experimental)</h2>
-            </button>
-
+            </div>
         </div>
-    </div>
 
-    <script>
-        function loadService(service) {
-            console.log('Renderer: Clicking service card', service);
-            if (window.api && window.api.loadService) {
-                window.api.loadService(service);
-            } else {
-                console.error('API not exposed!');
-            }
-        }
+        <!-- URL Input Modal -->
+        <div id="url-modal" class="modal hidden">
+            <div class="modal-content">
+                <h3>Open URL</h3>
+                <p class="modal-hint">
+                    Only YouTube Music and SoundCloud links are allowed
+                </p>
+                <input
+                    type="url"
+                    id="url-input"
+                    placeholder="https://music.youtube.com/... or https://soundcloud.com/..."
+                    autocomplete="off"
+                />
+                <div class="modal-error hidden" id="url-error">
+                    Invalid URL. Only YouTube Music and SoundCloud links are
+                    allowed.
+                </div>
+                <div class="modal-buttons">
+                    <button id="url-cancel" class="modal-btn cancel">
+                        Cancel
+                    </button>
+                    <button id="url-go" class="modal-btn primary">Go</button>
+                </div>
+            </div>
+        </div>
 
-        // Setup Navigation Listeners
-        // Setup Navigation Listeners
-        document.getElementById('btn-back').addEventListener('click', () => window.api.navigate('back'));
-        document.getElementById('btn-reload').addEventListener('click', () => window.api.navigate('reload'));
-        document.getElementById('btn-home').addEventListener('click', () => window.api.navigate('home'));
+        <!-- VK Player Bar (between title bar and BrowserView) -->
+        <div id="vk-player-bar" class="hidden">
+            <button class="vk-ctrl-btn" id="vk-btn-prev">
+                <svg viewBox="0 0 24 24">
+                    <path fill="currentColor" d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
+                </svg>
+            </button>
+            <button class="vk-play-btn" id="vk-btn-play">
+                <svg viewBox="0 0 24 24">
+                    <path fill="currentColor" d="M8 5v14l11-7z" />
+                </svg>
+            </button>
+            <button class="vk-ctrl-btn" id="vk-btn-next">
+                <svg viewBox="0 0 24 24">
+                    <path
+                        fill="currentColor"
+                        d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"
+                    />
+                </svg>
+            </button>
+            <button
+                class="vk-ctrl-btn"
+                id="vk-btn-like"
+                style="color: var(--text-muted)"
+            >
+                <svg viewBox="0 0 24 24">
+                    <path
+                        fill="currentColor"
+                        d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
+                    />
+                </svg>
+            </button>
+            <button
+                class="vk-ctrl-btn"
+                id="vk-btn-playlist"
+                title="Add to Playlist"
+                style="color: var(--text-muted)"
+            >
+                <svg viewBox="0 0 24 24">
+                    <path
+                        fill="currentColor"
+                        d="M14 10H2v2h12v-2zm0-4H2v2h12V6zm4 8v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zM2 16h8v-2H2v2z"
+                    />
+                </svg>
+            </button>
+            <div class="vk-track-info">
+                <img
+                    class="vk-track-art"
+                    id="vk-track-art"
+                    src=""
+                    style="display: none"
+                />
+                <div class="vk-track-text">
+                    <div class="vk-track-title" id="vk-track-title">
+                        No track playing
+                    </div>
+                    <div class="vk-track-artist" id="vk-track-artist">
+                        Select a song
+                    </div>
+                </div>
+            </div>
 
-        document.getElementById('lyrics-btn').addEventListener('click', () => {
-            if (window.api.openLyrics) window.api.openLyrics();
-        });
+            <div class="vk-progress-wrap">
+                <span class="vk-time" id="vk-time-current">0:00</span>
+                <div class="vk-progress-bg">
+                    <div class="vk-progress-fill" id="vk-progress-fill"></div>
+                </div>
+                <span class="vk-time" id="vk-time-total">0:00</span>
+            </div>
 
-        document.getElementById('mini-player-btn').addEventListener('click', () => {
-            if (window.api.openMiniPlayer) window.api.openMiniPlayer();
-        });
+            <button class="vk-ctrl-btn" id="vk-btn-shuffle">
+                <svg viewBox="0 0 24 24">
+                    <path
+                        fill="currentColor"
+                        d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"
+                    />
+                </svg>
+            </button>
+            <button class="vk-ctrl-btn" id="vk-btn-repeat">
+                <svg viewBox="0 0 24 24">
+                    <path
+                        fill="currentColor"
+                        d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"
+                    />
+                </svg>
+            </button>
+        </div>
 
-        document.getElementById('btn-settings').addEventListener('click', () => {
-            console.log('Renderer: btn-settings clicked');
-            if (window.api && window.api.openSettings) window.api.openSettings();
-        });
+        <div id="web-queue-container" class="hidden">
+            <div class="web-queue-header">Up Next</div>
+            <div id="web-queue-list"></div>
+        </div>
 
-        // URL Modal
-        const btnUrl = document.getElementById('btn-url');
-        const urlModal = document.getElementById('url-modal');
-        const urlInput = document.getElementById('url-input');
-        const urlError = document.getElementById('url-error');
-        const urlCancel = document.getElementById('url-cancel');
-        const urlGo = document.getElementById('url-go');
+        <!-- Homepage Selection -->
+        <div id="home-container">
+            <h1>Welcome to Spice</h1>
+            <div class="card-container">
+                <button
+                    class="service-card yt-music"
+                    onclick="loadService('yt')"
+                >
+                    <div class="card-icon">
+                        <!-- Simple Play Icon for visual -->
+                        <svg viewBox="0 0 24 24" width="64" height="64">
+                            <path fill="currentColor" d="M8 5v14l11-7z" />
+                        </svg>
+                    </div>
+                    <h2>YouTube Music</h2>
+                </button>
+                <button
+                    class="service-card soundcloud"
+                    onclick="loadService('sc')"
+                >
+                    <div class="card-icon">
+                        <!-- Cloud Icon for visual -->
+                        <svg viewBox="0 0 24 24" width="64" height="64">
+                            <path
+                                fill="currentColor"
+                                d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"
+                            />
+                        </svg>
+                    </div>
+                    <h2>SoundCloud (experimental)</h2>
+                </button>
+            </div>
+        </div>
 
-        function isValidUrl(url) {
-            try {
-                const parsed = new URL(url);
-                const host = parsed.hostname.toLowerCase();
-                return host === 'music.youtube.com' ||
-                    host === 'www.music.youtube.com' ||
-                    host === 'soundcloud.com' ||
-                    host === 'www.soundcloud.com' ||
-                    host === 'm.soundcloud.com';
-            } catch {
-                return false;
-            }
-        }
+        <script>
+            // Helper to handle both Electron IPC and Browser Fetch (Remote)
+            async function callApi(action, ...args) {
+                console.log(`callApi: ${action}`, args);
 
-        function openUrlModal() {
-            // Hide browser view so modal is visible
-            if (window.api.hideView) window.api.hideView();
-            urlModal.classList.remove('hidden');
-            urlInput.value = '';
-            urlError.classList.add('hidden');
-            setTimeout(() => urlInput.focus(), 100);
-        }
-
-        function closeUrlModal() {
-            urlModal.classList.add('hidden');
-            urlInput.value = '';
-            urlError.classList.add('hidden');
-            // Show browser view again
-            if (window.api.showView) window.api.showView();
-        }
-
-        function goToUrl() {
-            console.log('Go button clicked');
-            const url = urlInput.value.trim();
-            if (!url) return;
-
-            if (isValidUrl(url)) {
-                console.log('Sending load-url IPC:', url);
-                window.api.loadUrl(url);
-                closeUrlModal();
-            } else {
-                console.log('Invalid URL:', url);
-                urlError.classList.remove('hidden');
-            }
-        }
-
-        btnUrl.addEventListener('click', openUrlModal);
-        urlCancel.addEventListener('click', closeUrlModal);
-        urlGo.addEventListener('click', goToUrl);
-
-        // Close on backdrop click
-        urlModal.addEventListener('click', (e) => {
-            if (e.target === urlModal) closeUrlModal();
-        });
-
-        // Enter key to submit
-        urlInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') goToUrl();
-        });
-
-        // Clear error on input
-        urlInput.addEventListener('input', () => {
-            urlError.classList.add('hidden');
-        });
-
-        // Volume Controls
-        const btnVolume = document.getElementById('btn-volume');
-        const volPopup = document.getElementById('volume-popup');
-        const volRange = document.getElementById('volume-range');
-        const volText = document.getElementById('volume-text');
-        const btnBoost = document.getElementById('btn-boost');
-
-        // Boost state
-        let boostEnabled = false;
-        function getMaxVolume() { return boostEnabled ? 1000 : 200; }
-
-        // Initialize Volume
-        (async () => {
-            if (window.api && window.api.getVolume) {
-                const vol = await window.api.getVolume();
-                const sliderVal = Math.round(vol * 100);
-                // Auto-enable boost if stored volume exceeds 200%
-                if (sliderVal > 200) {
-                    boostEnabled = true;
-                    btnBoost.classList.add('active');
-                    volRange.max = 1000;
+                // 1. Try Electron API if available
+                if (window.api) {
+                    if (action === "loadService")
+                        return window.api.loadService(...args);
+                    if (action === "navigate")
+                        return window.api.navigate(...args);
+                    if (action === "openLyrics") return window.api.openLyrics();
+                    if (action === "openMiniPlayer")
+                        return window.api.openMiniPlayer();
+                    if (action === "openQueue") return window.api.openQueue();
+                    if (action === "openSettings")
+                        return window.api.openSettings();
+                    if (action === "loadUrl")
+                        return window.api.loadUrl(...args);
+                    if (action === "hideView") return window.api.hideView();
+                    if (action === "showView") return window.api.showView();
+                    if (action === "setVolume")
+                        return window.api.setVolume(...args);
+                    if (action === "getVolume") return window.api.getVolume();
+                    if (action === "vkCommand")
+                        return window.api.vkCommand(...args);
+                    if (action === "executeSearch")
+                        return window.api.executeSearch(...args);
+                    if (action === "windowControls") {
+                        const type = args[0];
+                        if (type === "minimize")
+                            return window.api.windowControls.minimize();
+                        if (type === "maximize")
+                            return window.api.windowControls.maximize();
+                        if (type === "close")
+                            return window.api.windowControls.close();
+                    }
+                    if (action === "getTopBarSearch")
+                        return window.api.getTopBarSearch();
                 }
-                volRange.value = sliderVal;
-                volText.innerText = sliderVal + '%';
-            }
-        })();
 
-        btnVolume.addEventListener('click', (e) => {
-            e.stopPropagation();
-            volPopup.classList.toggle('hidden');
-            const searchContainer = document.getElementById('top-search-container');
-            if (searchContainer) {
-                if (!volPopup.classList.contains('hidden')) {
-                    searchContainer.classList.add('shifted');
+                // 2. Fallback to Server API (for regular browser/localhost access)
+                let serverAction = action;
+                let serverData = { args };
+
+                if (action === "vkCommand") {
+                    const cmd = args[0];
+                    if (typeof cmd === "string") {
+                        serverAction = cmd;
+                    } else if (typeof cmd === "object") {
+                        serverAction = cmd.action;
+                        serverData = cmd;
+                    }
+                } else if (action === "setVolume") {
+                    serverAction = "volume";
+                    serverData = { value: args[0] };
+                }
+
+                console.log(`Fallback to Remote API for ${serverAction}`);
+                try {
+                    const response = await fetch("/api/control", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            action: serverAction,
+                            ...serverData,
+                        }),
+                    });
+                    return await response.json();
+                } catch (err) {
+                    console.error("Remote API Error:", err);
+                    return null;
+                }
+            }
+
+            async function loadService(service) {
+                console.log("Renderer: loadService", service);
+                await callApi("loadService", service);
+
+                // If in browser (no IPC), manually update UI and start polling
+                if (!window.api) {
+                    document
+                        .getElementById("home-container")
+                        .classList.add("hidden");
+                    document.body.style.backgroundColor = "#000";
+                    document
+                        .getElementById("vk-player-bar")
+                        .classList.remove("hidden");
+
+                    if (!window.statusPolling) {
+                        window.statusPolling = setInterval(pollStatus, 1000);
+                    }
+                }
+            }
+
+            // Setup Navigation Listeners
+            document
+                .getElementById("btn-back")
+                .addEventListener("click", () => callApi("navigate", "back"));
+            document
+                .getElementById("btn-reload")
+                .addEventListener("click", () => callApi("navigate", "reload"));
+            document
+                .getElementById("btn-home")
+                .addEventListener("click", () => {
+                    console.log("Renderer: Home button clicked");
+                    callApi("navigate", "home");
+                    if (!window.api) {
+                        document
+                            .getElementById("home-container")
+                            .classList.remove("hidden");
+                        document.body.style.backgroundColor = "";
+                        document
+                            .getElementById("vk-player-bar")
+                            .classList.add("hidden");
+                    }
+                });
+
+            document
+                .getElementById("lyrics-btn")
+                .addEventListener("click", () => callApi("openLyrics"));
+            document
+                .getElementById("mini-player-btn")
+                .addEventListener("click", () => callApi("openMiniPlayer"));
+            document
+                .getElementById("queue-btn")
+                .addEventListener("click", () => callApi("openQueue"));
+            document
+                .getElementById("btn-settings")
+                .addEventListener("click", () => callApi("openSettings"));
+
+            // URL Modal
+            const btnUrl = document.getElementById("btn-url");
+            const urlModal = document.getElementById("url-modal");
+            const urlInput = document.getElementById("url-input");
+            const urlError = document.getElementById("url-error");
+            const urlCancel = document.getElementById("url-cancel");
+            const urlGo = document.getElementById("url-go");
+
+            function isValidUrl(url) {
+                try {
+                    const parsed = new URL(url);
+                    const host = parsed.hostname.toLowerCase();
+                    return (
+                        host === "music.youtube.com" ||
+                        host === "www.music.youtube.com" ||
+                        host === "soundcloud.com" ||
+                        host === "www.soundcloud.com" ||
+                        host === "m.soundcloud.com"
+                    );
+                } catch {
+                    return false;
+                }
+            }
+
+            function openUrlModal() {
+                callApi("hideView");
+                urlModal.classList.remove("hidden");
+                urlInput.value = "";
+                urlError.classList.add("hidden");
+                setTimeout(() => urlInput.focus(), 100);
+            }
+
+            function closeUrlModal() {
+                urlModal.classList.add("hidden");
+                urlInput.value = "";
+                urlError.classList.add("hidden");
+                callApi("showView");
+            }
+
+            function goToUrl() {
+                const url = urlInput.value.trim();
+                if (!url) return;
+                if (isValidUrl(url)) {
+                    callApi("loadUrl", url);
+                    closeUrlModal();
                 } else {
-                    searchContainer.classList.remove('shifted');
+                    urlError.classList.remove("hidden");
                 }
             }
-        });
 
-        // Close popup when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!volPopup.contains(e.target) && !btnVolume.contains(e.target)) {
-                volPopup.classList.add('hidden');
-                const searchContainer = document.getElementById('top-search-container');
-                if (searchContainer) {
-                    searchContainer.classList.remove('shifted');
-                }
-            }
-        });
-
-        // Volume Change Handler
-        function updateVolume(val) {
-            // val is 0-1000 (or 0-200 when boost is off)
-            // Backend expects gain (0.0 - 10.0)
-            const gain = val / 100;
-            window.api.setVolume(gain);
-            volText.innerText = Math.round(val) + '%';
-            volRange.value = val;
-        }
-
-        volRange.addEventListener('input', (e) => {
-            updateVolume(e.target.value);
-        });
-
-        // Boost toggle
-        btnBoost.addEventListener('click', (e) => {
-            e.stopPropagation();
-            boostEnabled = !boostEnabled;
-            btnBoost.classList.toggle('active', boostEnabled);
-            volRange.max = boostEnabled ? 1000 : 200;
-
-            // Clamp volume down if turning boost off while above 200
-            if (!boostEnabled && parseInt(volRange.value) > 200) {
-                updateVolume(200);
-            }
-        });
-
-        // Scroll to change volume (on slider)
-        volRange.parentElement.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            let val = parseInt(volRange.value);
-            if (e.deltaY < 0) val += 10;
-            else val -= 10;
-
-            // Clamp to current max
-            const max = getMaxVolume();
-            if (val > max) val = max;
-            if (val < 0) val = 0;
-
-            updateVolume(val);
-        });
-
-        // Scroll to change volume (on volume icon)
-        btnVolume.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            let val = parseInt(volRange.value);
-            if (e.deltaY < 0) val += 10;
-            else val -= 10;
-
-            const max = getMaxVolume();
-            if (val > max) val = max;
-            if (val < 0) val = 0;
-
-            updateVolume(val);
-        });
-
-        // Sync volume when changed externally (e.g. from mini player)
-        if (window.api && window.api.onVolumeChanged) {
-            window.api.onVolumeChanged((gainValue) => {
-                // gainValue is 0.0 - 10.0, slider is 0-1000
-                const sliderVal = Math.round(gainValue * 100);
-                // Auto-enable boost if external volume exceeds 200%
-                if (sliderVal > 200 && !boostEnabled) {
-                    boostEnabled = true;
-                    btnBoost.classList.add('active');
-                    volRange.max = 1000;
-                }
-                volRange.value = sliderVal;
-                volText.innerText = sliderVal + '%';
+            btnUrl.addEventListener("click", openUrlModal);
+            urlCancel.addEventListener("click", closeUrlModal);
+            urlGo.addEventListener("click", goToUrl);
+            urlModal.addEventListener("click", (e) => {
+                if (e.target === urlModal) closeUrlModal();
             });
-        }
+            urlInput.addEventListener("keypress", (e) => {
+                if (e.key === "Enter") goToUrl();
+            });
+            urlInput.addEventListener("input", () => {
+                urlError.classList.add("hidden");
+            });
 
-        // Double click to type volume
-        volRange.parentElement.addEventListener('dblclick', () => {
-            const max = getMaxVolume();
-            const input = prompt(`Enter volume (0-${max}):`, volRange.value);
-            if (input !== null) {
-                let val = parseInt(input);
-                if (isNaN(val)) return;
-                if (val < 0) val = 0;
-                if (val > max) val = max;
+            // Volume Controls
+            const btnVolume = document.getElementById("btn-volume");
+            const volPopup = document.getElementById("volume-popup");
+            const volRange = document.getElementById("volume-range");
+            const volText = document.getElementById("volume-text");
+            const btnBoost = document.getElementById("btn-boost");
 
+            let boostEnabled = false;
+            function getMaxVolume() {
+                return boostEnabled ? 1000 : 200;
+            }
+
+            (async () => {
+                const volResponse = await callApi("getVolume");
+                let vol = volResponse;
+                if (
+                    volResponse &&
+                    typeof volResponse === "object" &&
+                    volResponse.success
+                ) {
+                    // If it's a browser response without actual volume data
+                    vol = 1.0;
+                }
+                if (vol !== null && typeof vol === "number") {
+                    const sliderVal = Math.round(vol * 100);
+                    if (sliderVal > 200) {
+                        boostEnabled = true;
+                        btnBoost.classList.add("active");
+                        volRange.max = 1000;
+                    }
+                    volRange.value = sliderVal;
+                    volText.innerText = sliderVal + "%";
+                }
+            })();
+
+            btnVolume.addEventListener("click", (e) => {
+                e.stopPropagation();
+                volPopup.classList.toggle("hidden");
+                const sc = document.getElementById("top-search-container");
+                if (sc) {
+                    if (!volPopup.classList.contains("hidden"))
+                        sc.classList.add("shifted");
+                    else sc.classList.remove("shifted");
+                }
+            });
+
+            document.addEventListener("click", (e) => {
+                if (
+                    !volPopup.contains(e.target) &&
+                    !btnVolume.contains(e.target)
+                ) {
+                    volPopup.classList.add("hidden");
+                    const sc = document.getElementById("top-search-container");
+                    if (sc) sc.classList.remove("shifted");
+                }
+            });
+
+            function updateVolume(val) {
+                const gain = val / 100;
+                callApi("setVolume", gain);
+                volText.innerText = Math.round(val) + "%";
+                volRange.value = val;
+            }
+
+            volRange.addEventListener("input", (e) =>
+                updateVolume(e.target.value),
+            );
+            btnBoost.addEventListener("click", (e) => {
+                e.stopPropagation();
+                boostEnabled = !boostEnabled;
+                btnBoost.classList.toggle("active", boostEnabled);
+                volRange.max = boostEnabled ? 1000 : 200;
+                if (!boostEnabled && parseInt(volRange.value) > 200)
+                    updateVolume(200);
+            });
+
+            volRange.parentElement.addEventListener("wheel", (e) => {
+                e.preventDefault();
+                let val = parseInt(volRange.value) + (e.deltaY < 0 ? 10 : -10);
+                const max = getMaxVolume();
+                val = Math.max(0, Math.min(max, val));
                 updateVolume(val);
+            });
+
+            btnVolume.addEventListener("wheel", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                let val = parseInt(volRange.value) + (e.deltaY < 0 ? 10 : -10);
+                const max = getMaxVolume();
+                val = Math.max(0, Math.min(max, val));
+                updateVolume(val);
+            });
+
+            if (window.api && window.api.onVolumeChanged) {
+                window.api.onVolumeChanged((gainValue) => {
+                    const sliderVal = Math.round(gainValue * 100);
+                    if (sliderVal > 200 && !boostEnabled) {
+                        boostEnabled = true;
+                        btnBoost.classList.add("active");
+                        volRange.max = 1000;
+                    }
+                    volRange.value = sliderVal;
+                    volText.innerText = sliderVal + "%";
+                });
             }
-        });
 
-        // Window Controls
-        document.getElementById('btn-min').addEventListener('click', () => {
-            console.log('Renderer: btn-min clicked');
-            if (window.api && window.api.windowControls) window.api.windowControls.minimize();
-        });
-        document.getElementById('btn-max').addEventListener('click', () => {
-            console.log('Renderer: btn-max clicked');
-            if (window.api && window.api.windowControls) window.api.windowControls.maximize();
-        });
-        document.getElementById('btn-close').addEventListener('click', () => {
-            console.log('Renderer: btn-close clicked');
-            if (window.api && window.api.windowControls) window.api.windowControls.close();
-        });
-
-        // Handle Active State
-        const homeContainer = document.getElementById('home-container');
-        // Nav container is always visible now
-
-        window.api.onServiceActive((active) => {
-            if (active) {
-                homeContainer.classList.add('hidden');
-                document.body.style.backgroundColor = '#000';
-            } else {
-                homeContainer.classList.remove('hidden');
-                document.body.style.backgroundColor = '';
-                // Hide VK player when going home
-                document.getElementById('vk-player-bar').classList.add('hidden');
-            }
-        });
-
-        // VK Player Bar
-        if (window.api.onVkPlayerVisibility) {
-            window.api.onVkPlayerVisibility((visible) => {
-                const vkBar = document.getElementById('vk-player-bar');
-                if (visible) {
-                    vkBar.classList.remove('hidden');
-                } else {
-                    vkBar.classList.add('hidden');
+            volRange.parentElement.addEventListener("dblclick", () => {
+                const max = getMaxVolume();
+                const input = prompt(
+                    `Enter volume (0-${max}):`,
+                    volRange.value,
+                );
+                if (input !== null) {
+                    let val = parseInt(input);
+                    if (!isNaN(val))
+                        updateVolume(Math.max(0, Math.min(max, val)));
                 }
             });
-        }
 
-        function fmtTime(s) {
-            if (!s || isNaN(s)) return '0:00';
-            const m = Math.floor(s / 60);
-            const sec = Math.floor(s % 60);
-            return m + ':' + (sec < 10 ? '0' : '') + sec;
-        }
+            // Window Controls
+            document
+                .getElementById("btn-min")
+                .addEventListener("click", () =>
+                    callApi("windowControls", "minimize"),
+                );
+            document
+                .getElementById("btn-max")
+                .addEventListener("click", () =>
+                    callApi("windowControls", "maximize"),
+                );
+            document
+                .getElementById("btn-close")
+                .addEventListener("click", () =>
+                    callApi("windowControls", "close"),
+                );
 
-        if (window.api.onVkTrackUpdate) {
-            window.api.onVkTrackUpdate((info) => {
-                const vkBar = document.getElementById('vk-player-bar');
-                if (vkBar.classList.contains('hidden')) return;
+            // Handle Active State
+            const homeContainer = document.getElementById("home-container");
+            if (window.api && window.api.onServiceActive) {
+                window.api.onServiceActive((active) => {
+                    if (active) {
+                        homeContainer.classList.add("hidden");
+                        document.body.style.backgroundColor = "#000";
+                    } else {
+                        homeContainer.classList.remove("hidden");
+                        document.body.style.backgroundColor = "";
+                        document
+                            .getElementById("vk-player-bar")
+                            .classList.add("hidden");
+                    }
+                });
+            }
 
-                // Track info
-                const titleEl = document.getElementById('vk-track-title');
-                const artistEl = document.getElementById('vk-track-artist');
-                const artEl = document.getElementById('vk-track-art');
-                const playBtn = document.getElementById('vk-btn-play');
-                const progressFill = document.getElementById('vk-progress-fill');
-                const timeCurrent = document.getElementById('vk-time-current');
-                const timeTotal = document.getElementById('vk-time-total');
-                const shuffleBtn = document.getElementById('vk-btn-shuffle');
-                const repeatBtn = document.getElementById('vk-btn-repeat');
-                const likeBtn = document.getElementById('vk-btn-like');
+            // Auto-load default service (YT Music) if on home screen at startup
+            setTimeout(() => {
+                if (!homeContainer.classList.contains("hidden")) {
+                    console.log(
+                        "Renderer: Auto-loading default service (YT Music)",
+                    );
+                    loadService("yt");
+                }
+            }, 1000);
+
+            // VK Player Bar
+            if (window.api && window.api.onVkPlayerVisibility) {
+                window.api.onVkPlayerVisibility((visible) => {
+                    const vkBar = document.getElementById("vk-player-bar");
+                    if (visible) vkBar.classList.remove("hidden");
+                    else vkBar.classList.add("hidden");
+                });
+            }
+
+            function fmtTime(s) {
+                if (!s || isNaN(s)) return "0:00";
+                const m = Math.floor(s / 60);
+                const sec = Math.floor(s % 60);
+                return m + ":" + (sec < 10 ? "0" : "") + sec;
+            }
+
+            function updateVkPlayerUI(info) {
+                const vkBar = document.getElementById("vk-player-bar");
+                if (vkBar.classList.contains("hidden")) return;
+
+                const titleEl = document.getElementById("vk-track-title");
+                const artistEl = document.getElementById("vk-track-artist");
+                const artEl = document.getElementById("vk-track-art");
+                const playBtn = document.getElementById("vk-btn-play");
+                const progressFill =
+                    document.getElementById("vk-progress-fill");
+                const timeCurrent = document.getElementById("vk-time-current");
+                const timeTotal = document.getElementById("vk-time-total");
+                const shuffleBtn = document.getElementById("vk-btn-shuffle");
+                const repeatBtn = document.getElementById("vk-btn-repeat");
+                const likeBtn = document.getElementById("vk-btn-like");
 
                 if (info.title && titleEl) titleEl.textContent = info.title;
                 if (info.artist && artistEl) artistEl.textContent = info.artist;
                 if (info.albumArt && artEl) {
                     artEl.src = info.albumArt;
-                    artEl.style.display = 'block';
+                    artEl.style.display = "block";
                 }
 
-                // Play/Pause icon
                 if (playBtn) {
                     playBtn.innerHTML = info.paused
                         ? '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>'
                         : '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
                 }
 
-                // Shuffle/Repeat states
-
-                if (shuffleBtn) {
-                    if (info.shuffle) {
-                        shuffleBtn.style.color = 'var(--accent-yt)';
-                    } else {
-                        shuffleBtn.style.color = '';
-                    }
-                }
-
+                if (shuffleBtn)
+                    shuffleBtn.style.color = info.shuffle
+                        ? "var(--accent-yt)"
+                        : "";
                 if (repeatBtn) {
-                    if (info.repeat === 'one') {
-                        repeatBtn.style.color = 'var(--accent-yt)';
-                        repeatBtn.innerHTML = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4L13 15z"/></svg>';
-                    } else if (info.repeat === 'all') {
-                        repeatBtn.style.color = 'var(--accent-yt)';
-                        repeatBtn.innerHTML = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>';
+                    if (info.repeat === "one") {
+                        repeatBtn.style.color = "var(--accent-yt)";
+                        repeatBtn.innerHTML =
+                            '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4L13 15z"/></svg>';
+                    } else if (info.repeat === "all") {
+                        repeatBtn.style.color = "var(--accent-yt)";
+                        repeatBtn.innerHTML =
+                            '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>';
                     } else {
-                        repeatBtn.style.color = '';
-                        repeatBtn.innerHTML = '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>';
+                        repeatBtn.style.color = "";
+                        repeatBtn.innerHTML =
+                            '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>';
                     }
                 }
 
                 if (likeBtn) {
                     if (info.likeStatus) {
-                        likeBtn.classList.add('active');
-                        likeBtn.style.color = '#a855f7'; // AMOLED purple tint
+                        likeBtn.classList.add("active");
+                        likeBtn.style.color = "#a855f7";
                     } else {
-                        likeBtn.classList.remove('active');
-                        likeBtn.style.color = 'var(--text-muted)';
+                        likeBtn.classList.remove("active");
+                        likeBtn.style.color = "var(--text-muted)";
                     }
                 }
 
-                // Progress
                 if (info.duration && info.duration > 0) {
                     vkCurrentDuration = info.duration;
-                    if (typeof window.isVkDragging === 'undefined' || !window.isVkDragging) {
+                    if (!window.isVkDragging) {
                         const pct = (info.currentTime / info.duration) * 100;
-                        if (progressFill) progressFill.style.width = pct + '%';
-                        if (timeCurrent) timeCurrent.textContent = fmtTime(info.currentTime);
+                        if (progressFill) progressFill.style.width = pct + "%";
+                        if (timeCurrent)
+                            timeCurrent.textContent = fmtTime(info.currentTime);
                     }
-                    if (timeTotal) timeTotal.textContent = fmtTime(info.duration);
+                    if (timeTotal)
+                        timeTotal.textContent = fmtTime(info.duration);
                 }
-            });
-        }
+            }
 
-        // Click-to-seek & Drag on VK progress bar
-        let vkCurrentDuration = 0;
-        window.isVkDragging = false;
-        const vkProgressBg = document.querySelector('#vk-player-bar .vk-progress-bg');
-        if (vkProgressBg) {
-            const updateProgress = (e) => {
-                if (!vkCurrentDuration || vkCurrentDuration <= 0) return;
-                const rect = vkProgressBg.getBoundingClientRect();
-                const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                const seekTime = pct * vkCurrentDuration;
+            if (window.api && window.api.onVkTrackUpdate) {
+                window.api.onVkTrackUpdate(updateVkPlayerUI);
+            }
 
-                // Immediate visual feedback
-                const fill = document.getElementById('vk-progress-fill');
-                if (fill) fill.style.width = (pct * 100) + '%';
-                const timeCur = document.getElementById('vk-time-current');
-                if (timeCur) timeCur.textContent = fmtTime(seekTime);
+            async function pollStatus() {
+                try {
+                    const res = await fetch("/api/status");
+                    const state = await res.json();
+                    if (state) {
+                        const info = {
+                            title: state.track
+                                ? state.track.title
+                                : "No track playing",
+                            artist: state.track
+                                ? state.track.artist
+                                : "Select a song",
+                            albumArt: state.track ? state.track.art : "",
+                            paused: state.paused,
+                            currentTime: state.currentTime,
+                            duration: state.track ? state.track.duration : 0,
+                            shuffle: state.shuffle,
+                            repeat: state.repeat,
+                            likeStatus: state.likeStatus,
+                        };
+                        updateVkPlayerUI(info);
 
-                return seekTime;
+                        // Render queue in web UI if present and no window.api
+                        if (
+                            !window.api &&
+                            state.queue &&
+                            document.getElementById("web-queue-container")
+                        ) {
+                            const queueContainer = document.getElementById(
+                                "web-queue-container",
+                            );
+                            const queueList =
+                                document.getElementById("web-queue-list");
+
+                            // Only show if there is a track playing
+                            if (state.track) {
+                                queueContainer.classList.remove("hidden");
+
+                                queueList.innerHTML = state.queue
+                                    .map(
+                                        (item, i) => `
+                                    <div class="web-queue-item" data-selected="${item.selected}" onclick="callApi('vkCommand', {action: 'playQueueIndex', index: ${i}})">
+                                        <div class="web-queue-img-wrap">
+                                            <img src="${item.thumbnail || "icon.png"}" alt="Art">
+                                        </div>
+                                        <div class="web-queue-info">
+                                            <div class="web-queue-title" title="${item.title.replace(/"/g, "&quot;")}">${item.title}</div>
+                                            <div class="web-queue-artist" title="${item.artist.replace(/"/g, "&quot;")}">${item.artist}</div>
+                                        </div>
+                                        <div class="web-queue-duration">${item.duration}</div>
+                                    </div>
+                                `,
+                                    )
+                                    .join("");
+
+                                // Auto-scroll to selected if it's the first time we see it
+                                const selected = queueContainer.querySelector(
+                                    '[data-selected="true"]',
+                                );
+                                if (selected && !window.hasScrolledWebQueue) {
+                                    selected.scrollIntoView({
+                                        block: "center",
+                                        behavior: "smooth",
+                                    });
+                                    window.hasScrolledWebQueue = true;
+                                }
+                            } else {
+                                queueContainer.classList.add("hidden");
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("Polling error:", e);
+                }
+            }
+
+            let vkCurrentDuration = 0;
+            window.isVkDragging = false;
+            const vkProgressBg = document.querySelector(
+                "#vk-player-bar .vk-progress-bg",
+            );
+            if (vkProgressBg) {
+                const updateProgress = (e) => {
+                    if (!vkCurrentDuration || vkCurrentDuration <= 0) return;
+                    const rect = vkProgressBg.getBoundingClientRect();
+                    const pct = Math.max(
+                        0,
+                        Math.min(1, (e.clientX - rect.left) / rect.width),
+                    );
+                    const seekTime = pct * vkCurrentDuration;
+                    const fill = document.getElementById("vk-progress-fill");
+                    if (fill) fill.style.width = pct * 100 + "%";
+                    const timeCur = document.getElementById("vk-time-current");
+                    if (timeCur) timeCur.textContent = fmtTime(seekTime);
+                    return seekTime;
+                };
+
+                vkProgressBg.addEventListener("mousedown", (e) => {
+                    window.isVkDragging = true;
+                    updateProgress(e);
+                });
+                document.addEventListener("mousemove", (e) => {
+                    if (window.isVkDragging) updateProgress(e);
+                });
+                document.addEventListener("mouseup", (e) => {
+                    if (window.isVkDragging) {
+                        window.isVkDragging = false;
+                        const st = updateProgress(e);
+                        if (st !== undefined)
+                            callApi("vkCommand", { action: "seek", time: st });
+                    }
+                });
+            }
+
+            const optimisticReset = () => {
+                const fill = document.getElementById("vk-progress-fill");
+                if (fill) fill.style.width = "0%";
+                const timeCur = document.getElementById("vk-time-current");
+                if (timeCur) timeCur.textContent = "0:00";
             };
 
-            vkProgressBg.addEventListener('mousedown', (e) => {
-                window.isVkDragging = true;
-                updateProgress(e);
-            });
+            document
+                .getElementById("vk-btn-prev")
+                .addEventListener("click", () => {
+                    callApi("vkCommand", "prev");
+                    optimisticReset();
+                });
+            document
+                .getElementById("vk-btn-play")
+                .addEventListener("click", () => {
+                    const playBtn = document.getElementById("vk-btn-play");
+                    const isPaused =
+                        playBtn.innerHTML.includes("M8 5v14l11-7z");
+                    playBtn.innerHTML = !isPaused
+                        ? '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>'
+                        : '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+                    callApi("vkCommand", "playpause");
+                });
+            document
+                .getElementById("vk-btn-next")
+                .addEventListener("click", () => {
+                    callApi("vkCommand", "next");
+                    optimisticReset();
+                });
+            document
+                .getElementById("vk-btn-shuffle")
+                .addEventListener("click", () =>
+                    callApi("vkCommand", "shuffle"),
+                );
+            document
+                .getElementById("vk-btn-repeat")
+                .addEventListener("click", () =>
+                    callApi("vkCommand", "repeat"),
+                );
+            document
+                .getElementById("vk-btn-like")
+                .addEventListener("click", () => {
+                    const likeBtn = document.getElementById("vk-btn-like");
+                    const isLiked = likeBtn.classList.contains("active");
+                    if (isLiked) {
+                        likeBtn.classList.remove("active");
+                        likeBtn.style.color = "var(--text-muted)";
+                    } else {
+                        likeBtn.classList.add("active");
+                        likeBtn.style.color = "#a855f7";
+                    }
+                    callApi("vkCommand", "like");
+                });
+            document
+                .getElementById("vk-btn-playlist")
+                .addEventListener("click", () =>
+                    callApi("vkCommand", "playlist"),
+                );
 
-            document.addEventListener('mousemove', (e) => {
-                if (window.isVkDragging) {
-                    updateProgress(e);
+            const topSearchContainer = document.getElementById(
+                "top-search-container",
+            );
+            const topSearchInput = document.getElementById("top-search-input");
+
+            (async () => {
+                const res = await callApi("getTopBarSearch");
+                // Mock true for browser fallback where possible
+                if (res === true || (res && res.success)) {
+                    topSearchContainer.classList.add("visible");
                 }
-            });
+            })();
 
-            document.addEventListener('mouseup', (e) => {
-                if (window.isVkDragging) {
-                    window.isVkDragging = false;
-                    const seekTime = updateProgress(e);
-                    if (seekTime !== undefined) {
-                        window.api.vkCommand({ action: 'seek', time: seekTime });
+            if (window.api && window.api.onTopBarSearchVisibility) {
+                window.api.onTopBarSearchVisibility((visible) => {
+                    topSearchContainer.classList.toggle("visible", visible);
+                });
+            }
+
+            topSearchInput.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") {
+                    const query = topSearchInput.value.trim();
+                    if (query) {
+                        callApi("executeSearch", query);
+                        topSearchInput.blur();
                     }
                 }
             });
-        }
-
-        // VK Player control buttons
-        const optimisticReset = () => {
-            const fill = document.getElementById('vk-progress-fill');
-            if (fill) fill.style.width = '0%';
-            const timeCur = document.getElementById('vk-time-current');
-            if (timeCur) timeCur.textContent = '0:00';
-        };
-
-        document.getElementById('vk-btn-prev').addEventListener('click', () => {
-            window.api.vkCommand('prev');
-            optimisticReset();
-        });
-        document.getElementById('vk-btn-play').addEventListener('click', () => {
-            const playBtn = document.getElementById('vk-btn-play');
-            const isCurrentlyPaused = playBtn.innerHTML.includes('M8 5v14l11-7z');
-            playBtn.innerHTML = !isCurrentlyPaused
-                ? '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>'
-                : '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
-            window.api.vkCommand('playpause');
-        });
-        document.getElementById('vk-btn-next').addEventListener('click', () => {
-            window.api.vkCommand('next');
-            optimisticReset();
-        });
-        document.getElementById('vk-btn-shuffle').addEventListener('click', () => window.api.vkCommand('shuffle'));
-        document.getElementById('vk-btn-repeat').addEventListener('click', () => window.api.vkCommand('repeat'));
-        document.getElementById('vk-btn-like').addEventListener('click', () => {
-            const likeBtn = document.getElementById('vk-btn-like');
-            const isLiked = likeBtn.classList.contains('active');
-
-            // Optimistic UI update
-            if (isLiked) {
-                likeBtn.classList.remove('active');
-                likeBtn.style.color = 'var(--text-muted)';
-            } else {
-                likeBtn.classList.add('active');
-                likeBtn.style.color = '#a855f7';
-            }
-
-            window.api.vkCommand('like');
-        });
-
-        // Top Search Bar Logic
-        const topSearchContainer = document.getElementById('top-search-container');
-        const topSearchInput = document.getElementById('top-search-input');
-
-        window.api.getTopBarSearch().then(enabled => {
-            topSearchContainer.classList.toggle('visible', enabled);
-        });
-
-        window.api.onTopBarSearchVisibility(visible => {
-            topSearchContainer.classList.toggle('visible', visible);
-            if (visible) {
-                // optionally focus? No, maybe not intrusive focus
-            }
-        });
-
-        topSearchInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                const query = topSearchInput.value.trim();
-                if (query) {
-                    window.api.executeSearch(query);
-                    // blur to remove focus after search
-                    topSearchInput.blur();
-                }
-            }
-        });
-    </script>
-</body>
-
+        </script>
+    </body>
 </html>

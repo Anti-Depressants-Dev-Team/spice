@@ -603,3 +603,84 @@ h1 {
     transition: width 0.1s linear;
     /* Make it more responsive when dragging */
 }
+
+/* Web Queue Container for localhost web UI */
+#web-queue-container {
+    position: absolute;
+    top: 90px; /* Below title bar + vk player bar */
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--bg-base);
+    overflow-y: auto;
+    padding: 20px;
+    z-index: 10;
+}
+
+.web-queue-header {
+    font-size: 24px;
+    font-weight: bold;
+    margin-bottom: 20px;
+    padding-left: 10px;
+}
+
+.web-queue-item {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.web-queue-item:hover {
+    background-color: var(--bg-elevated);
+}
+
+.web-queue-item[data-selected="true"] {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.web-queue-img-wrap {
+    width: 48px;
+    height: 48px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-right: 16px;
+    flex-shrink: 0;
+}
+
+.web-queue-img-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.web-queue-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.web-queue-title {
+    font-size: 16px;
+    color: var(--text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 4px;
+}
+
+.web-queue-artist {
+    font-size: 14px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.web-queue-duration {
+    font-size: 14px;
+    color: var(--text-muted);
+    margin-left: 16px;
+    flex-shrink: 0;
+}
