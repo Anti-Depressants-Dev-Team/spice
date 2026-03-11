@@ -69,6 +69,7 @@ let scrobbler = null;
 let currentService = null; // Track which service is active for Discord RPC
 let lastTrack = null; // Store last track to send to lyrics on open
 let lyricsWindow = null;
+let queueWindow = null;
 let currentVolume = 1.0; // Volume gain value (0.0 - 10.0), shared across scopes
 
 const SERVICES = {
@@ -176,9 +177,13 @@ function createWindow() {
 
     // Check for Default Service Startup
     // If not set, use 'yt' (YouTube Music)
-    const startupService = store ? store.get("defaultService", "yt") : "yt"; 
+    const startupService = store ? store.get("defaultService", "yt") : "yt";
 
-    if (startupService && startupService !== "home" && SERVICES[startupService]) {
+    if (
+      startupService &&
+      startupService !== "home" &&
+      SERVICES[startupService]
+    ) {
       console.log(`Auto-loading Default Service: ${startupService}`);
       // Ensure we have a small delay so window is ready
       setTimeout(() => {
@@ -342,7 +347,14 @@ ipcMain.on("vk-player-command", (event, cmd) => {
   }
 
   const code = {
-    playpause: `document.querySelector('#play-pause-button')?.click()`,
+    playpause: `(function(){
+      const barPlay = document.querySelector('ytmusic-player-bar #play-pause-button') || document.querySelector('ytmusic-player-bar tp-yt-paper-icon-button.play-pause-button');
+      if (barPlay && barPlay.offsetParent !== null) { barPlay.click(); return; }
+      const anyPlay = document.querySelector('#play-pause-button');
+      if (anyPlay) { anyPlay.click(); return; }
+      const v = document.querySelector('video');
+      if (v) { v.paused ? v.play() : v.pause(); }
+    })()`,
     next: `document.querySelector('.next-button')?.click() || document.querySelector('[aria-label="Next"]')?.click()`,
     prev: `document.querySelector('.previous-button')?.click() || document.querySelector('[aria-label="Previous"]')?.click()`,
     like: `(function(){
@@ -375,9 +387,9 @@ ipcMain.on("vk-player-command", (event, cmd) => {
         let menuBtn = document.querySelector('ytmusic-player-bar ytmusic-menu-renderer button[aria-label="Action menu"]') ||
                       document.querySelector('ytmusic-player-bar button[aria-label="Action menu"]') ||
                       document.querySelector('ytmusic-player-bar ytmusic-menu-renderer tp-yt-paper-icon-button') ||
-                      document.querySelector('ytmusic-player-bar tp-yt-paper-icon-button.expand-button') || 
+                      document.querySelector('ytmusic-player-bar tp-yt-paper-icon-button.expand-button') ||
                       document.querySelector('ytmusic-player-bar tp-yt-paper-icon-button[aria-label="More player controls"]');
-        
+
         if (!menuBtn) {
             const art = document.querySelector('ytmusic-player-bar .thumbnail-image-wrapper img, ytmusic-player-bar img');
             if (art) {
@@ -393,24 +405,24 @@ ipcMain.on("vk-player-command", (event, cmd) => {
         } else {
             menuBtn.click();
         }
-        
+
         let attempts = 0;
         const interval = setInterval(() => {
           attempts++;
-          
+
           const popup = document.querySelector('ytmusic-popup-container, tp-yt-iron-dropdown');
           if (!popup && attempts < 15) return;
-          
+
           const paths = Array.from(document.querySelectorAll('ytmusic-popup-container path, tp-yt-iron-dropdown path'));
-          const playlistIconPath = paths.find(p => p.getAttribute('d') === 'M22 13h-4v4h-2v-4h-4v-2h4V7h2v4h4v2zm-8-6H2v1h12V7zM2 12h8v-1H2v1zm0 4h8v-1H2v1z' || 
+          const playlistIconPath = paths.find(p => p.getAttribute('d') === 'M22 13h-4v4h-2v-4h-4v-2h4V7h2v4h4v2zm-8-6H2v1h12V7zM2 12h8v-1H2v1zm0 4h8v-1H2v1z' ||
                                                      (p.getAttribute('d') && p.getAttribute('d').includes('M22 13h-4v4h-2v-4h-4v-2h4V7h2v4h4v2zm-8-6H2v1h12V7zM2 12h8v-1H2v1zm0 4h8v-1H2v1z')));
-          
+
           let playlistItem = null;
-          
+
           if (playlistIconPath) {
               playlistItem = playlistIconPath.closest('ytmusic-menu-navigation-item-renderer, ytmusic-menu-service-item-renderer, ytmusic-toggle-menu-service-item-renderer, tp-yt-paper-icon-item, ytmusic-menu-item-renderer');
           }
-          
+
           if (!playlistItem) {
               const items = Array.from(document.querySelectorAll('ytmusic-popup-container ytmusic-menu-navigation-item-renderer, ytmusic-popup-container ytmusic-menu-service-item-renderer, ytmusic-popup-container ytmusic-toggle-menu-service-item-renderer, ytmusic-popup-container tp-yt-paper-icon-item, tp-yt-iron-dropdown ytmusic-menu-item-renderer, tp-yt-iron-dropdown ytmusic-menu-navigation-item-renderer'));
               playlistItem = items.find(el => {
@@ -418,7 +430,7 @@ ipcMain.on("vk-player-command", (event, cmd) => {
                   return text.includes('playlist') || text.includes('save to');
               });
           }
-          
+
           if (playlistItem) {
             clearInterval(interval);
             setTimeout(() => {
@@ -437,11 +449,19 @@ ipcMain.on("vk-player-command", (event, cmd) => {
   };
   if (code[cmd]) {
     view.webContents.executeJavaScript(code[cmd]).catch(() => {});
-    view.webContents.executeJavaScript(code[cmd]).then((res) => {
-      if (cmd === 'playlist' && res && res.success === false) {
-        try { require('fs').writeFileSync('debug_playlist_popup_dump.html', res.html); } catch (e) { }
-      }
-    }).catch(() => { });
+    view.webContents
+      .executeJavaScript(code[cmd])
+      .then((res) => {
+        if (cmd === "playlist" && res && res.success === false) {
+          try {
+            require("fs").writeFileSync(
+              "debug_playlist_popup_dump.html",
+              res.html,
+            );
+          } catch (e) {}
+        }
+      })
+      .catch(() => {});
   }
 });
 
@@ -502,8 +522,10 @@ function loadService(serviceKey) {
   // Check if already loading this URL to prevent duplicate calls
   const currentUrl = view.webContents.getURL();
   if (currentUrl && currentUrl.startsWith(SERVICES[serviceKey])) {
-      console.log(`[Main] Service URL already loaded or loading: ${SERVICES[serviceKey]}`);
-      return;
+    console.log(
+      `[Main] Service URL already loaded or loading: ${SERVICES[serviceKey]}`,
+    );
+    return;
   }
 
   console.log(`Loading service URL: ${SERVICES[serviceKey]} `);
@@ -512,7 +534,6 @@ function loadService(serviceKey) {
     .then(() => {
       console.log(`Successfully loaded ${serviceKey} `);
       updateViewBounds(); // Re-apply bounds just in case
-
 
       // Inject CSS for Cosmetic Blocking
       view.webContents.insertCSS(AD_CSS);
@@ -554,10 +575,47 @@ let trackPollingInterval = null;
 let lastPolledTrackKey = null;
 let lastPolledTime = 0;
 
+let queuePollingInterval = null;
+
+function startQueuePolling() {
+  if (queuePollingInterval) clearInterval(queuePollingInterval);
+  queuePollingInterval = setInterval(async () => {
+    if (!queueWindow || queueWindow.isDestroyed()) return;
+    const activeView = getActiveBackendView();
+    if (!activeView || !activeView.webContents) return;
+
+    try {
+      const queueData = await activeView.webContents.executeJavaScript(`
+        (function() {
+          const items = document.querySelectorAll('ytmusic-player-queue-item');
+          if (!items.length) return [];
+          return Array.from(items).map((item, index) => {
+            return {
+              title: item.querySelector('.song-title')?.innerText || '',
+              artist: item.querySelector('.byline')?.innerText || '',
+              duration: item.querySelector('.duration')?.innerText || '',
+              thumbnail: item.querySelector('yt-img-shadow img')?.src || '',
+              selected: item.hasAttribute('selected'),
+              index: index
+            };
+          });
+        })();
+      `);
+      if (queueWindow && !queueWindow.isDestroyed() && queueData) {
+        queueWindow.webContents.send("queue-update", queueData);
+      }
+    } catch (e) {
+      // Ignore errors when page is still loading
+    }
+  }, 1000);
+}
+
 function startTrackPolling() {
   if (trackPollingInterval) {
     clearInterval(trackPollingInterval);
   }
+
+  startQueuePolling();
 
   console.log("[Main] Starting track polling...");
 
@@ -729,14 +787,14 @@ function startTrackPolling() {
         "[Main Poll] Result:",
         track ? `${track.title} by ${track.artist}` : "null",
         "repeat=" + (track ? track.repeat : ""),
-        track && track.repeatDebug ? `[DEBUG REPEAT] ${track.repeatDebug}` : ""
+        track && track.repeatDebug ? `[DEBUG REPEAT] ${track.repeatDebug}` : "",
       );
 
       if (track && track.repeatDebug) {
         try {
           require("fs").appendFileSync(
             "spice_debug.log",
-            `[DEBUG REPEAT] repeat=${track.repeat} ` + track.repeatDebug + "\n"
+            `[DEBUG REPEAT] repeat=${track.repeat} ` + track.repeatDebug + "\n",
           );
         } catch (e) {}
       }
@@ -867,6 +925,10 @@ function stopTrackPolling() {
   if (trackPollingInterval) {
     clearInterval(trackPollingInterval);
     trackPollingInterval = null;
+  }
+  if (queuePollingInterval) {
+    clearInterval(queuePollingInterval);
+    queuePollingInterval = null;
   }
   lastPolledTrackKey = null;
 }
@@ -1225,7 +1287,8 @@ app.whenReady().then(async () => {
                 if (view.webContents.canGoBack()) view.webContents.goBack();
                 break;
               case "forward":
-                if (view.webContents.canGoForward()) view.webContents.goForward();
+                if (view.webContents.canGoForward())
+                  view.webContents.goForward();
                 break;
               case "reload":
                 app.relaunch();
@@ -1247,9 +1310,17 @@ app.whenReady().then(async () => {
 
                 if ('${action.action}' === 'playpause') {
                    // Generic toggle or service specific
-                   const ytm = document.querySelector('#play-pause-button');
-                   if (ytm) ytm.click();
-                   else click('.playControl');
+                   const barPlay = document.querySelector('ytmusic-player-bar #play-pause-button') || document.querySelector('ytmusic-player-bar tp-yt-paper-icon-button.play-pause-button');
+                   if (barPlay && barPlay.offsetParent !== null) { barPlay.click(); }
+                   else {
+                       const ytm = document.querySelector('#play-pause-button');
+                       if (ytm) ytm.click();
+                       else {
+                           const v = document.querySelector('video');
+                           if (v) v.paused ? v.play() : v.pause();
+                           else document.querySelector('.playControl')?.click();
+                       }
+                   }
                 }
                 else if ('${action.action}' === 'next') {
                     const ytm = document.querySelector('.next-button');
@@ -1336,19 +1407,43 @@ app.whenReady().then(async () => {
         .catch((e) => console.error(e));
 
       // Handle volume separately in main process (uses AudioContext gain, not video.volume)
-      if (action.action === "volume" && (action.value !== undefined || (action.args && action.args[0] !== undefined))) {
+      if (
+        action.action === "volume" &&
+        (action.value !== undefined ||
+          (action.args && action.args[0] !== undefined))
+      ) {
         const val = action.value !== undefined ? action.value : action.args[0];
         // Emit internally — picked up by ipcMain.on('set-volume') which calls applyVolume
-        ipcMain.emit(
-          "set-volume",
-          { sender: mainWindow?.webContents },
-          val,
-        );
+        ipcMain.emit("set-volume", { sender: mainWindow?.webContents }, val);
         // Immediately update mini player server state so slider doesn't reset on next poll
         miniPlayerServer.updateState({ volume: val });
         // Sync the main app's volume slider
-        if (mainWindow)
-          mainWindow.webContents.send("volume-changed", val);
+        if (mainWindow) mainWindow.webContents.send("volume-changed", val);
+      }
+
+      if (action.action === "queue") {
+        if (queueWindow) {
+          queueWindow.focus();
+        } else {
+          queueWindow = new BrowserWindow({
+            width: 400,
+            height: 600,
+            title: "Spice Queue",
+            icon: path.join(__dirname, "icon.png"),
+            frame: false,
+            autoHideMenuBar: true,
+            backgroundColor: "#121212",
+            webPreferences: {
+              nodeIntegration: false,
+              contextIsolation: true,
+              preload: path.join(__dirname, "preload.js"),
+            },
+          });
+          queueWindow.loadURL(`http://localhost:6969/queue`);
+          queueWindow.on("closed", () => {
+            queueWindow = null;
+          });
+        }
       }
     });
   } catch (err) {
@@ -1666,6 +1761,53 @@ app.whenReady().then(async () => {
       mainWindow.setBrowserView(view);
       updateViewBounds();
       console.log("BrowserView shown after modal");
+    }
+  });
+
+  // Queue Window Handler
+  ipcMain.on("open-queue", () => {
+    if (queueWindow) {
+      queueWindow.focus();
+      return;
+    }
+
+    queueWindow = new BrowserWindow({
+      width: 400,
+      height: 600,
+      title: "Spice Queue",
+      icon: path.join(__dirname, "icon.png"),
+      frame: false,
+      autoHideMenuBar: true,
+      backgroundColor: "#121212",
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: path.join(__dirname, "preload.js"),
+      },
+    });
+
+    queueWindow.loadURL(`http://localhost:6969/queue`);
+
+    queueWindow.on("closed", () => {
+      queueWindow = null;
+    });
+  });
+
+  ipcMain.on("play-queue-index", (event, index) => {
+    if (view && view.webContents) {
+      view.webContents
+        .executeJavaScript(
+          `
+        (function() {
+          const items = document.querySelectorAll('ytmusic-player-queue-item');
+          if (items && items[${index}]) {
+             const playBtn = items[${index}].querySelector('ytmusic-play-button-renderer') || items[${index}];
+             playBtn.click();
+          }
+        })();
+      `,
+        )
+        .catch((err) => console.error("Error clicking queue index:", err));
     }
   });
 

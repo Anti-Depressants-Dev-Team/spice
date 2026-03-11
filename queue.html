@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spice Queue</title>
+    <style>
+        :root {
+            --bg-base: #121212;
+            --bg-elevated: #1f1f1f;
+            --bg-hover: #2a2a2a;
+            --text-main: #ffffff;
+            --text-muted: #aaaaaa;
+            --accent: #ff0000;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow-y: overlay;
+            user-select: none;
+        }
+
+        /* Title Bar */
+        #title-bar {
+            height: 40px;
+            background-color: var(--bg-elevated);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            -webkit-app-region: drag;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            border-bottom: 1px solid #333;
+        }
+
+        .title-text {
+            font-size: 14px;
+            font-weight: 600;
+            margin-left: 16px;
+        }
+
+        .window-controls {
+            display: flex;
+            -webkit-app-region: no-drag;
+            height: 100%;
+        }
+
+        .win-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            width: 46px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .win-btn:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        .win-close:hover {
+            background-color: #e81123;
+            color: white;
+        }
+
+        /* Queue Container */
+        #queue-container {
+            margin-top: 40px;
+            padding: 10px 0;
+        }
+
+        .queue-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 16px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .queue-item:hover {
+            background-color: var(--bg-hover);
+        }
+
+        .queue-item[data-selected="true"] {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .queue-item[data-selected="true"] .queue-title {
+            color: var(--text-main);
+            font-weight: 600;
+        }
+
+        .queue-img-wrap {
+            position: relative;
+            width: 40px;
+            height: 40px;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-right: 16px;
+            flex-shrink: 0;
+        }
+
+        .queue-img-wrap img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .queue-info {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .queue-title {
+            font-size: 14px;
+            color: var(--text-main);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 4px;
+        }
+
+        .queue-artist {
+            font-size: 12px;
+            color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .queue-duration {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-left: 16px;
+            flex-shrink: 0;
+        }
+
+        .no-queue {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: calc(100vh - 40px);
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #777;
+        }
+    </style>
+</head>
+<body>
+    <div id="title-bar">
+        <div class="title-text">Up Next</div>
+        <div class="window-controls">
+            <button id="btn-close" class="win-btn win-close" title="Close">
+                <svg viewBox="0 0 12 12" width="12" height="12">
+                    <path fill="currentColor" d="M11 1.7L10.3 1 6 5.3 1.7 1 1 1.7 5.3 6 1 10.3 1.7 11 6 6.7 10.3 11 11 10.3 6.7 6z" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <div id="queue-container">
+        <div class="no-queue">Loading queue...</div>
+    </div>
+
+    <script>
+        document.getElementById('btn-close').addEventListener('click', () => {
+            window.close();
+        });
+
+        if (window.api && window.api.onQueueUpdate) {
+            window.api.onQueueUpdate((queue) => {
+                const container = document.getElementById('queue-container');
+                if (!queue || queue.length === 0) {
+                    container.innerHTML = '<div class="no-queue">Queue is empty</div>';
+                    return;
+                }
+
+                container.innerHTML = queue.map((item, i) => `
+                    <div class="queue-item" data-selected="${item.selected}" onclick="window.api.playQueueIndex(${i})">
+                        <div class="queue-img-wrap">
+                            <img src="${item.thumbnail || 'icon.png'}" alt="Art">
+                        </div>
+                        <div class="queue-info">
+                            <div class="queue-title" title="${item.title.replace(/"/g, '&quot;')}">${item.title}</div>
+                            <div class="queue-artist" title="${item.artist.replace(/"/g, '&quot;')}">${item.artist}</div>
+                        </div>
+                        <div class="queue-duration">${item.duration}</div>
+                    </div>
+                `).join('');
+
+                // Auto-scroll to selected if it's the first render or if needed
+                const selected = container.querySelector('[data-selected="true"]');
+                if (selected && !window.hasScrolled) {
+                    selected.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    window.hasScrolled = true;
+                }
+            });
+        }
+    </script>
+</body>
+</html>
