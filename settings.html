@@ -351,6 +351,24 @@
                 </p>
             </div>
 
+            <!-- Updates Section -->
+            <div class="settings-header" style="margin-top: 30px">
+                <h2>Updates</h2>
+            </div>
+            
+            <div class="settings-section">
+                <p style="color: #666; font-size: 14px; margin-bottom: 10px;">
+                    Keep Spice up to date for the latest features and fixes.
+                </p>
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <button id="check-updates-btn" class="btn" style="margin-top: 0;">Check for Updates</button>
+                    <span id="update-status-text" class="status" style="background-color: transparent; color: #aaa;">Up to date</span>
+                </div>
+                <button id="install-update-btn" class="btn btn-secondary hidden" style="width: 100%; margin-top: 15px; background-color: #ba2f2f; color: white;">
+                    Restart and Install Update
+                </button>
+            </div>
+
             <!-- Scrobbling Section -->
             <div class="settings-header" style="margin-top: 30px">
                 <h2>Scrobbling</h2>
@@ -739,6 +757,60 @@
                 .addEventListener("click", () => {
                     window.api.openDevTools();
                 });
+
+            // Auto Updater logic
+            const checkUpdatesBtn = document.getElementById("check-updates-btn");
+            const updateStatusText = document.getElementById("update-status-text");
+            const installUpdateBtn = document.getElementById("install-update-btn");
+
+            checkUpdatesBtn.addEventListener("click", async () => {
+                checkUpdatesBtn.disabled = true;
+                updateStatusText.textContent = "Checking...";
+                const result = await window.api.checkForUpdates();
+                if (result && !result.success) {
+                    updateStatusText.textContent = "Error checking for updates";
+                    updateStatusText.style.color = "#ff7d7d";
+                    checkUpdatesBtn.disabled = false;
+                }
+            });
+
+            installUpdateBtn.addEventListener("click", () => {
+                window.api.installUpdate();
+            });
+
+            window.api.onUpdateStatus((data) => {
+                switch(data.status) {
+                    case "checking":
+                        updateStatusText.textContent = "Checking...";
+                        updateStatusText.style.color = "#aaa";
+                        checkUpdatesBtn.disabled = true;
+                        break;
+                    case "available":
+                        updateStatusText.textContent = "Update available! Downloading...";
+                        updateStatusText.style.color = "#7dff7d";
+                        break;
+                    case "not-available":
+                        updateStatusText.textContent = "Up to date";
+                        updateStatusText.style.color = "#aaa";
+                        checkUpdatesBtn.disabled = false;
+                        break;
+                    case "error":
+                        updateStatusText.textContent = "Update error";
+                        updateStatusText.style.color = "#ff7d7d";
+                        checkUpdatesBtn.disabled = false;
+                        break;
+                    case "downloading":
+                        const percent = data.progress && data.progress.percent ? Math.round(data.progress.percent) : 0;
+                        updateStatusText.textContent = `Downloading... ${percent}%`;
+                        break;
+                    case "downloaded":
+                        updateStatusText.textContent = "Update ready to install";
+                        updateStatusText.style.color = "#ba2f2f";
+                        installUpdateBtn.classList.remove("hidden");
+                        checkUpdatesBtn.classList.add("hidden");
+                        break;
+                }
+            });
 
             // Load settings on page load
             loadScrobblerSettings();

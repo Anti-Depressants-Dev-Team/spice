@@ -9,6 +9,7 @@ const {
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { autoUpdater } = require("electron-updater");
 
 // Simple File Logger for Production Debugging - INITIALIZE FIRST
 const logFile = path.join(app.getPath("userData"), "debug.log");
@@ -1668,6 +1669,33 @@ app.whenReady().then(async () => {
 
   createWindow();
 
+  // Initialize Auto Updater
+  autoUpdater.on("checking-for-update", () => {
+    if (mainWindow) mainWindow.webContents.send("update-status", { status: "checking" });
+  });
+  autoUpdater.on("update-available", (info) => {
+    if (mainWindow) mainWindow.webContents.send("update-status", { status: "available", info });
+  });
+  autoUpdater.on("update-not-available", (info) => {
+    if (mainWindow) mainWindow.webContents.send("update-status", { status: "not-available", info });
+  });
+  autoUpdater.on("error", (err) => {
+    if (mainWindow) mainWindow.webContents.send("update-status", { status: "error", error: err.message });
+  });
+  autoUpdater.on("download-progress", (progressObj) => {
+    if (mainWindow) mainWindow.webContents.send("update-status", { status: "downloading", progress: progressObj });
+  });
+  autoUpdater.on("update-downloaded", (info) => {
+    if (mainWindow) mainWindow.webContents.send("update-status", { status: "downloaded", info });
+  });
+
+  // Automatically check on startup
+  try {
+    autoUpdater.checkForUpdatesAndNotify();
+  } catch(e) {
+    console.error("Auto-updater error on startup:", e);
+  }
+
   // Initialize Discord RPC if enabled
   const discordEnabled = store ? store.get("discordRpcEnabled", true) : true;
   if (discordEnabled) {
@@ -1796,6 +1824,20 @@ app.whenReady().then(async () => {
         goHome();
         break;
     }
+  });
+
+  // Auto Updater
+  ipcMain.handle("check-for-updates", async () => {
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      return { success: true, result };
+    } catch(err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.on("install-update", () => {
+    autoUpdater.quitAndInstall(false, true);
   });
 
   // Hide/Show BrowserView (for modals)
