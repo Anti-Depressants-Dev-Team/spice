@@ -766,8 +766,19 @@
             checkUpdatesBtn.addEventListener("click", async () => {
                 checkUpdatesBtn.disabled = true;
                 updateStatusText.textContent = "Checking...";
+                updateStatusText.style.color = "#aaa";
+
+                const timeoutId = setTimeout(() => {
+                    if (updateStatusText.textContent === "Checking...") {
+                        updateStatusText.textContent = "Check timed out.";
+                        updateStatusText.style.color = "#ff7d7d";
+                        checkUpdatesBtn.disabled = false;
+                    }
+                }, 15000);
+
                 const result = await window.api.checkForUpdates();
                 if (result && !result.success) {
+                    clearTimeout(timeoutId);
                     updateStatusText.textContent = "Error checking for updates";
                     updateStatusText.style.color = "#ff7d7d";
                     checkUpdatesBtn.disabled = false;
