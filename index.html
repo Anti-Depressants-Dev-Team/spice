@@ -894,11 +894,9 @@
                 .getElementById("vk-btn-play")
                 .addEventListener("click", () => {
                     const playBtn = document.getElementById("vk-btn-play");
-                    const isPaused =
-                        playBtn.innerHTML.includes("M8 5v14l11-7z");
-                    playBtn.innerHTML = !isPaused
-                        ? '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>'
-                        : '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+                    // We don't need to try and optimistically guess the state here,
+                    // the polling will update the button icon correctly.
+                    // Guessing causes it to blink back and forth.
                     callApi("vkCommand", "playpause");
                 });
             document

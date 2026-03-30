@@ -9,6 +9,7 @@ const {
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { autoUpdater } = require("electron-updater");
 
 // Simple File Logger for Production Debugging - INITIALIZE FIRST
 const logFile = path.join(app.getPath("userData"), "debug.log");
@@ -348,17 +349,22 @@ ipcMain.on("vk-player-command", (event, cmd) => {
 
   const code = {
     playpause: `(function(){
-      // Try to click the native YouTube Music button first for reliable state management
-      const barPlay = document.querySelector('ytmusic-player-bar #play-pause-button') || document.querySelector('ytmusic-player-bar tp-yt-paper-icon-button.play-pause-button');
-      if (barPlay && barPlay.offsetParent !== null) {
-          barPlay.click();
-          return;
-      }
-      const anyPlay = document.querySelector('#play-pause-button');
-      if (anyPlay && anyPlay.offsetParent !== null) {
-          anyPlay.click();
-          return;
-      }
+      // YouTube Music buries the actual click handler in an internal #button element
+      const findAndClick = (selector) => {
+          const el = document.querySelector(selector);
+          if (el && el.offsetParent !== null) {
+              const inner = el.querySelector('button') || el;
+              inner.click();
+              if (el.click && el !== inner) el.click();
+              return true;
+          }
+          return false;
+      };
+
+      if (findAndClick('ytmusic-player-bar #play-pause-button')) return;
+      if (findAndClick('ytmusic-player-bar tp-yt-paper-icon-button.play-pause-button')) return;
+      if (findAndClick('#play-pause-button')) return;
+
       // Fallback to video element
       const v = document.querySelector('video');
       if (v) {
@@ -370,10 +376,22 @@ ipcMain.on("vk-player-command", (event, cmd) => {
     like: `(function(){
       const bar = document.querySelector('ytmusic-player-bar');
       if (!bar) return;
-      const b = bar.querySelector('.ytmusic-like-button-renderer[aria-pressed="false"]') ||
-                bar.querySelector('ytmusic-like-button-renderer [icon="yt-icons:like"]') ||
-                bar.querySelector('[aria-label="Like"]') ||
-                bar.querySelector('ytmusic-like-button-renderer.like');
+      // Find the like-button-renderer, then get the LIKE button inside it (first button = like, second = dislike)
+      const renderer = bar.querySelector('ytmusic-like-button-renderer');
+      if (renderer) {
+        // The like button is the first tp-yt-paper-icon-button inside the renderer
+        const likeBtn = renderer.querySelector('#button-shape-like button') ||
+                        renderer.querySelector('tp-yt-paper-icon-button.like') ||
+                        renderer.querySelector('tp-yt-paper-icon-button:first-of-type') ||
+                        renderer.querySelector('[aria-label="Like"]') ||
+                        renderer.querySelector('[aria-label*="ike"]');
+        if (likeBtn) { likeBtn.click(); return; }
+        // Fallback: click the renderer itself
+        renderer.click();
+        return;
+      }
+      // Last resort fallback
+      const b = bar.querySelector('[aria-label="Like"]') || bar.querySelector('[aria-label*="ike"]');
       if(b) b.click();
     })()`,
     shuffle: `(function(){
@@ -458,7 +476,6 @@ ipcMain.on("vk-player-command", (event, cmd) => {
     })()`,
   };
   if (code[cmd]) {
-    view.webContents.executeJavaScript(code[cmd]).catch(() => {});
     view.webContents
       .executeJavaScript(code[cmd])
       .then((res) => {
@@ -1321,26 +1338,33 @@ app.whenReady().then(async () => {
                 const click = (sel) => document.querySelector(sel)?.click();
 
                 if ('${action.action}' === 'playpause') {
-                   // Try to click the native YouTube Music button first for reliable state management
-                   const barPlay = document.querySelector('ytmusic-player-bar #play-pause-button') || document.querySelector('ytmusic-player-bar tp-yt-paper-icon-button.play-pause-button');
-                   if (barPlay && barPlay.offsetParent !== null) {
-                       barPlay.click();
-                   } else {
-                       const anyPlay = document.querySelector('#play-pause-button');
-                       if (anyPlay && anyPlay.offsetParent !== null) {
-                           anyPlay.click();
-                       } else {
-                           // Fallback to video element
-                           const v = document.querySelector('video');
-                           if (v) {
-                               v.paused ? v.play() : v.pause();
-                           } else {
-                               document.querySelector('.playControl')?.click();
+                   const findAndClick = (selector) => {
+                       const el = document.querySelector(selector);
+                       if (el && el.offsetParent !== null) {
+                           // Sometimes the button itself is what we want, sometimes the inner
+                           const inner = el.querySelector('button') || el;
+                           inner.click();
+                           // As a fallback, also click the element itself if it has a click method
+                           // because some shadow dom implementations require clicking the host
+                           if (el.click && el !== inner) el.click();
+                           return true;
+                       }
+                       return false;
+                   };
+
+                   if (!findAndClick('ytmusic-player-bar #play-pause-button')) {
+                       if (!findAndClick('ytmusic-player-bar tp-yt-paper-icon-button.play-pause-button')) {
+                           if (!findAndClick('#play-pause-button')) {
+                               const v = document.querySelector('video');
+                               if (v) {
+                                   v.paused ? v.play() : v.pause();
+                               } else {
+                                   document.querySelector('.playControl')?.click();
+                               }
                            }
                        }
                    }
-                }
-                else if ('${action.action}' === 'next') {
+                }                else if ('${action.action}' === 'next') {
                     const ytm = document.querySelector('.next-button');
                     if (ytm) ytm.click();
                     else click('.skipControl__next');
@@ -1645,6 +1669,33 @@ app.whenReady().then(async () => {
 
   createWindow();
 
+  // Initialize Auto Updater
+  autoUpdater.on("checking-for-update", () => {
+    if (mainWindow) mainWindow.webContents.send("update-status", { status: "checking" });
+  });
+  autoUpdater.on("update-available", (info) => {
+    if (mainWindow) mainWindow.webContents.send("update-status", { status: "available", info });
+  });
+  autoUpdater.on("update-not-available", (info) => {
+    if (mainWindow) mainWindow.webContents.send("update-status", { status: "not-available", info });
+  });
+  autoUpdater.on("error", (err) => {
+    if (mainWindow) mainWindow.webContents.send("update-status", { status: "error", error: err.message });
+  });
+  autoUpdater.on("download-progress", (progressObj) => {
+    if (mainWindow) mainWindow.webContents.send("update-status", { status: "downloading", progress: progressObj });
+  });
+  autoUpdater.on("update-downloaded", (info) => {
+    if (mainWindow) mainWindow.webContents.send("update-status", { status: "downloaded", info });
+  });
+
+  // Automatically check on startup
+  try {
+    autoUpdater.checkForUpdatesAndNotify();
+  } catch(e) {
+    console.error("Auto-updater error on startup:", e);
+  }
+
   // Initialize Discord RPC if enabled
   const discordEnabled = store ? store.get("discordRpcEnabled", true) : true;
   if (discordEnabled) {
@@ -1773,6 +1824,20 @@ app.whenReady().then(async () => {
         goHome();
         break;
     }
+  });
+
+  // Auto Updater
+  ipcMain.handle("check-for-updates", async () => {
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      return { success: true, result };
+    } catch(err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.on("install-update", () => {
+    autoUpdater.quitAndInstall(false, true);
   });
 
   // Hide/Show BrowserView (for modals)

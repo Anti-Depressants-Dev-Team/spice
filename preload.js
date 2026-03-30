@@ -9,6 +9,10 @@ contextBridge.exposeInMainWorld("api", {
   hideView: () => ipcRenderer.send("hide-view"),
   showView: () => ipcRenderer.send("show-view"),
   toggleVolume: () => ipcRenderer.send("toggle-volume"),
+  checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
+  installUpdate: () => ipcRenderer.send("install-update"),
+  onUpdateStatus: (callback) =>
+    ipcRenderer.on("update-status", (event, status) => callback(status)),
   getSettings: () => ipcRenderer.invoke("get-settings"),
   setAdBlocker: (enabled) => ipcRenderer.send("set-adblocker", enabled),
   setVkPlayer: (enabled) => ipcRenderer.send("set-vk-player", enabled),
