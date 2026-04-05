@@ -4,6 +4,7 @@ const path = require("path");
 
 const PORT = 6969;
 const MINI_PLAYER_DIR = path.join(__dirname, "mini-player");
+const OBS_WIDGET_DIR = path.join(__dirname, "obs");
 const APP_ROOT_DIR = path.join(__dirname, "..");
 
 let server;
@@ -148,6 +149,28 @@ function handleMiniPlayerStatic(res, req, pathname) {
   serveFile(res, filePath);
 }
 
+function handleObsWidgetStatic(res, req, pathname) {
+  if (pathname === "/obs") {
+    const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+    res.writeHead(301, { Location: "/obs/" + qs });
+    res.end();
+    return;
+  }
+
+  const rel =
+    pathname === "/obs/"
+      ? "/index.html"
+      : pathname.replace(/^\/obs/, "");
+
+  const filePath = safeJoin(OBS_WIDGET_DIR, rel);
+
+  if (!filePath.startsWith(OBS_WIDGET_DIR)) {
+    return sendText(res, 403, "403 Forbidden");
+  }
+
+  serveFile(res, filePath);
+}
+
 function handleAppUiStatic(res, pathname) {
   const mapped = APP_UI_FILES[pathname];
   if (!mapped) {
@@ -214,6 +237,15 @@ function startServer(callback) {
         return handleMiniPlayerStatic(res, req, pathname);
       }
 
+      // OBS widget static: /obs, /obs/, /obs/*
+      if (
+        pathname === "/obs" ||
+        pathname === "/obs/" ||
+        pathname.startsWith("/obs/")
+      ) {
+        return handleObsWidgetStatic(res, req, pathname);
+      }
+
       // App UI static routes
       if (handleAppUiStatic(res, pathname)) {
         return;
@@ -231,6 +263,7 @@ function startServer(callback) {
       console.log(
         `[Server] Mini Player:  http://localhost:${PORT}/mini-player/`,
       );
+      console.log(`[Server] OBS Widget:   http://localhost:${PORT}/obs/`);
       console.log(`[Server] Settings:     http://localhost:${PORT}/settings`);
       console.log(`[Server] Lyrics:       http://localhost:${PORT}/lyrics`);
       console.log(`[Server] API Status:   http://localhost:${PORT}/api/status`);

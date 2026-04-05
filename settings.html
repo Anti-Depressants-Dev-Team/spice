@@ -473,25 +473,35 @@
                     </button>
                 </div>
             </div>
-            <!-- Mini Player -->
+            <!-- Mini Player & OBS -->
             <div class="settings-header" style="margin-top: 30px">
-                <h2>Mini Player</h2>
+                <h2>Mini Player & OBS</h2>
             </div>
             <div class="settings-section">
                 <p style="color: #ccc; font-size: 14px; margin: 0">
-                    The mini player is also available as a web page at
+                    The mini player is available remotely at:
                     <strong style="color: #ba2f2f"
                         >http://localhost:6969/mini-player/</strong
                     >
+                    <button class="btn btn-secondary" style="margin-left: 10px; padding: 4px 8px; font-size: 12px;" onclick="navigator.clipboard.writeText('http://localhost:6969/mini-player/')">Copy Link</button>
                 </p>
                 <p style="color: #666; font-size: 12px; margin-top: 8px">
-                    You can open this URL in any browser or embed it as a
-                    browser source in OBS to control playback remotely. The full
-                    app UI is also accessible at
-                    <strong style="color: #ba2f2f"
-                        >http://localhost:6969/</strong
-                    >
+                    Open this URL in any browser or another PC on your network (using your local IP) to control playback. 
+                    The full app UI is also accessible at <strong style="color: #ba2f2f">http://localhost:6969/</strong>
                 </p>
+                
+                <div style="margin-top: 20px;">
+                    <p style="color: #ccc; font-size: 14px; margin: 0">
+                        A control-free <strong>OBS Widget</strong> is available at:
+                        <strong style="color: #ba2f2f"
+                            >http://localhost:6969/obs/</strong
+                        >
+                        <button class="btn btn-secondary" style="margin-left: 10px; padding: 4px 8px; font-size: 12px;" onclick="navigator.clipboard.writeText('http://localhost:6969/obs/')">Copy Link</button>
+                    </p>
+                    <p style="color: #666; font-size: 12px; margin-top: 8px">
+                        Add this URL as a Browser Source in OBS to beautifully show what you're listening to, without control buttons.
+                    </p>
+                </div>
             </div>
 
             <!-- Developer Tools -->
