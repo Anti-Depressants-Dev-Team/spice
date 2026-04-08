@@ -24,7 +24,7 @@
 ## 🚀 Installation
 
 ### Download
-Grab the latest installer (`Spice Setup 1.0.0.exe`) from the [Releases](https://github.com/Anti-Depressants-Dev-Team/spice/releases) page.
+Grab the latest installer from the [Releases](https://github.com/Anti-Depressants-Dev-Team/spice/releases) page. Linux releases include AppImage, `.deb`, `.tar.gz`, and Flatpak bundles.
 
 ### Build from Source
 
