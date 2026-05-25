@@ -57,6 +57,17 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# Workaround: media_kit_libs_windows_audio's .cpp uses `#include "include/..."`
+# but the plugin's own CMakeLists declares the include dir as INTERFACE only,
+# so the plugin's own compilation has no `-I` for it. MSVC's quoted-include
+# source-dir fallback misbehaves through the .plugin_symlinks symlink on this
+# toolchain, so we inject the include dir as PRIVATE here.
+if(TARGET media_kit_libs_windows_audio_plugin)
+  target_include_directories(media_kit_libs_windows_audio_plugin PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/flutter/ephemeral/.plugin_symlinks/media_kit_libs_windows_audio/windows"
+  )
+endif()
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can

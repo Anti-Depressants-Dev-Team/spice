@@ -17,8 +17,12 @@ dependencies:
   source_youtube:
     path: ../../packages/source_youtube
 
-  # Audio (desktop backend wired in Phase 2)
+  # Audio. just_audio handles the player API; `just_audio_media_kit` routes
+  # playback through libmpv on Windows/Linux/macOS where just_audio's default
+  # backends are weak. `media_kit_libs_audio` bundles the native libmpv binary.
   just_audio: ^0.9.40
+  just_audio_media_kit: ^2.0.0
+  media_kit_libs_audio: ^1.0.0
   audio_service: ^0.18.0
   audio_session: ^0.1.0
 
@@ -32,7 +36,9 @@ dependencies:
   path: ^1.9.0
   path_provider: ^2.1.0
   shared_preferences: ^2.3.0
-  flutter_secure_storage: ^9.2.0
+  # flutter_secure_storage: added back when Phase 4 needs JWT/cookie storage.
+  # Pinned out for now because its Windows plugin doesn't build cleanly with
+  # VS Build Tools 2026 + our current Flutter version.
 
   # Networking
   http: ^1.0.0

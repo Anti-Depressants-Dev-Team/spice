@@ -83,10 +83,12 @@ class SpiceAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       // Mimicking a YT Android client makes the fetch consistent with what
       // youtube_explode_dart's HEAD probe used during signature/manifest
       // resolution. just_audio will spin up a local proxy to inject this.
-      headers: const {
-        'User-Agent':
-            'com.google.android.youtube/19.29.1 (Linux; U; Android 11) gzip',
-      },
+      headers: kIsWeb
+          ? null
+          : const {
+              'User-Agent':
+                  'com.google.android.youtube/19.29.1 (Linux; U; Android 11) gzip',
+            },
     );
   }
 

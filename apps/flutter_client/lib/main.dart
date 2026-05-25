@@ -1,8 +1,10 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 
 import 'app/router.dart';
 import 'app/theme.dart';
@@ -11,10 +13,23 @@ import 'services/audio/audio_providers.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Show the system status bar and nav bar — no fullscreen / immersive mode.
-  // On Android 15+, leaving this unset can render the app edge-to-edge under
-  // the status bar, which reads as "fullscreen" even though the bar still
-  // exists. Manual mode plus explicit overlays keeps things conventional.
+  // Route just_audio through libmpv on Windows/Linux/macOS. Android keeps
+  // ExoPlayer (the default), which is what we wired the AndroidManifest for.
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.macOS)) {
+    JustAudioMediaKit.ensureInitialized(
+      windows: true,
+      linux: true,
+      macOS: true,
+      android: false,
+      iOS: false,
+    );
+  }
+
+  // Status bar / nav bar — no fullscreen. (No-op on desktop, where these
+  // overlays don't exist.)
   SystemChrome.setEnabledSystemUIMode(
     SystemUiMode.manual,
     overlays: const [SystemUiOverlay.top, SystemUiOverlay.bottom],

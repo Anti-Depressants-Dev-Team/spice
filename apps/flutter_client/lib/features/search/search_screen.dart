@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:source_api/source_api.dart';
-import 'package:source_youtube/source_youtube.dart';
 
 import '../../services/audio/audio_providers.dart';
 import '../../services/source/source_providers.dart';
@@ -57,7 +56,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         ..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
-            content: Text(YtMusicNativeSource.friendlyMessage(e)),
+            content: Text(friendlyMusicError(e)),
             duration: const Duration(seconds: 6),
           ),
         );
