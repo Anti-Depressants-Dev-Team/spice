@@ -91,15 +91,15 @@ export async function searchTracks(query: string, limit: number, kind: string) {
 // pre-decoded URLs without requiring PO (Proof of Origin) tokens.
 //
 // Order matters:
-//   1. IOS           — pre-decoded URLs, historically the most reliable
-//   2. YTMUSIC_ANDROID — music-specific, audio-first format lists
+//   1. ANDROID_VR    — pre-decoded URLs, supports unrestricted seeking and direct playback
+//   2. IOS           — pre-decoded URLs, historically reliable but CDN enforces chunk limits
 //   3. ANDROID       — broad compatibility fallback
 //
 // The WEB / WEB_REMIX clients require PO tokens and are NOT used for streams.
 // ---------------------------------------------------------------------------
 const STREAM_CLIENTS: Types.InnerTubeClient[] = [
+  'ANDROID_VR',
   'IOS',
-  'YTMUSIC_ANDROID',
   'ANDROID',
 ];
 

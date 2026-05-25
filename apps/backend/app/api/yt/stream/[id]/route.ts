@@ -58,9 +58,15 @@ export async function GET(
   }
 
   try {
+    console.log(`[stream-proxy] Fetching upstream: ${upstreamUrl.substring(0, 100)}...`);
+    console.log(`[stream-proxy] Request headers:`, JSON.stringify(headers));
     const upstream = await fetch(upstreamUrl, { headers });
 
+    console.log(`[stream-proxy] Upstream response status: ${upstream.status}`);
+    console.log(`[stream-proxy] Upstream response headers:`, JSON.stringify(Object.fromEntries(upstream.headers.entries())));
+
     if (!upstream.ok && upstream.status !== 206) {
+      console.error(`[stream-proxy] Upstream failed with status ${upstream.status}`);
       return jsonResponse(
         {
           error: 'upstream_failed',
@@ -91,6 +97,7 @@ export async function GET(
       headers: responseHeaders,
     });
   } catch (error) {
+    console.error(`[stream-proxy] Error fetching upstream:`, error);
     return jsonResponse(
       {
         error: 'proxy_error',
