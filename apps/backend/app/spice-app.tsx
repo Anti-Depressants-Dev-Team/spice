@@ -2,6 +2,8 @@
 
 /* eslint-disable @next/next/no-img-element */
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable react-hooks/set-state-in-effect */
+/* eslint-disable react-hooks/exhaustive-deps */
 
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 
@@ -329,10 +331,35 @@ export default function SpiceApp() {
   const [newPlTitle, setNewPlTitle] = useState('');
   const [newPlDesc, setNewPlDesc] = useState('');
 
+  // Cloud Sync & Accounts state
+  const [cloudToken, setCloudToken] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('spice_cloud_token');
+    }
+    return null;
+  });
+  const [cloudUser, setCloudUser] = useState<{ id: string; email: string } | null>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('spice_cloud_user');
+      if (saved) {
+        try { return JSON.parse(saved); } catch { return null; }
+      }
+    }
+    return null;
+  });
+  const [syncingStatus, setSyncingStatus] = useState<'idle' | 'syncing' | 'success' | 'error' | null>(null);
+  const [dbError, setDbError] = useState<string | null>(null);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+
   // Dynamic Home Page Queries
   const [homeTrending, setHomeTrending] = useState<Track[]>([]);
   const [homeChill, setHomeChill] = useState<Track[]>([]);
   const [homeEnergy, setHomeEnergy] = useState<Track[]>([]);
+  const [homeListenAgain, setHomeListenAgain] = useState<Track[]>([]);
   const [isLoadingHome, setIsLoadingHome] = useState(true);
 
   // Search state
@@ -426,6 +453,206 @@ export default function SpiceApp() {
       setDuration(audioRef.current.duration);
     }
   };
+
+  // ── Cloud Accounts Synchronization & Authentication ──────────────
+  const syncWithCloud = async (token: string | null = cloudToken) => {
+    if (!token) return;
+    setSyncingStatus('syncing');
+    setDbError(null);
+    try {
+      // 1. Pull likes
+      const likesRes = await fetch('/api/sync/likes', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (likesRes.status === 503) {
+        throw new Error('db_not_configured');
+      }
+      const likesData = await likesRes.json();
+      const serverLikes = likesData.likedTracks ?? [];
+      
+      // 2. Pull history
+      const histRes = await fetch('/api/sync/history', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const histData = await histRes.json();
+      const serverHistory = histData.history ?? [];
+
+      // 3. Pull playlists
+      const plRes = await fetch('/api/sync/playlists', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const plData = await plRes.json();
+      const serverPlaylists = plData.playlists ?? [];
+
+      // Merge Likes
+      const mergedLikes = new Set([...likedTracks, ...serverLikes]);
+      const mergedLikesArray = Array.from(mergedLikes);
+
+      // Merge History (deduplicated by track id, limit 50)
+      const mergedHistoryMap = new Map<string, Track>();
+      [...serverHistory, ...history].forEach(track => {
+        mergedHistoryMap.set(track.id, track);
+      });
+      const mergedHistory = Array.from(mergedHistoryMap.values()).slice(0, 50);
+
+      // Merge Playlists
+      const mergedPlaylists = [...customPlaylists];
+      serverPlaylists.forEach((serverPl: any) => {
+        const existing = mergedPlaylists.find(pl => pl.title === serverPl.title);
+        if (!existing) {
+          mergedPlaylists.push({
+            id: serverPl.id,
+            title: serverPl.title,
+            description: serverPl.description || '',
+            gradient: serverPl.gradient || PRESET_GRADIENTS[0],
+            createdAt: serverPl.createdAt || new Date().toLocaleDateString(),
+            tracks: serverPl.tracks || []
+          });
+        } else {
+          const trackIds = new Set(existing.tracks.map((t: any) => t.id));
+          serverPl.tracks.forEach((t: any) => {
+            if (!trackIds.has(t.id)) {
+              existing.tracks.push(t);
+            }
+          });
+        }
+      });
+
+      // Update Local State
+      setLikedTracks(mergedLikes);
+      setHistory(mergedHistory);
+      setCustomPlaylists(mergedPlaylists);
+
+      updateActiveProfileData({
+        likedTracks: mergedLikesArray,
+        history: mergedHistory,
+        customPlaylists: mergedPlaylists
+      });
+
+      // 4. Push Merged State to Cloud Database
+      await fetch('/api/sync/likes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ likedTracks: mergedLikesArray })
+      });
+
+      await fetch('/api/sync/history', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ history: mergedHistory })
+      });
+
+      await fetch('/api/sync/playlists', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ playlists: mergedPlaylists })
+      });
+
+      setSyncingStatus('success');
+      setTimeout(() => setSyncingStatus(null), 3000);
+    } catch (err: any) {
+      console.error('Cloud synchronization error:', err);
+      if (err.message === 'db_not_configured') {
+        setDbError('DATABASE_URL is not set in backend environment.');
+      }
+      setSyncingStatus('error');
+    }
+  };
+
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setAuthLoading(true);
+    setDbError(null);
+
+    const url = authMode === 'login' ? '/api/auth/spice/signin' : '/api/auth/spice/signup';
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: authEmail, password: authPassword })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.error === 'db_not_configured') {
+          setDbError('DATABASE_URL is pending configuration in backend environment.');
+          throw new Error('Database configuration pending.');
+        }
+        throw new Error(data.message || 'Authentication failed.');
+      }
+
+      localStorage.setItem('spice_cloud_token', data.token);
+      localStorage.setItem('spice_cloud_user', JSON.stringify(data.user));
+      setCloudToken(data.token);
+      setCloudUser(data.user);
+      setAuthEmail('');
+      setAuthPassword('');
+      
+      // Auto sync after login
+      await syncWithCloud(data.token);
+    } catch (err: any) {
+      console.error(err);
+      setAuthError(err.message || 'Server authentication failed.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('spice_cloud_token');
+    localStorage.removeItem('spice_cloud_user');
+    setCloudToken(null);
+    setCloudUser(null);
+    setDbError(null);
+    setAuthError(null);
+  };
+
+  // ── Listen Again Calculation Hook ──────────────────────────────
+  useEffect(() => {
+    if (history && history.length > 0) {
+      const uniqueHistoryTracks: Track[] = [];
+      const ids = new Set<string>();
+      history.forEach(t => {
+        if (!ids.has(t.id)) {
+          ids.add(t.id);
+          uniqueHistoryTracks.push(t);
+        }
+      });
+
+      if (uniqueHistoryTracks.length < 5 && homeTrending.length > 0) {
+        const combined = [...uniqueHistoryTracks];
+        homeTrending.forEach(t => {
+          if (!ids.has(t.id) && combined.length < 8) {
+            combined.push(t);
+          }
+        });
+        setHomeListenAgain(combined);
+      } else {
+        setHomeListenAgain(uniqueHistoryTracks.slice(0, 8));
+      }
+    } else {
+      if (homeTrending.length > 0) {
+        setHomeListenAgain(homeTrending.slice(0, 8));
+      }
+    }
+  }, [history, homeTrending]);
+
+  // Sync on load or profile switch
+  useEffect(() => {
+    if (cloudToken) {
+      syncWithCloud(cloudToken);
+    }
+  }, [cloudToken, activeProfileId]);
 
   const handleAudioEnded = () => {
     // Increment songs played on completion
@@ -1280,6 +1507,30 @@ export default function SpiceApp() {
                     </section>
                   ) : null}
 
+                  {/* Your Playlists Carousel */}
+                  {customPlaylists.length > 0 && (
+                    <section className="section animate-in">
+                      <div className="section__header">
+                        <h2 className="section__title">Your Playlists</h2>
+                        <button onClick={() => setCurrentPage('library')} style={{ background: 'none', border: 'none', color: 'var(--accent-pink)', fontSize: '0.85rem', cursor: 'pointer' }}>View All</button>
+                      </div>
+                      <div className="carousel-wrapper">
+                        <div className="carousel">
+                          {customPlaylists.map((pl) => (
+                            <div key={pl.id} className="card animate-in" onClick={() => setSelectedPlaylist(pl)}>
+                              <div className="card__art-wrapper" style={{ background: pl.gradient || PRESET_GRADIENTS[0], display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '180px' }}>
+                                <div style={{ fontSize: '3rem', textShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>📁</div>
+                                <div className="card__play-overlay">{Icons.play}</div>
+                              </div>
+                              <div className="card__title truncate" style={{ marginTop: '8px', fontWeight: 600 }}>{pl.title}</div>
+                              <div className="card__subtitle truncate">{pl.tracks.length} tracks</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </section>
+                  )}
+
                   {/* Recently Played */}
                   {history.length > 0 && (
                     <section className="section animate-in">
@@ -1291,6 +1542,29 @@ export default function SpiceApp() {
                         <div className="carousel">
                           {history.map((song) => (
                             <div key={song.id} className="card card--round animate-in" onClick={() => playTrack(song, history)}>
+                              <div className="card__art-wrapper">
+                                <img className="card__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} />
+                                <div className="card__play-overlay">{Icons.play}</div>
+                              </div>
+                              <div className="card__title truncate">{song.title}</div>
+                              <div className="card__subtitle truncate">{song.artists.map(a => a.name).join(', ')}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </section>
+                  )}
+
+                  {/* Listen Again */}
+                  {homeListenAgain.length > 0 && (
+                    <section className="section animate-in">
+                      <div className="section__header">
+                        <h2 className="section__title">Listen Again</h2>
+                      </div>
+                      <div className="carousel-wrapper">
+                        <div className="carousel">
+                          {homeListenAgain.map((song) => (
+                            <div key={song.id} className="card animate-in" onClick={() => playTrack(song, homeListenAgain)}>
                               <div className="card__art-wrapper">
                                 <img className="card__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} />
                                 <div className="card__play-overlay">{Icons.play}</div>
@@ -1726,6 +2000,113 @@ export default function SpiceApp() {
                     >
                       <span>+ Create Profile</span>
                     </button>
+                  </div>
+
+                  {/* ── Server Accounts & Cloud Sync ── */}
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '32px 0 16px 0', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    🌐 Cloud Sync & Server Accounts
+                    {cloudUser && <span style={{ fontSize: '0.75rem', background: 'rgba(52, 211, 153, 0.1)', color: '#34d399', padding: '2px 8px', borderRadius: '12px', border: '1px solid rgba(52, 211, 153, 0.2)' }}>Connected</span>}
+                  </h3>
+                  
+                  <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '32px' }}>
+                    {cloudUser ? (
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                          <div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Logged in as</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>{cloudUser.email}</div>
+                          </div>
+                          <button className="btn btn--ghost" onClick={handleLogout} style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+                            Sign Out
+                          </button>
+                        </div>
+
+                        {dbError && (
+                          <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '12px', borderRadius: '8px', color: '#f87171', fontSize: '0.85rem', marginBottom: '16px' }}>
+                            ⚠️ {dbError} Please make sure DATABASE_URL is configured in your `.env` file and run `pnpm db:push` to enable full cloud backup!
+                          </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                          <button 
+                            className="btn btn--primary" 
+                            onClick={() => syncWithCloud()} 
+                            disabled={syncingStatus === 'syncing'}
+                            style={{ padding: '10px 20px', fontSize: '0.85rem' }}
+                          >
+                            {syncingStatus === 'syncing' ? 'Syncing...' : 'Sync Data Now'}
+                          </button>
+                          
+                          {syncingStatus === 'success' && (
+                            <span style={{ color: '#34d399', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              ✓ Synchronized successfully with the database!
+                            </span>
+                          )}
+                          {syncingStatus === 'error' && !dbError && (
+                            <span style={{ color: '#f87171', fontSize: '0.85rem' }}>
+                              ⚠️ Sync failed. Please check server logs.
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 20px 0', lineHeight: 1.5 }}>
+                          Connect your Spice account to synchronize your custom playlists, liked tracks, and listening history with a secure backend database. 
+                        </p>
+
+                        {dbError && (
+                          <div style={{ background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.2)', padding: '12px', borderRadius: '8px', color: '#fbbf24', fontSize: '0.85rem', marginBottom: '16px', lineHeight: 1.4 }}>
+                            <strong>Database Configuration Pending:</strong><br />
+                            Define `DATABASE_URL` in `apps/backend/.env` and run migrations to unlock cloud accounts on your machine!
+                          </div>
+                        )}
+
+                        {authError && (
+                          <div style={{ color: '#f87171', fontSize: '0.8rem', marginBottom: '16px' }}>⚠️ {authError}</div>
+                        )}
+
+                        <form onSubmit={handleAuthSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', maxWidth: '500px', marginBottom: '16px' }}>
+                          <input 
+                            type="email" 
+                            placeholder="Email address"
+                            value={authEmail}
+                            onChange={(e) => setAuthEmail(e.target.value)}
+                            style={{ gridColumn: 'span 2', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', fontSize: '0.85rem' }}
+                            required
+                          />
+                          <input 
+                            type="password" 
+                            placeholder="Password (min 6 chars)"
+                            value={authPassword}
+                            onChange={(e) => setAuthPassword(e.target.value)}
+                            style={{ gridColumn: 'span 2', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', fontSize: '0.85rem' }}
+                            required
+                          />
+
+                          <button 
+                            type="submit" 
+                            className="btn btn--primary" 
+                            disabled={authLoading}
+                            style={{ padding: '10px', fontSize: '0.85rem' }}
+                          >
+                            {authLoading ? 'Please wait...' : authMode === 'login' ? 'Sign In' : 'Register Account'}
+                          </button>
+
+                          <button 
+                            type="button" 
+                            className="btn btn--ghost" 
+                            onClick={() => {
+                              setAuthMode(authMode === 'login' ? 'register' : 'login');
+                              setAuthError(null);
+                            }}
+                            style={{ padding: '10px', fontSize: '0.85rem', background: 'rgba(255,255,255,0.02)' }}
+                          >
+                            Switch to {authMode === 'login' ? 'Register' : 'Login'}
+                          </button>
+                        </form>
+                      </div>
+                    )}
                   </div>
 
                   {/* Playlist Transfer dashboard */}

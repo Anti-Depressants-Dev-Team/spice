@@ -243,11 +243,25 @@ function artistNameToList(name: string | undefined): SpiceArtist[] {
 export async function getPlaylistTracks(playlistId: string) {
   const yt = await getYouTube();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const playlist = (await yt.getPlaylist(playlistId)) as any;
+  let playlist = (await yt.getPlaylist(playlistId)) as any;
   
   const tracks: SpiceTrack[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const videos = (playlist.videos ?? []) as any[];
+  const videos = [...(playlist.videos ?? [])] as any[];
+  
+  let continuations = 0;
+  while (playlist.has_continuation && continuations < 5) {
+    try {
+      playlist = await playlist.getContinuation();
+      if (playlist.videos) {
+        videos.push(...playlist.videos);
+      }
+      continuations++;
+    } catch (e) {
+      console.error('Error fetching playlist continuation:', e);
+      break;
+    }
+  }
   
   for (const video of videos) {
     if (!video.id || !video.title) continue;

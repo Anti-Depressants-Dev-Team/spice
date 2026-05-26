@@ -3,10 +3,18 @@ import { drizzle } from 'drizzle-orm/neon-http';
 
 import * as schema from './schema';
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) {
-  throw new Error('DATABASE_URL is not set');
-}
+let dbInstance: any = null;
 
-const sql = neon(databaseUrl);
-export const db = drizzle(sql, { schema });
+export const db = new Proxy({} as any, {
+  get(target, prop) {
+    if (!dbInstance) {
+      const databaseUrl = process.env.DATABASE_URL;
+      if (!databaseUrl) {
+        throw new Error('DATABASE_URL is not set');
+      }
+      const sql = neon(databaseUrl);
+      dbInstance = drizzle(sql, { schema });
+    }
+    return Reflect.get(dbInstance, prop);
+  }
+});
