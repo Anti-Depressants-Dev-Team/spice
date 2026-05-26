@@ -126,6 +126,18 @@ const Icons = {
       <polyline points="12 19 5 12 12 5" />
     </svg>
   ),
+  lock: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  ),
+  unlock: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 9.9-1" />
+    </svg>
+  ),
 };
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -161,12 +173,18 @@ interface Playlist {
   createdAt: string;
 }
 
-interface Profile {
+interface UserProfile {
+  id: string;
   displayName: string;
   bio: string;
   gradient: string;
   songsPlayed: number;
   joinedAt: string;
+  passcode?: string; // 4 digit passcode
+  likedTracks: string[];
+  likedTrackDetails: Record<string, Track>;
+  customPlaylists: Playlist[];
+  history: Track[];
 }
 
 const PRESET_GRADIENTS = [
@@ -187,10 +205,84 @@ const genres = [
   { name: 'Jazz Beats', gradient: 'linear-gradient(135deg, #059669, #0d9488)', emoji: '🎺' },
 ];
 
+const formatTime = (seconds: number) => {
+  if (isNaN(seconds)) return '0:00';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+};
+
+const initialDefaultProfile: UserProfile = {
+  id: 'default',
+  displayName: 'Spice Listener',
+  bio: 'Chasing the craziest tunes.',
+  gradient: PRESET_GRADIENTS[0],
+  songsPlayed: 0,
+  joinedAt: new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long' }),
+  likedTracks: [],
+  likedTrackDetails: {},
+  customPlaylists: [],
+  history: []
+};
+
 export default function SpiceApp() {
   const [currentPage, setCurrentPage] = useState<'home' | 'search' | 'library' | 'account'>('home');
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
-  
+
+  // ── Multi-Profile Accounts Setup ──────────────────────────────────
+  const [profiles, setProfiles] = useState<UserProfile[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('spice_profiles_list');
+      if (saved) {
+        try {
+          const list = JSON.parse(saved);
+          if (list.length > 0) return list;
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+    return [initialDefaultProfile];
+  });
+
+  const [activeProfileId, setActiveProfileId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('spice_active_profile_id');
+      return saved || 'default';
+    }
+    return 'default';
+  });
+
+  const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0] || initialDefaultProfile;
+
+  // Security Locking
+  const [isLocked, setIsLocked] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const activeId = localStorage.getItem('spice_active_profile_id') || 'default';
+      const saved = localStorage.getItem('spice_profiles_list');
+      if (saved) {
+        try {
+          const list: UserProfile[] = JSON.parse(saved);
+          const found = list.find(p => p.id === activeId);
+          return !!found?.passcode;
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+    return false;
+  });
+  const [passcodeInput, setPasscodeInput] = useState<string>('');
+  const [passcodeError, setPasscodeError] = useState<string | null>(null);
+
+  // Profile management dialogs
+  const [showCreateProfileDialog, setShowCreateProfileDialog] = useState(false);
+  const [newProfileName, setNewProfileName] = useState('');
+  const [newProfileBio, setNewProfileBio] = useState('');
+  const [newProfileGradient, setNewProfileGradient] = useState(PRESET_GRADIENTS[0]);
+  const [newProfilePasscode, setNewProfilePasscode] = useState('');
+
+  // ── Music Core State (Decoupled & Bound to Active Profile) ────────
   const [currentTrack, setCurrentTrack] = useState<Track>({
     id: 'Starboy',
     title: 'Starboy',
@@ -205,71 +297,37 @@ export default function SpiceApp() {
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(70);
 
-  // Lazy loaders for persistent states
-  const [likedTracks, setLikedTracks] = useState<Set<string>>(() => {
-    if (typeof window !== 'undefined') {
-      const savedLikes = localStorage.getItem('spice_likes');
-      if (savedLikes) {
-        try { return new Set(JSON.parse(savedLikes)); } catch (e) { console.error(e); }
-      }
-    }
-    return new Set();
-  });
-
+  // States synchronized to the Active Profile
+  const [likedTracks, setLikedTracks] = useState<Set<string>>(new Set(activeProfile.likedTracks));
+  const [likedTrackDetails, setLikedTrackDetails] = useState<Record<string, Track>>(activeProfile.likedTrackDetails || {});
+  const [customPlaylists, setCustomPlaylists] = useState<Playlist[]>(activeProfile.customPlaylists || []);
+  const [history, setHistory] = useState<Track[]>(activeProfile.history || []);
   const [queue, setQueue] = useState<Track[]>([currentTrack]);
   const [queueIndex, setQueueIndex] = useState(0);
+
   const [libraryView, setLibraryView] = useState<'list' | 'grid'>('list');
   const [libraryFilter, setLibraryFilter] = useState<'playlists' | 'liked' | 'history'>('playlists');
-  
-  // Custom user playlists
-  const [customPlaylists, setCustomPlaylists] = useState<Playlist[]>(() => {
-    if (typeof window !== 'undefined') {
-      const savedPlaylists = localStorage.getItem('spice_playlists');
-      if (savedPlaylists) {
-        try { return JSON.parse(savedPlaylists); } catch (e) { console.error(e); }
-      }
-    }
-    return [];
-  });
-  
-  // Playback History
-  const [history, setHistory] = useState<Track[]>(() => {
-    if (typeof window !== 'undefined') {
-      const savedHistory = localStorage.getItem('spice_history');
-      if (savedHistory) {
-        try { return JSON.parse(savedHistory); } catch (e) { console.error(e); }
-      }
-    }
-    return [];
-  });
 
-  // Local Accounts Settings
-  const [profile, setProfile] = useState<Profile>(() => {
-    if (typeof window !== 'undefined') {
-      const savedProfile = localStorage.getItem('spice_profile');
-      if (savedProfile) {
-        try { return JSON.parse(savedProfile); } catch (e) { console.error(e); }
-      }
-    }
-    return {
-      displayName: 'Spice Listener',
-      bio: 'Chasing the craziest tunes.',
-      gradient: PRESET_GRADIENTS[0],
-      songsPlayed: 0,
-      joinedAt: new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long' }),
-    };
-  });
+  // Sync profile details when changing profile
+  const [editName, setEditName] = useState(activeProfile.displayName);
+  const [editBio, setEditBio] = useState(activeProfile.bio);
+  const [editGradient, setEditGradient] = useState(activeProfile.gradient);
+  const [editPasscode, setEditPasscode] = useState(activeProfile.passcode || '');
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
 
-  // Dialog & Form states
+  // Transfer Tool states
+  const [ytPlaylistLink, setYtPlaylistLink] = useState('');
+  const [isImportingPlaylist, setIsImportingPlaylist] = useState(false);
+  const [playlistImportError, setPlaylistImportError] = useState<string | null>(null);
+  const [playlistImportSuccess, setPlaylistImportSuccess] = useState<string | null>(null);
+  
+  const [jsonImportText, setJsonImportText] = useState('');
+  const [_jsonBackupStatus, setJsonBackupStatus] = useState<'success' | 'error' | null>(null);
+
+  // Dialog & Form states for Playlists
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newPlTitle, setNewPlTitle] = useState('');
   const [newPlDesc, setNewPlDesc] = useState('');
-
-  // Editable Profile
-  const [editName, setEditName] = useState(profile.displayName);
-  const [editBio, setEditBio] = useState(profile.bio);
-  const [editGradient, setEditGradient] = useState(profile.gradient);
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
 
   // Dynamic Home Page Queries
   const [homeTrending, setHomeTrending] = useState<Track[]>([]);
@@ -286,6 +344,19 @@ export default function SpiceApp() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // ── Sync Active Profile back to Profiles DB Helper ──────────────
+  const updateActiveProfileData = (updates: Partial<UserProfile>) => {
+    setProfiles(prev => {
+      const updated = prev.map(p => {
+        if (p.id === activeProfileId) {
+          return { ...p, ...updates };
+        }
+        return p;
+      });
+      localStorage.setItem('spice_profiles_list', JSON.stringify(updated));
+      return updated;
+    });
+  };
   // Fetch dynamic content on mount
   useEffect(() => {
     async function loadHomeContent() {
@@ -301,7 +372,7 @@ export default function SpiceApp() {
 
         if (trendData.tracks?.length > 0) {
           setHomeTrending(trendData.tracks);
-          // Set a cool trending song as initial track if queue only contains default
+          // Set trending pick as default if queue only contains placeholder Starboy
           const firstTrack = trendData.tracks[0];
           setQueue(prevQueue => {
             if (prevQueue.length === 1 && prevQueue[0].id === 'Starboy') {
@@ -343,8 +414,6 @@ export default function SpiceApp() {
     }
   }, [volume]);
 
-  // Synchronize profile edits when entering editing mode (instead of useEffect to prevent cascading renders)
-
   // Audio Handlers
   const handleTimeUpdate = () => {
     if (audioRef.current) {
@@ -360,11 +429,8 @@ export default function SpiceApp() {
 
   const handleAudioEnded = () => {
     // Increment songs played on completion
-    setProfile(prev => {
-      const updated = { ...prev, songsPlayed: prev.songsPlayed + 1 };
-      localStorage.setItem('spice_profile', JSON.stringify(updated));
-      return updated;
-    });
+    const updatedSongsCount = activeProfile.songsPlayed + 1;
+    updateActiveProfileData({ songsPlayed: updatedSongsCount });
     handleNext();
   };
 
@@ -382,21 +448,26 @@ export default function SpiceApp() {
     setCurrentTrack(track);
     setIsLoadingStream(true);
 
+    let updatedQueue = [...queue];
+    let updatedIndex = queueIndex;
+
     if (newQueue && newQueue.length > 0) {
-      setQueue(newQueue);
+      updatedQueue = newQueue;
       const idx = newQueue.findIndex(t => t.id === track.id);
-      setQueueIndex(idx >= 0 ? idx : 0);
+      updatedIndex = idx >= 0 ? idx : 0;
     } else {
       if (!queue.some(t => t.id === track.id)) {
-        const updated = [...queue];
-        updated.splice(queueIndex + 1, 0, track);
-        setQueue(updated);
-        setQueueIndex(queueIndex + 1);
+        updatedQueue = [...queue];
+        updatedQueue.splice(queueIndex + 1, 0, track);
+        updatedIndex = queueIndex + 1;
       } else {
         const idx = queue.findIndex(t => t.id === track.id);
-        setQueueIndex(idx >= 0 ? idx : 0);
+        updatedIndex = idx >= 0 ? idx : 0;
       }
     }
+
+    setQueue(updatedQueue);
+    setQueueIndex(updatedIndex);
 
     try {
       // Direct stream URL fetch from YouTube endpoint
@@ -407,24 +478,19 @@ export default function SpiceApp() {
       const streams = payload.streams ?? [];
       if (streams.length === 0) throw new Error('No compatible stream format discovered.');
 
-      // Stale-While-Revalidate proxy routing
       const bestStream = streams[0];
       setStreamUrl(bestStream.url);
       setIsPlaying(true);
 
       // Track playback in history
-      setHistory(prev => {
-        const filtered = prev.filter(t => t.id !== track.id);
-        const updated = [track, ...filtered].slice(0, 50);
-        localStorage.setItem('spice_history', JSON.stringify(updated));
-        return updated;
-      });
+      const filteredHist = history.filter(t => t.id !== track.id);
+      const newHist = [track, ...filteredHist].slice(0, 50);
+      setHistory(newHist);
 
-      // Update played stats (incrementing upon start as well)
-      setProfile(prev => {
-        const updated = { ...prev, songsPlayed: prev.songsPlayed + 1 };
-        localStorage.setItem('spice_profile', JSON.stringify(updated));
-        return updated;
+      // Sync history & stats increments to active profile
+      updateActiveProfileData({
+        history: newHist,
+        songsPlayed: activeProfile.songsPlayed + 1
       });
 
     } catch (err: any) {
@@ -477,16 +543,20 @@ export default function SpiceApp() {
       updated.add(track.id);
     }
     setLikedTracks(updated);
-    localStorage.setItem('spice_likes', JSON.stringify(Array.from(updated)));
 
-    // Ensure stateful songs preserve references
-    const savedLikedDetails = JSON.parse(localStorage.getItem('spice_liked_details') || '{}');
+    const savedLikedDetails = { ...likedTrackDetails };
     if (updated.has(track.id)) {
       savedLikedDetails[track.id] = track;
     } else {
       delete savedLikedDetails[track.id];
     }
-    localStorage.setItem('spice_liked_details', JSON.stringify(savedLikedDetails));
+    setLikedTrackDetails(savedLikedDetails);
+
+    // Sync to profiles list database
+    updateActiveProfileData({
+      likedTracks: Array.from(updated),
+      likedTrackDetails: savedLikedDetails
+    });
   };
 
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -538,25 +608,18 @@ export default function SpiceApp() {
     e.preventDefault();
     if (!newPlTitle.trim()) return;
 
-    const gradients = [
-      'linear-gradient(135deg, #1e1b4b, #4c1d95)',
-      'linear-gradient(135deg, #7c2d12, #dc2626)',
-      'linear-gradient(135deg, #164e63, #0891b2)',
-      'linear-gradient(135deg, #78350f, #d97706)',
-      'linear-gradient(135deg, #14532d, #16a34a)',
-    ];
     const newPlaylist: Playlist = {
       id: Date.now().toString(),
       title: newPlTitle,
       description: newPlDesc || 'Custom Spice compilation.',
       tracks: [],
-      gradient: gradients[Math.floor(Math.random() * gradients.length)],
+      gradient: PRESET_GRADIENTS[Math.floor(Math.random() * PRESET_GRADIENTS.length)],
       createdAt: new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
     };
 
     const updated = [...customPlaylists, newPlaylist];
     setCustomPlaylists(updated);
-    localStorage.setItem('spice_playlists', JSON.stringify(updated));
+    updateActiveProfileData({ customPlaylists: updated });
 
     setNewPlTitle('');
     setNewPlDesc('');
@@ -567,7 +630,7 @@ export default function SpiceApp() {
     if (!confirm('Are you sure you want to delete this playlist?')) return;
     const updated = customPlaylists.filter(pl => pl.id !== playlistId);
     setCustomPlaylists(updated);
-    localStorage.setItem('spice_playlists', JSON.stringify(updated));
+    updateActiveProfileData({ customPlaylists: updated });
     setSelectedPlaylist(null);
   };
 
@@ -580,9 +643,8 @@ export default function SpiceApp() {
       return pl;
     });
     setCustomPlaylists(updated);
-    localStorage.setItem('spice_playlists', JSON.stringify(updated));
+    updateActiveProfileData({ customPlaylists: updated });
 
-    // If currently viewing this playlist, sync details view
     if (selectedPlaylist && selectedPlaylist.id === playlistId) {
       setSelectedPlaylist(updated.find(p => p.id === playlistId) || null);
     }
@@ -596,7 +658,7 @@ export default function SpiceApp() {
       return pl;
     });
     setCustomPlaylists(updated);
-    localStorage.setItem('spice_playlists', JSON.stringify(updated));
+    updateActiveProfileData({ customPlaylists: updated });
 
     if (selectedPlaylist && selectedPlaylist.id === playlistId) {
       setSelectedPlaylist(updated.find(p => p.id === playlistId) || null);
@@ -604,41 +666,399 @@ export default function SpiceApp() {
   };
 
   const getLikedTracksList = (): Track[] => {
-    if (typeof window === 'undefined') return [];
-    const savedLikedDetails = JSON.parse(localStorage.getItem('spice_liked_details') || '{}');
-    return Object.values(savedLikedDetails);
+    return Object.values(likedTrackDetails);
   };
 
   const clearHistory = () => {
     if (!confirm('Clear all recently played tracks?')) return;
     setHistory([]);
-    localStorage.removeItem('spice_history');
+    updateActiveProfileData({ history: [] });
   };
 
-  // Account saving
+  // Profile switching, locking and passcode validations
+  const switchProfile = (profileId: string) => {
+    const target = profiles.find(p => p.id === profileId);
+    if (!target) return;
+
+    setActiveProfileId(profileId);
+    localStorage.setItem('spice_active_profile_id', profileId);
+
+    // Synchronize states immediately to prevent cascading renders
+    setLikedTracks(new Set(target.likedTracks));
+    setLikedTrackDetails(target.likedTrackDetails || {});
+    setCustomPlaylists(target.customPlaylists || []);
+    setHistory(target.history || []);
+    setEditName(target.displayName);
+    setEditBio(target.bio);
+    setEditGradient(target.gradient);
+    setEditPasscode(target.passcode || '');
+
+    if (target.history && target.history.length > 0) {
+      setCurrentTrack(target.history[0]);
+      setQueue([target.history[0]]);
+    } else {
+      const starboy = {
+        id: 'Starboy',
+        title: 'Starboy',
+        artists: [{ id: 'The Weeknd', name: 'The Weeknd' }],
+        artworkUrl: 'https://lh3.googleusercontent.com/e44T8B4s4HwT1kX5j1Y0qN_fRj5fLwVvDkO04EwU8T2v9K51hVd6qO9yPZ5zPZ5v=w120-h120'
+      };
+      setCurrentTrack(starboy);
+      setQueue([starboy]);
+    }
+    setQueueIndex(0);
+    setProgress(0);
+    setStreamUrl(null);
+    setIsPlaying(false);
+
+    // Lock screen trigger if passcode exists
+    if (target.passcode) {
+      setIsLocked(true);
+      setPasscodeInput('');
+      setPasscodeError(null);
+    } else {
+      setIsLocked(false);
+    }
+  };
+
+  const createProfile = (e: FormEvent) => {
+    e.preventDefault();
+    if (!newProfileName.trim()) return;
+
+    const newId = 'profile_' + Date.now();
+    const newProf: UserProfile = {
+      id: newId,
+      displayName: newProfileName.trim(),
+      bio: newProfileBio.trim() || 'A fresh Spice listener.',
+      gradient: newProfileGradient,
+      songsPlayed: 0,
+      joinedAt: new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long' }),
+      passcode: newProfilePasscode.length === 4 ? newProfilePasscode : undefined,
+      likedTracks: [],
+      likedTrackDetails: {},
+      customPlaylists: [],
+      history: []
+    };
+
+    const updatedList = [...profiles, newProf];
+    setProfiles(updatedList);
+    localStorage.setItem('spice_profiles_list', JSON.stringify(updatedList));
+
+    // Reset forms and dialogs
+    setNewProfileName('');
+    setNewProfileBio('');
+    setNewProfilePasscode('');
+    setShowCreateProfileDialog(false);
+
+    // Switch instantly
+    switchProfile(newId);
+  };
+
+  const deleteProfile = (profileId: string) => {
+    if (profiles.length <= 1) {
+      alert('You must have at least one active profile.');
+      return;
+    }
+    if (!confirm('Are you sure you want to delete this profile and all its playlists/likes? This cannot be undone.')) return;
+
+    const updated = profiles.filter(p => p.id !== profileId);
+    setProfiles(updated);
+    localStorage.setItem('spice_profiles_list', JSON.stringify(updated));
+
+    // Switch to first profile
+    switchProfile(updated[0].id);
+  };
+
+  const handlePasscodeKey = (num: string) => {
+    setPasscodeError(null);
+    if (passcodeInput.length >= 4) return;
+    const nextVal = passcodeInput + num;
+    setPasscodeInput(nextVal);
+
+    if (nextVal.length === 4) {
+      // Validate
+      if (nextVal === activeProfile.passcode) {
+        setIsLocked(false);
+        setPasscodeInput('');
+      } else {
+        setPasscodeError('Incorrect Passcode. Access Denied.');
+        // Vibrate clear trigger after delay
+        setTimeout(() => {
+          setPasscodeInput('');
+        }, 600);
+      }
+    }
+  };
+
+  const clearPasscode = () => {
+    setPasscodeInput('');
+    setPasscodeError(null);
+  };
+
+  const removePasscodeFromActive = () => {
+    setEditPasscode('');
+    updateActiveProfileData({ passcode: undefined });
+    alert('Passcode protection removed successfully.');
+  };
+
   const saveProfile = (e: FormEvent) => {
     e.preventDefault();
-    const updated = {
-      ...profile,
+    
+    // Passcode validation
+    const passcodeVal = editPasscode.trim();
+    if (passcodeVal && passcodeVal.length !== 4) {
+      alert('Passcode must be exactly 4 digits.');
+      return;
+    }
+
+    updateActiveProfileData({
       displayName: editName.trim() || 'Spice Listener',
       bio: editBio.trim() || 'No bio written yet.',
       gradient: editGradient,
-    };
-    setProfile(updated);
-    localStorage.setItem('spice_profile', JSON.stringify(updated));
+      passcode: passcodeVal ? passcodeVal : undefined,
+    });
+
     setIsEditingProfile(false);
   };
 
-  const formatTime = (seconds: number) => {
-    if (isNaN(seconds)) return '0:00';
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
+  // ── Playlist Transfer Tool Implementations ────────────────────────
+  const importYouTubePlaylist = async () => {
+    setPlaylistImportError(null);
+    setPlaylistImportSuccess(null);
+    setIsImportingPlaylist(true);
+
+    let parsedId = ytPlaylistLink.trim();
+    if (parsedId.includes('list=')) {
+      const match = parsedId.match(/list=([^&]+)/);
+      if (match) parsedId = match[1];
+    }
+
+    if (!parsedId || parsedId.length < 5) {
+      setPlaylistImportError('Invalid YouTube Playlist URL or ID format.');
+      setIsImportingPlaylist(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/yt/playlist/${encodeURIComponent(parsedId)}`);
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || 'Failed to fetch playlist details.');
+      }
+
+      const playlistData = await res.json();
+      const tracks: Track[] = (playlistData.tracks ?? []).map((t: any) => ({
+        id: t.id,
+        title: t.title,
+        artists: t.artists,
+        artworkUrl: t.artworkUrl,
+        durationMs: t.durationMs
+      }));
+
+      if (tracks.length === 0) {
+        throw new Error('This public playlist does not contain any playable tracks.');
+      }
+
+      // Add as custom playlist
+      const newPlaylist: Playlist = {
+        id: 'imported_' + Date.now(),
+        title: playlistData.title || 'YT Import',
+        description: playlistData.description || 'Imported YouTube playlist.',
+        tracks,
+        gradient: PRESET_GRADIENTS[Math.floor(Math.random() * PRESET_GRADIENTS.length)],
+        createdAt: new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+      };
+
+      const updated = [...customPlaylists, newPlaylist];
+      setCustomPlaylists(updated);
+      updateActiveProfileData({ customPlaylists: updated });
+
+      setPlaylistImportSuccess(`Successfully imported "${playlistData.title}" with ${tracks.length} tracks!`);
+      setYtPlaylistLink('');
+
+    } catch (err: any) {
+      console.error(err);
+      setPlaylistImportError(err.message || 'Playlist retrieval failed.');
+    } finally {
+      setIsImportingPlaylist(false);
+    }
+  };
+
+  // JSON Database Backups
+  const downloadBackupFile = () => {
+    const backupData = {
+      version: 'spice-v1',
+      profile: {
+        displayName: activeProfile.displayName,
+        bio: activeProfile.bio,
+        gradient: activeProfile.gradient,
+        joinedAt: activeProfile.joinedAt,
+        songsPlayed: activeProfile.songsPlayed
+      },
+      likedTracks: Array.from(likedTracks),
+      likedTrackDetails,
+      customPlaylists,
+      history
+    };
+
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${activeProfile.displayName.replace(/\s+/g, '_')}_spice_backup.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const copyBackupToClipboard = () => {
+    const backupData = {
+      version: 'spice-v1',
+      likedTracks: Array.from(likedTracks),
+      likedTrackDetails,
+      customPlaylists,
+      history
+    };
+    navigator.clipboard.writeText(JSON.stringify(backupData))
+      .then(() => alert('Spice JSON Backup copied to clipboard!'))
+      .catch(err => console.error('Failed to copy JSON:', err));
+  };
+
+  const restoreBackupData = () => {
+    setJsonBackupStatus(null);
+    if (!jsonImportText.trim()) return;
+
+    try {
+      const payload = JSON.parse(jsonImportText.trim());
+      if (payload.version !== 'spice-v1') {
+        throw new Error('Incompatible backup version tag.');
+      }
+
+      // Merge Liked tracks
+      const newLikesSet = new Set([...likedTracks, ...(payload.likedTracks || [])]);
+      setLikedTracks(newLikesSet);
+
+      const mergedDetails = { ...likedTrackDetails, ...(payload.likedTrackDetails || {}) };
+      setLikedTrackDetails(mergedDetails);
+
+      // Merge Playlists
+      const newPlaylists = [...customPlaylists];
+      const parsedPlaylists: Playlist[] = payload.customPlaylists || [];
+      for (const pl of parsedPlaylists) {
+        if (!newPlaylists.some(p => p.title === pl.title && p.tracks.length === pl.tracks.length)) {
+          newPlaylists.push({
+            ...pl,
+            id: 'backup_' + Date.now() + '_' + Math.random().toString(36).substring(2, 5)
+          });
+        }
+      }
+      setCustomPlaylists(newPlaylists);
+
+      // Merge history
+      const newHistory = [...(payload.history || []), ...history].slice(0, 50);
+      setHistory(newHistory);
+
+      // Sync to local profiles DB
+      updateActiveProfileData({
+        likedTracks: Array.from(newLikesSet),
+        likedTrackDetails: mergedDetails,
+        customPlaylists: newPlaylists,
+        history: newHistory
+      });
+
+      setJsonBackupStatus('success');
+      setJsonImportText('');
+      alert('Backup database parsed and merged successfully!');
+
+    } catch (e: any) {
+      console.error(e);
+      setJsonBackupStatus('error');
+      alert('Error parsing JSON backup: ' + e.message);
+    }
   };
 
   return (
     <div className="app">
-      {/* Hidden Audio Element */}
+      {/* ── Security Passcode Lock Overlay ── */}
+      {isLocked && (
+        <div className="passcode-overlay animate-in" style={{ position: 'fixed', inset: 0, background: '#000000', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(32px)' }}>
+          <div style={{ textAlign: 'center', maxWidth: '320px', width: '100%', padding: '24px' }}>
+            <div style={{ width: '64px', height: '64px', borderRadius: '16px', background: activeProfile.gradient, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', fontWeight: 900, color: '#fff', margin: '0 auto 24px auto', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
+              {activeProfile.displayName.charAt(0).toUpperCase()}
+            </div>
+            <h2 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.5rem', fontWeight: 700, color: '#fff', margin: '0 0 8px 0' }}>Profile Locked</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '32px' }}>
+              Enter passcode to unlock <strong>{activeProfile.displayName}</strong>
+            </p>
+
+            {/* Indicator dots */}
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginBottom: '40px' }}>
+              {[...Array(4)].map((_, i) => (
+                <div 
+                  key={i} 
+                  style={{ width: '16px', height: '16px', borderRadius: '50%', background: passcodeInput.length > i ? 'var(--accent-pink)' : '#222', border: '1px solid #444', transition: 'all 0.15s ease', boxShadow: passcodeInput.length > i ? '0 0 12px var(--accent-pink)' : 'none' }}
+                />
+              ))}
+            </div>
+
+            {passcodeError && (
+              <div className="loader-glow" style={{ color: '#f87171', fontSize: '0.85rem', marginBottom: '24px', fontWeight: 600 }}>
+                {passcodeError}
+              </div>
+            )}
+
+            {/* Custom Premium Virtual Keypad */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(num => (
+                <button 
+                  key={num} 
+                  type="button"
+                  onClick={() => handlePasscodeKey(num)}
+                  style={{ height: '56px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: '#fff', fontSize: '1.25rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.15s ease' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.transform = 'scale(1.05)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.transform = 'scale(1)'; }}
+                >
+                  {num}
+                </button>
+              ))}
+              <button 
+                type="button" 
+                onClick={clearPasscode}
+                style={{ height: '56px', borderRadius: '12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}
+              >
+                Clear
+              </button>
+              <button 
+                type="button"
+                onClick={() => handlePasscodeKey('0')}
+                style={{ height: '56px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: '#fff', fontSize: '1.25rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.15s' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.transform = 'scale(1.05)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.transform = 'scale(1)'; }}
+              >
+                0
+              </button>
+              <button 
+                type="button"
+                onClick={() => {
+                  // Switch to default profile or other profiles if they aren't locked
+                  const unlocked = profiles.find(p => !p.passcode);
+                  if (unlocked) {
+                    switchProfile(unlocked.id);
+                  } else {
+                    alert('All profiles are locked. Please enter correct credentials.');
+                  }
+                }}
+                style={{ height: '56px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}
+              >
+                Switch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden Audio Player */}
       {streamUrl && (
         <audio
           ref={audioRef}
@@ -654,7 +1074,7 @@ export default function SpiceApp() {
       {/* ═══ Sidebar Panel ═══ */}
       <aside className="sidebar">
         <div className="sidebar__logo" onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); }}>
-          <div className="sidebar__logo-icon" style={{ background: profile.gradient }}>
+          <div className="sidebar__logo-icon" style={{ background: activeProfile.gradient }}>
             <span style={{ fontSize: '1rem', fontWeight: 900, color: '#fff' }}>S</span>
           </div>
           <span className="sidebar__logo-text">Spice</span>
@@ -921,7 +1341,7 @@ export default function SpiceApp() {
                           ))
                         ) : (
                           homeChill.map((song) => (
-                            <div key={song.id} className="card" onClick={() => playTrack(song, homeChill)}>
+                            <div key={song.id} className="card animate-in" onClick={() => playTrack(song, homeChill)}>
                               <div className="card__art-wrapper">
                                 <img className="card__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} />
                                 <div className="card__play-overlay">{Icons.play}</div>
@@ -948,7 +1368,7 @@ export default function SpiceApp() {
                           ))
                         ) : (
                           homeEnergy.map((song) => (
-                            <div key={song.id} className="card" onClick={() => playTrack(song, homeEnergy)}>
+                            <div key={song.id} className="card animate-in" onClick={() => playTrack(song, homeEnergy)}>
                               <div className="card__art-wrapper">
                                 <img className="card__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} />
                                 <div className="card__play-overlay">{Icons.play}</div>
@@ -1221,41 +1641,43 @@ export default function SpiceApp() {
                 </>
               )}
 
-              {/* ── Account/Profile Page ── */}
+              {/* ── Account/Profile & Playlist Transfer Page ── */}
               {currentPage === 'account' && (
-                <div className="animate-in" style={{ maxWidth: '640px', margin: '0 auto' }}>
-                  <h1 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '2rem', fontWeight: 800, marginBottom: '24px' }}>Profile Settings</h1>
+                <div className="animate-in" style={{ maxWidth: '720px', margin: '0 auto' }}>
+                  <h1 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '2rem', fontWeight: 800, marginBottom: '24px' }}>Account Settings</h1>
 
-                  {/* Sleek dynamic gradient avatar card */}
+                  {/* Profile view */}
                   <div className="profile-card animate-in" style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '32px', display: 'flex', alignItems: 'center', gap: '24px' }}>
                     <div 
-                      style={{ width: '80px', height: '80px', borderRadius: '50%', background: profile.gradient, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', fontWeight: 900, color: '#fff', textShadow: '0 4px 12px rgba(0,0,0,0.3)', flexShrink: 0 }}
+                      style={{ width: '80px', height: '80px', borderRadius: '50%', background: activeProfile.gradient, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', fontWeight: 900, color: '#fff', textShadow: '0 4px 12px rgba(0,0,0,0.3)', flexShrink: 0 }}
                     >
-                      {profile.displayName.charAt(0).toUpperCase()}
+                      {activeProfile.displayName.charAt(0).toUpperCase()}
                     </div>
-                    <div>
-                      <h2 style={{ fontSize: '1.5rem', fontWeight: 700, margin: '0 0 6px 0', fontFamily: 'Outfit, sans-serif' }}>{profile.displayName}</h2>
-                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: '0 0 12px 0' }}>{profile.bio}</p>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <h2 style={{ fontSize: '1.5rem', fontWeight: 700, margin: '0 0 6px 0', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className="truncate">{activeProfile.displayName}</span>
+                        {activeProfile.passcode && <span title="Profile locked" style={{ color: 'var(--accent-pink)', display: 'inline-flex' }}>{Icons.lock}</span>}
+                      </h2>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: '0 0 12px 0' }}>{activeProfile.bio}</p>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px' }}>
-                        Member since {profile.joinedAt}
+                        Listener since {activeProfile.joinedAt}
                       </span>
                     </div>
                   </div>
 
-                  {/* Playback statistics */}
-                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 16px 0', fontFamily: 'Outfit, sans-serif' }}>Analytics & Stats</h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '40px' }}>
+                  {/* Stats Grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '32px' }}>
                     <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
                       <div style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--accent-pink)', marginBottom: '4px' }}>
-                        {profile.songsPlayed}
+                        {activeProfile.songsPlayed}
                       </div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Songs Played</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Songs Streamed</div>
                     </div>
                     <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
                       <div style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--accent-purple)', marginBottom: '4px' }}>
                         {likedTracks.size}
                       </div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Favorites</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Liked Songs</div>
                     </div>
                     <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
                       <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#f59e0b', marginBottom: '4px' }}>
@@ -1265,10 +1687,123 @@ export default function SpiceApp() {
                     </div>
                   </div>
 
-                  {/* Edit profile dialog/form */}
+                  {/* Profiles Switching drawer */}
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '24px 0 16px 0', fontFamily: 'Outfit, sans-serif' }}>Local Profile Management</h3>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
+                    {profiles.map(p => {
+                      const isActive = p.id === activeProfileId;
+                      return (
+                        <div 
+                          key={p.id} 
+                          onClick={() => switchProfile(p.id)}
+                          style={{ position: 'relative', background: 'var(--card-bg)', border: isActive ? '2px solid var(--accent-pink)' : '1px solid var(--border-color)', padding: '16px', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', minWidth: '180px', transition: 'all 0.15s ease' }}
+                        >
+                          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: p.gradient, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', fontWeight: 800, color: '#fff' }}>
+                            {p.displayName.charAt(0).toUpperCase()}
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }} className="truncate">
+                              {p.displayName}
+                              {p.passcode && <span style={{ color: 'var(--accent-pink)', display: 'inline-flex' }}>{Icons.lock}</span>}
+                            </div>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{p.songsPlayed} streams</span>
+                          </div>
+                          {profiles.length > 1 && (
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); deleteProfile(p.id); }} 
+                              style={{ marginLeft: 'auto', color: '#f87171', padding: '4px', opacity: 0.6 }}
+                              title="Delete Profile"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <button
+                      onClick={() => setShowCreateProfileDialog(true)}
+                      style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed var(--border-color)', borderRadius: '12px', padding: '16px', minWidth: '180px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                    >
+                      <span>+ Create Profile</span>
+                    </button>
+                  </div>
+
+                  {/* Playlist Transfer dashboard */}
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '40px 0 16px 0', fontFamily: 'Outfit, sans-serif' }}>Playlist Transfer Dashboard</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '32px' }}>
+                    
+                    {/* YouTube/YouTube Music Import */}
+                    <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '20px' }}>
+                      <h4 style={{ margin: '0 0 8px 0', color: '#fff' }}>YouTube / YT Music Importer</h4>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', margin: '0 0 16px 0', lineHeight: 1.4 }}>
+                        Transfer any public YouTube or YouTube Music playlist directly. Spice will query tracks and import them dynamically.
+                      </p>
+                      
+                      <input 
+                        type="text"
+                        placeholder="https://music.youtube.com/playlist?list=PL..."
+                        value={ytPlaylistLink}
+                        onChange={(e) => setYtPlaylistLink(e.target.value)}
+                        style={{ width: '100%', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', fontSize: '0.85rem', marginBottom: '12px' }}
+                      />
+
+                      {playlistImportError && (
+                        <div style={{ color: '#f87171', fontSize: '0.75rem', marginBottom: '12px' }}>⚠️ {playlistImportError}</div>
+                      )}
+                      {playlistImportSuccess && (
+                        <div style={{ color: '#34d399', fontSize: '0.75rem', marginBottom: '12px' }}>✓ {playlistImportSuccess}</div>
+                      )}
+
+                      <button 
+                        className="btn btn--primary" 
+                        onClick={importYouTubePlaylist}
+                        disabled={isImportingPlaylist}
+                        style={{ width: '100%', padding: '8px 16px', fontSize: '0.85rem' }}
+                      >
+                        {isImportingPlaylist ? 'Importing Playlist...' : 'Fetch & Import Playlist'}
+                      </button>
+                    </div>
+
+                    {/* JSON backups */}
+                    <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '20px' }}>
+                      <h4 style={{ margin: '0 0 8px 0', color: '#fff' }}>Universal JSON Sync</h4>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', margin: '0 0 16px 0', lineHeight: 1.4 }}>
+                        Backup all playlists, likes, and history as a secure JSON payload to manually synchronize databases across devices.
+                      </p>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <button className="btn btn--ghost" onClick={downloadBackupFile} style={{ width: '100%', padding: '8px 16px', fontSize: '0.85rem' }}>
+                          💾 Download Backup File (.json)
+                        </button>
+                        <button className="btn btn--ghost" onClick={copyBackupToClipboard} style={{ width: '100%', padding: '8px 16px', fontSize: '0.85rem' }}>
+                          📋 Copy Backup to Clipboard
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Restore from JSON backup */}
+                  <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '20px', marginBottom: '40px' }}>
+                    <h4 style={{ margin: '0 0 8px 0', color: '#fff' }}>Restore / Merge Profile Backup</h4>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', margin: '0 0 12px 0' }}>
+                      Paste a JSON database payload below and select Merge to restore your playlists, favorite tracks, and playback history.
+                    </p>
+                    <textarea 
+                      placeholder="Paste backup JSON code..."
+                      value={jsonImportText}
+                      onChange={(e) => setJsonImportText(e.target.value)}
+                      style={{ width: '100%', height: '80px', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', resize: 'none', fontFamily: 'monospace', fontSize: '0.75rem', marginBottom: '16px' }}
+                    />
+                    <button className="btn btn--primary" onClick={restoreBackupData} style={{ padding: '8px 24px', fontSize: '0.85rem' }}>
+                      Restore Profile Backup
+                    </button>
+                  </div>
+
+                  {/* Profile Customizations */}
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '24px 0 16px 0', fontFamily: 'Outfit, sans-serif' }}>Profile Settings & Passcode</h3>
                   {isEditingProfile ? (
                     <form onSubmit={saveProfile} style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', padding: '24px', borderRadius: '16px' }}>
-                      <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '20px', fontFamily: 'Outfit, sans-serif' }}>Update Account Information</h3>
+                      <h4 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '20px', color: '#fff' }}>Edit profile: {activeProfile.displayName}</h4>
                       
                       <div style={{ marginBottom: '16px' }}>
                         <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Display Name</label>
@@ -1276,10 +1811,27 @@ export default function SpiceApp() {
                           type="text" 
                           value={editName} 
                           onChange={(e) => setEditName(e.target.value)} 
-                          placeholder="Your spicy name..."
+                          placeholder="DisplayName..."
                           style={{ width: '100%', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none' }}
                           required
                         />
+                      </div>
+
+                      <div style={{ marginBottom: '16px' }}>
+                        <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Passcode Protection (4 digits - optional)</label>
+                        <input 
+                          type="password" 
+                          maxLength={4}
+                          value={editPasscode} 
+                          onChange={(e) => setEditPasscode(e.target.value.replace(/\D/g, ''))} 
+                          placeholder="e.g. 1234"
+                          style={{ width: '100%', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', letterSpacing: '0.2em' }}
+                        />
+                        {activeProfile.passcode && (
+                          <button type="button" onClick={removePasscodeFromActive} style={{ color: '#f87171', fontSize: '0.75rem', marginTop: '6px', cursor: 'pointer' }}>
+                            Clear Passcode
+                          </button>
+                        )}
                       </div>
 
                       <div style={{ marginBottom: '20px' }}>
@@ -1287,13 +1839,13 @@ export default function SpiceApp() {
                         <textarea 
                           value={editBio} 
                           onChange={(e) => setEditBio(e.target.value)} 
-                          placeholder="Tell the community about your audio taste..."
+                          placeholder="About you..."
                           style={{ width: '100%', height: '80px', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', resize: 'none' }}
                         />
                       </div>
 
                       <div style={{ marginBottom: '24px' }}>
-                        <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '10px' }}>Theme Avatar Gradient</label>
+                        <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '10px' }}>Avatar Color Accent</label>
                         <div style={{ display: 'flex', gap: '12px' }}>
                           {PRESET_GRADIENTS.map((g, idx) => (
                             <button
@@ -1312,29 +1864,19 @@ export default function SpiceApp() {
                       </div>
                     </form>
                   ) : (
-                    <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', padding: '24px', borderRadius: '16px', textAlign: 'center' }}>
-                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '16px' }}>Customizations remain secure and saved inside your browser session.</p>
+                    <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', padding: '24px', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: 0 }}>Configure profile credentials, avatar colors, or password locks.</p>
                       <button className="btn btn--primary" onClick={() => {
-                        setEditName(profile.displayName);
-                        setEditBio(profile.bio);
-                        setEditGradient(profile.gradient);
+                        setEditName(activeProfile.displayName);
+                        setEditBio(activeProfile.bio);
+                        setEditGradient(activeProfile.gradient);
+                        setEditPasscode(activeProfile.passcode || '');
                         setIsEditingProfile(true);
                       }}>
                         Edit Profile Details
                       </button>
                     </div>
                   )}
-
-                  {/* Mock server sync */}
-                  <div style={{ background: 'rgba(168, 85, 247, 0.04)', border: '1px solid rgba(168, 85, 247, 0.1)', borderRadius: '16px', padding: '24px', marginTop: '32px' }}>
-                    <h4 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 8px 0', fontFamily: 'Outfit, sans-serif', color: 'var(--accent-pink)' }}>Cloud Account Synchronization</h4>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 16px 0', lineHeight: 1.5 }}>
-                      Spice standardizes accounts locally first. Phase 4 synchronizations let you connect a closed-source secure Spice Server database to backup playlists, favorites, and history.
-                    </p>
-                    <button className="btn btn--ghost" disabled style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', cursor: 'not-allowed', color: 'var(--text-muted)' }}>
-                      Connect Database (Locked)
-                    </button>
-                  </div>
                 </div>
               )}
             </>
@@ -1367,6 +1909,63 @@ export default function SpiceApp() {
               />
               <div className="dialog-box__actions">
                 <button type="button" className="btn btn--ghost" style={{ padding: '8px 16px' }} onClick={() => setShowCreateDialog(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn--primary" style={{ padding: '8px 16px' }}>
+                  Create
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Create Profile Dialog ═══ */}
+      {showCreateProfileDialog && (
+        <div className="dialog-overlay" onClick={() => setShowCreateProfileDialog(false)}>
+          <div className="dialog-box" onClick={(e) => e.stopPropagation()}>
+            <h2>Create Spice Profile</h2>
+            <form onSubmit={createProfile}>
+              <label style={{ fontSize: '0.8rem', color: '#a1a1aa' }}>Profile Name</label>
+              <input
+                type="text"
+                value={newProfileName}
+                onChange={(e) => setNewProfileName(e.target.value)}
+                placeholder="e.g. Study, Razvan"
+                required
+                autoFocus
+              />
+              <label style={{ fontSize: '0.8rem', color: '#a1a1aa' }}>Short Bio (optional)</label>
+              <input
+                type="text"
+                value={newProfileBio}
+                onChange={(e) => setNewProfileBio(e.target.value)}
+                placeholder="Study sessions..."
+              />
+              <label style={{ fontSize: '0.8rem', color: '#a1a1aa' }}>Optional 4-Digit Passcode Protection</label>
+              <input
+                type="password"
+                maxLength={4}
+                value={newProfilePasscode}
+                onChange={(e) => setNewProfilePasscode(e.target.value.replace(/\D/g, ''))}
+                placeholder="Leave blank for no password"
+                style={{ letterSpacing: '0.2em' }}
+              />
+
+              <label style={{ fontSize: '0.8rem', color: '#a1a1aa', marginTop: '12px', display: 'block' }}>Select Accent Color</label>
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                {PRESET_GRADIENTS.map((g, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setNewProfileGradient(g)}
+                    style={{ width: '28px', height: '28px', borderRadius: '50%', background: g, border: newProfileGradient === g ? '2px solid #fff' : 'none', cursor: 'pointer', outline: 'none' }}
+                  />
+                ))}
+              </div>
+
+              <div className="dialog-box__actions">
+                <button type="button" className="btn btn--ghost" style={{ padding: '8px 16px' }} onClick={() => setShowCreateProfileDialog(false)}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn--primary" style={{ padding: '8px 16px' }}>

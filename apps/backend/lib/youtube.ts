@@ -239,3 +239,36 @@ function artistNameToList(name: string | undefined): SpiceArtist[] {
   if (!name) return [];
   return [{ id: name, name }];
 }
+
+export async function getPlaylistTracks(playlistId: string) {
+  const yt = await getYouTube();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const playlist = (await yt.getPlaylist(playlistId)) as any;
+  
+  const tracks: SpiceTrack[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const videos = (playlist.videos ?? []) as any[];
+  
+  for (const video of videos) {
+    if (!video.id || !video.title) continue;
+    
+    const artists = video.author 
+      ? [{ id: video.author.id ?? video.author.name, name: video.author.name }] 
+      : [];
+      
+    tracks.push({
+      sourceId,
+      id: video.id,
+      title: video.title.toString(),
+      artists,
+      artworkUrl: video.thumbnails?.[0]?.url,
+      durationMs: video.duration?.seconds ? video.duration.seconds * 1000 : undefined
+    });
+  }
+  
+  return {
+    title: playlist.title ?? 'Imported Playlist',
+    description: playlist.description ?? 'YouTube playlist import',
+    tracks
+  };
+}
