@@ -397,6 +397,18 @@ export default function SpiceApp() {
     }
     return 'bar';
   });
+  const [isShuffle, setIsShuffle] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('spice_is_shuffle') === 'true';
+    }
+    return false;
+  });
+  const [repeatMode, setRepeatMode] = useState<'none' | 'all' | 'one'>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('spice_repeat_mode') as 'none' | 'all' | 'one') || 'all';
+    }
+    return 'all';
+  });
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -715,7 +727,23 @@ export default function SpiceApp() {
     // Increment songs played on completion
     const updatedSongsCount = activeProfile.songsPlayed + 1;
     updateActiveProfileData({ songsPlayed: updatedSongsCount });
-    handleNext();
+    
+    if (repeatMode === 'one') {
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(handleAudioError);
+        setProgress(0);
+        setIsPlaying(true);
+      }
+    } else if (repeatMode === 'none' && queueIndex === queue.length - 1) {
+      setIsPlaying(false);
+      setProgress(0);
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+      }
+    } else {
+      handleNext();
+    }
   };
 
   const handleAudioError = () => {
@@ -810,12 +838,38 @@ export default function SpiceApp() {
       }
       return;
     }
-    const prevIdx = (queueIndex - 1 + queue.length) % queue.length;
+    if (queue.length === 0) return;
+    
+    let prevIdx = queueIndex;
+    if (isShuffle) {
+      if (queue.length > 1) {
+        do {
+          prevIdx = Math.floor(Math.random() * queue.length);
+        } while (prevIdx === queueIndex);
+      } else {
+        prevIdx = 0;
+      }
+    } else {
+      prevIdx = (queueIndex - 1 + queue.length) % queue.length;
+    }
     playTrack(queue[prevIdx]);
   };
 
   const handleNext = () => {
-    const nextIdx = (queueIndex + 1) % queue.length;
+    if (queue.length === 0) return;
+    
+    let nextIdx = queueIndex;
+    if (isShuffle) {
+      if (queue.length > 1) {
+        do {
+          nextIdx = Math.floor(Math.random() * queue.length);
+        } while (nextIdx === queueIndex);
+      } else {
+        nextIdx = 0;
+      }
+    } else {
+      nextIdx = (queueIndex + 1) % queue.length;
+    }
     playTrack(queue[nextIdx]);
   };
 
@@ -2751,16 +2805,44 @@ export default function SpiceApp() {
       {/* ═══ Now Playing Bar Panel ═══ */}
       <footer className="now-playing">
         {/* Left: playback controls */}
-        <div className="now-playing__left-controls">
+        <div className="now-playing__left-controls" style={{ gap: '12px' }}>
+          <button 
+            className="now-playing__btn" 
+            onClick={() => {
+              setIsShuffle(!isShuffle);
+              localStorage.setItem('spice_is_shuffle', (!isShuffle).toString());
+            }}
+            style={{ color: isShuffle ? 'var(--accent-pink)' : 'var(--text-secondary)', fontSize: '1rem', outline: 'none', transition: 'all 0.15s ease' }}
+            title="Shuffle"
+          >
+            🔀
+          </button>
+          
           <button className="now-playing__btn" onClick={handlePrev} aria-label="Previous">
             {Icons.prev}
           </button>
+          
           <button className="now-playing__btn now-playing__btn--play" onClick={togglePlayPause} aria-label={isPlaying ? 'Pause' : 'Play'}>
             {isPlaying ? Icons.pause : Icons.play}
           </button>
+          
           <button className="now-playing__btn" onClick={handleNext} aria-label="Next">
             {Icons.next}
           </button>
+
+          <button 
+            className="now-playing__btn" 
+            onClick={() => {
+              const nextMode = repeatMode === 'none' ? 'all' : repeatMode === 'all' ? 'one' : 'none';
+              setRepeatMode(nextMode);
+              localStorage.setItem('spice_repeat_mode', nextMode);
+            }}
+            style={{ color: repeatMode !== 'none' ? 'var(--accent-pink)' : 'var(--text-secondary)', fontSize: '1rem', outline: 'none', transition: 'all 0.15s ease' }}
+            title={`Repeat Mode: ${repeatMode === 'none' ? 'Off' : repeatMode === 'all' ? 'Repeat All' : 'Repeat One'}`}
+          >
+            {repeatMode === 'one' ? '🔂' : '🔁'}
+          </button>
+          
           <button
             className={`now-playing__like ${likedTracks.has(currentTrack.id) ? 'liked' : ''}`}
             onClick={() => toggleLike(currentTrack)}
@@ -2959,6 +3041,18 @@ export default function SpiceApp() {
               {/* Huge transport buttons */}
               <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '32px' }}>
                 <button 
+                  onClick={() => {
+                    setIsShuffle(!isShuffle);
+                    localStorage.setItem('spice_is_shuffle', (!isShuffle).toString());
+                  }}
+                  style={{ background: 'none', border: 'none', color: isShuffle ? 'var(--accent-pink)' : '#fff', opacity: isShuffle ? 1 : 0.4, cursor: 'pointer', outline: 'none', fontSize: '1.5rem', transition: 'all 0.15s ease' }} 
+                  className="expanded-player__btn"
+                  title="Shuffle"
+                >
+                  🔀
+                </button>
+
+                <button 
                   onClick={handlePrev} 
                   style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', outline: 'none', transition: 'all 0.15s ease' }} 
                   className="expanded-player__btn"
@@ -2996,6 +3090,19 @@ export default function SpiceApp() {
                   className="expanded-player__btn"
                 >
                   <span style={{ transform: 'scale(1.5)', display: 'inline-block' }}>{Icons.next}</span>
+                </button>
+
+                <button 
+                  onClick={() => {
+                    const nextMode = repeatMode === 'none' ? 'all' : repeatMode === 'all' ? 'one' : 'none';
+                    setRepeatMode(nextMode);
+                    localStorage.setItem('spice_repeat_mode', nextMode);
+                  }}
+                  style={{ background: 'none', border: 'none', color: repeatMode !== 'none' ? 'var(--accent-pink)' : '#fff', opacity: repeatMode !== 'none' ? 1 : 0.4, cursor: 'pointer', outline: 'none', fontSize: '1.5rem', transition: 'all 0.15s ease' }} 
+                  className="expanded-player__btn"
+                  title={`Repeat Mode: ${repeatMode === 'none' ? 'Off' : repeatMode === 'all' ? 'Repeat All' : 'Repeat One'}`}
+                >
+                  {repeatMode === 'one' ? '🔂' : '🔁'}
                 </button>
               </div>
 
