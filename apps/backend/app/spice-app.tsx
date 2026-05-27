@@ -1562,6 +1562,7 @@ export default function SpiceApp() {
           ref={audioRef}
           src={streamUrl}
           autoPlay={isPlaying}
+          {...{ referrerpolicy: 'no-referrer' }}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
           onEnded={handleAudioEnded}
