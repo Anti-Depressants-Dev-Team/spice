@@ -3462,6 +3462,15 @@ export default function SpiceApp() {
             />
           </div>
         </div>
+
+        {/* Mobile-only Play/Pause button */}
+        <button 
+          className="now-playing__mobile-play"
+          onClick={(e) => { e.stopPropagation(); togglePlayPause(); }}
+          style={{ display: 'none' }}
+        >
+          {isPlaying ? '❚❚' : '▶'}
+        </button>
       </footer>
 
       {/* ═══ Expanded Player Immersive Full-Screen Overlay ═══ */}
@@ -4087,6 +4096,66 @@ export default function SpiceApp() {
 
         </div>
       )}
+    {/* Mobile Bottom Navigation Bar (Visible only on screens <= 600px via media query) */}
+    <div 
+      className="mobile-nav-bar"
+      style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: '64px',
+        background: 'rgba(5, 5, 5, 0.92)',
+        borderTop: '1px solid var(--border-color)',
+        backdropFilter: 'blur(30px)',
+        WebkitBackdropFilter: 'blur(30px)',
+        zIndex: 9999,
+        display: 'none', // Managed by mobile media queries in globals.css
+        justifyContent: 'space-around',
+        alignItems: 'center',
+        padding: '0 8px',
+        boxShadow: '0 -4px 20px rgba(0,0,0,0.6)'
+      }}
+    >
+      {[
+        { id: 'home', label: 'Home', icon: '🏠' },
+        { id: 'search', label: 'Search', icon: '🔍' },
+        { id: 'likes', label: 'Library', icon: '❤️' },
+        { id: 'settings', label: 'Settings', icon: '⚙️' }
+      ].map((tab) => {
+        const isActive = currentPage === tab.id && !selectedPlaylist;
+        return (
+          <button
+            key={tab.id}
+            onClick={() => {
+              setCurrentPage(tab.id as any);
+              setSelectedPlaylist(null);
+            }}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '4px',
+              color: isActive ? 'var(--accent-pink)' : 'var(--text-secondary)',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              flex: 1,
+              height: '100%',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <span style={{ fontSize: '1.25rem', transition: 'transform 0.15s ease', transform: isActive ? 'scale(1.1)' : 'scale(1)', filter: isActive ? 'drop-shadow(0 0 6px var(--accent-pink))' : 'none' }}>
+              {tab.icon}
+            </span>
+            <span style={{ fontSize: '0.65rem', fontWeight: isActive ? 800 : 500, letterSpacing: '0.02em' }}>
+              {tab.label}
+            </span>
+          </button>
+        );
+      })}
+    </div>
     </div>
   );
 }
