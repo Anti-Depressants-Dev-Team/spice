@@ -1057,6 +1057,32 @@ export default function SpiceApp() {
     } catch (err: any) {
       console.error(err);
       logDebug('error', `Track streaming failed: ${err.message || err}`);
+      
+      if (streamProtocol !== 'embed') {
+        logDebug('diagnostics', `Direct stream resolution failed. Initiating self-healing fallback to YouTube Embedded Player...`);
+        setStreamProtocol('embed');
+        localStorage.setItem('spice_stream_protocol', 'embed');
+        
+        logDebug('stream', `YouTube Embedded Player active. Loading iframe player for track ID: ${track.id}`);
+        setStreamUrl('youtube-embed-active');
+        setIsLoadingStream(false);
+        setIsPlaying(true);
+
+        const filteredHist = history.filter(t => t.id !== track.id);
+        const newHist = [track, ...filteredHist].slice(0, 50);
+        setHistory(newHist);
+        updateActiveProfileData({
+          history: newHist,
+          songsPlayed: activeProfile.songsPlayed + 1
+        });
+
+        if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
+          ytPlayerRef.current.loadVideoById(track.id);
+          ytPlayerRef.current.playVideo();
+        }
+        return;
+      }
+      
       setError(err.message ?? 'Playback connection failed.');
     } finally {
       setIsLoadingStream(false);
