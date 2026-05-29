@@ -83,41 +83,39 @@ export async function POST(request: Request) {
       return jsonResponse({ error: 'database_not_configured', message: 'Backend DATABASE_URL environment variable is not configured.' }, { status: 500 });
     }
 
-    // Run clean transactions: wipe old entries and insert current synced records
-    await db.transaction(async (tx: any) => {
-      const existing = await tx.select().from(playlists).where(eq(playlists.userId, session.userId));
+    // Run clean operations sequentially without transactions for neon-http driver compatibility
+    const existing = await db.select().from(playlists).where(eq(playlists.userId, session.userId));
+    
+    for (const pl of existing) {
+      await db.delete(playlistItems).where(eq(playlistItems.playlistId, pl.id));
+    }
+    await db.delete(playlists).where(eq(playlists.userId, session.userId));
+
+    for (let i = 0; i < clientPlaylists.length; i++) {
+      const clientPl = clientPlaylists[i];
       
-      for (const pl of existing) {
-        await tx.delete(playlistItems).where(eq(playlistItems.playlistId, pl.id));
-      }
-      await tx.delete(playlists).where(eq(playlists.userId, session.userId));
+      // Ensure id is valid UUID if provided, else let database auto-generate
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientPl.id);
+      
+      const [insertedPl] = await db.insert(playlists).values({
+        id: isUUID ? clientPl.id : undefined,
+        userId: session.userId,
+        title: clientPl.title,
+        description: clientPl.description || '',
+        sortIndex: i,
+      }).returning();
 
-      for (let i = 0; i < clientPlaylists.length; i++) {
-        const clientPl = clientPlaylists[i];
-        
-        // Ensure id is valid UUID if provided, else let database auto-generate
-        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientPl.id);
-        
-        const [insertedPl] = await tx.insert(playlists).values({
-          id: isUUID ? clientPl.id : undefined,
-          userId: session.userId,
-          title: clientPl.title,
-          description: clientPl.description || '',
-          sortIndex: i,
-        }).returning();
-
-        if (clientPl.tracks && clientPl.tracks.length > 0) {
-          // Chunk list insertion to avoid exceeding Drizzle/Postgres parameters bounds
-          const itemsPayload = clientPl.tracks.map((t: { id: string; sourceId?: string }, pos: number) => ({
-            playlistId: insertedPl.id,
-            position: pos,
-            sourceId: t.sourceId || 'yt',
-            trackId: t.id,
-          }));
-          await tx.insert(playlistItems).values(itemsPayload);
-        }
+      if (clientPl.tracks && clientPl.tracks.length > 0) {
+        // Chunk list insertion to avoid exceeding Drizzle/Postgres parameters bounds
+        const itemsPayload = clientPl.tracks.map((t: { id: string; sourceId?: string }, pos: number) => ({
+          playlistId: insertedPl.id,
+          position: pos,
+          sourceId: t.sourceId || 'yt',
+          trackId: t.id,
+        }));
+        await db.insert(playlistItems).values(itemsPayload);
       }
-    });
+    }
 
     return jsonResponse({ success: true, count: clientPlaylists.length });
   } catch (error) {

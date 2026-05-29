@@ -69,23 +69,21 @@ export async function POST(request: Request) {
       return jsonResponse({ error: 'database_not_configured', message: 'Backend DATABASE_URL environment variable is not configured.' }, { status: 500 });
     }
 
-    await db.transaction(async (tx: any) => {
-      // Clear old history and replace with modern client stack
-      await tx.delete(history).where(eq(history.userId, session.userId));
+    // Clear old history and replace with modern client stack (transaction-free for neon-http compatibility)
+    await db.delete(history).where(eq(history.userId, session.userId));
 
-      if (clientHistory.length > 0) {
-        // Dedup consecutive ids
-        const payload = clientHistory.slice(0, 50).map((h: { id: string; sourceId?: string }, i: number) => ({
-          userId: session.userId,
-          sourceId: h.sourceId || 'yt',
-          trackId: h.id,
-          // Stagger playedAt times slightly to preserve order
-          playedAt: new Date(Date.now() - i * 1000),
-          msListened: 30000, // stub duration
-        }));
-        await tx.insert(history).values(payload);
-      }
-    });
+    if (clientHistory.length > 0) {
+      // Dedup consecutive ids
+      const payload = clientHistory.slice(0, 50).map((h: { id: string; sourceId?: string }, i: number) => ({
+        userId: session.userId,
+        sourceId: h.sourceId || 'yt',
+        trackId: h.id,
+        // Stagger playedAt times slightly to preserve order
+        playedAt: new Date(Date.now() - i * 1000),
+        msListened: 30000, // stub duration
+      }));
+      await db.insert(history).values(payload);
+    }
 
     return jsonResponse({ success: true, count: clientHistory.length });
   } catch (error) {

@@ -62,25 +62,23 @@ export async function POST(request: Request) {
       return jsonResponse({ error: 'database_not_configured', message: 'Backend DATABASE_URL environment variable is not configured.' }, { status: 500 });
     }
 
-    await db.transaction(async (tx: any) => {
-      // Clear old profiles and push updated profiles
-      await tx.delete(profiles).where(eq(profiles.userId, session.userId));
+    // Clear old profiles and push updated profiles (transaction-free for neon-http compatibility)
+    await db.delete(profiles).where(eq(profiles.userId, session.userId));
 
-      if (profilesPayload.length > 0) {
-        const payload = profilesPayload.map(p => ({
-          id: p.id,
-          userId: session.userId,
-          displayName: p.displayName,
-          bio: p.bio || '',
-          gradient: p.gradient,
-          songsPlayed: p.songsPlayed ?? 0,
-          joinedAt: p.joinedAt,
-          passcode: p.passcode || null,
-          avatarUrl: p.avatarUrl || null,
-        }));
-        await tx.insert(profiles).values(payload);
-      }
-    });
+    if (profilesPayload.length > 0) {
+      const payload = profilesPayload.map(p => ({
+        id: p.id,
+        userId: session.userId,
+        displayName: p.displayName,
+        bio: p.bio || '',
+        gradient: p.gradient,
+        songsPlayed: p.songsPlayed ?? 0,
+        joinedAt: p.joinedAt,
+        passcode: p.passcode || null,
+        avatarUrl: p.avatarUrl || null,
+      }));
+      await db.insert(profiles).values(payload);
+    }
 
     return jsonResponse({ success: true, count: profilesPayload.length });
   } catch (error) {
