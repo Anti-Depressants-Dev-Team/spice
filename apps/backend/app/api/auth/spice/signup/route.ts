@@ -15,11 +15,23 @@ export function OPTIONS() {
 export async function POST(request: Request) {
   try {
     const { email, password } = await request.json();
-    if (!email || !password || password.length < 6) {
+    if (!email || !password) {
       return jsonResponse(
         {
           error: 'invalid_inputs',
-          message: 'A valid email and password of at least 6 characters are required.',
+          message: 'Both email and password are required to sign up.',
+        },
+        { status: 400 }
+      );
+    }
+
+    // Enforce password requirements: minimum 8 characters, at least 1 uppercase, 1 lowercase, 1 number, 1 special character
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#^()_+=\-[\]{}|;:',./<>?~`])[A-Za-z\d@$!%*?&#^()_+=\-[\]{}|;:',./<>?~`]{8,}$/;
+    if (!passwordRegex.test(password)) {
+      return jsonResponse(
+        {
+          error: 'weak_password',
+          message: 'Password must be at least 8 characters long, and include at least one uppercase letter, one lowercase letter, one number, and one special character.',
         },
         { status: 400 }
       );
@@ -28,30 +40,13 @@ export async function POST(request: Request) {
     const normEmail = email.toLowerCase().trim();
 
     if (!process.env.DATABASE_URL) {
-      // Use Local JSON DB Fallback
-      const existing = await findLocalUserByEmail(normEmail);
-      if (existing) {
-        return jsonResponse(
-          {
-            error: 'email_exists',
-            message: 'An account with this email address already exists.',
-          },
-          { status: 409 }
-        );
-      }
-
-      const passwordHash = hashPassword(password);
-      const newUser = await addLocalUser(normEmail, passwordHash);
-      const token = await signSession({ userId: newUser.id, email: newUser.email });
-
-      return jsonResponse({
-        token,
-        user: {
-          id: newUser.id,
-          email: newUser.email,
+      return jsonResponse(
+        {
+          error: 'database_not_configured',
+          message: 'Backend DATABASE_URL environment variable is not configured. Please configure it in your Vercel settings.',
         },
-        localFallback: true,
-      });
+        { status: 500 }
+      );
     }
 
     // Check if email already exists

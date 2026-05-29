@@ -22,9 +22,7 @@ export async function GET(request: Request) {
     const session = await verifySession(token);
 
     if (!process.env.DATABASE_URL) {
-      // Use local fallback DB
-      const results = await getLocalPlaylists(session.userId);
-      return jsonResponse({ playlists: results, localFallback: true });
+      return jsonResponse({ error: 'database_not_configured', message: 'Backend DATABASE_URL environment variable is not configured.' }, { status: 500 });
     }
 
     const userPlaylists = await db.query.playlists.findMany({
@@ -82,9 +80,7 @@ export async function POST(request: Request) {
     }
 
     if (!process.env.DATABASE_URL) {
-      // Use local fallback DB
-      await saveLocalPlaylists(session.userId, clientPlaylists);
-      return jsonResponse({ success: true, count: clientPlaylists.length, localFallback: true });
+      return jsonResponse({ error: 'database_not_configured', message: 'Backend DATABASE_URL environment variable is not configured.' }, { status: 500 });
     }
 
     // Run clean transactions: wipe old entries and insert current synced records

@@ -22,9 +22,7 @@ export async function GET(request: Request) {
     const session = await verifySession(token);
 
     if (!process.env.DATABASE_URL) {
-      // Use local fallback DB
-      const historyTracks = await getLocalHistory(session.userId);
-      return jsonResponse({ history: historyTracks, localFallback: true });
+      return jsonResponse({ error: 'database_not_configured', message: 'Backend DATABASE_URL environment variable is not configured.' }, { status: 500 });
     }
 
     const userHistory = await db.query.history.findMany({
@@ -68,9 +66,7 @@ export async function POST(request: Request) {
     }
 
     if (!process.env.DATABASE_URL) {
-      // Use local fallback DB
-      await saveLocalHistory(session.userId, clientHistory);
-      return jsonResponse({ success: true, count: clientHistory.length, localFallback: true });
+      return jsonResponse({ error: 'database_not_configured', message: 'Backend DATABASE_URL environment variable is not configured.' }, { status: 500 });
     }
 
     await db.transaction(async (tx: any) => {

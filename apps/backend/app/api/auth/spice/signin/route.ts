@@ -28,28 +28,13 @@ export async function POST(request: Request) {
     const normEmail = email.toLowerCase().trim();
 
     if (!process.env.DATABASE_URL) {
-      // Use Local JSON DB Fallback
-      const user = await findLocalUserByEmail(normEmail);
-      if (!user || !verifyPassword(password, user.passwordHash)) {
-        return jsonResponse(
-          {
-            error: 'invalid_credentials',
-            message: 'Incorrect email or password. Please try again.',
-          },
-          { status: 401 }
-        );
-      }
-
-      const token = await signSession({ userId: user.id, email: user.email });
-
-      return jsonResponse({
-        token,
-        user: {
-          id: user.id,
-          email: user.email,
+      return jsonResponse(
+        {
+          error: 'database_not_configured',
+          message: 'Backend DATABASE_URL environment variable is not configured. Please configure it in your Vercel settings.',
         },
-        localFallback: true,
-      });
+        { status: 500 }
+      );
     }
 
     const user = await db.query.users.findFirst({

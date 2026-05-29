@@ -22,9 +22,7 @@ export async function GET(request: Request) {
     const session = await verifySession(token);
 
     if (!process.env.DATABASE_URL) {
-      // Use local fallback DB
-      const userProfiles = await getLocalProfiles(session.userId);
-      return jsonResponse({ profiles: userProfiles, localFallback: true });
+      return jsonResponse({ error: 'database_not_configured', message: 'Backend DATABASE_URL environment variable is not configured.' }, { status: 500 });
     }
 
     const userProfiles = await db.query.profiles.findMany({
@@ -61,9 +59,7 @@ export async function POST(request: Request) {
     }
 
     if (!process.env.DATABASE_URL) {
-      // Use local fallback DB
-      await saveLocalProfiles(session.userId, profilesPayload);
-      return jsonResponse({ success: true, count: profilesPayload.length, localFallback: true });
+      return jsonResponse({ error: 'database_not_configured', message: 'Backend DATABASE_URL environment variable is not configured.' }, { status: 500 });
     }
 
     await db.transaction(async (tx: any) => {
