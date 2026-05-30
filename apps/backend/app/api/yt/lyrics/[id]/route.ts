@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 
 import { jsonResponse, optionsResponse } from '@/lib/cors';
-import { getTrackDetails } from '@/lib/youtube';
+import { getTrackDetails, getYouTube } from '@/lib/youtube';
 
 export const runtime = 'nodejs';
 
@@ -92,16 +92,32 @@ export async function GET(
   console.log(`[LYRICS API] Received request for track ID: "${id}"`);
 
   try {
-    // 1. Fetch details from YouTube
-    console.log(`[LYRICS API] Querying InnerTube for track ID: "${id}"`);
-    const details = await getTrackDetails(id);
-    const { title, artists, durationMs } = details.track;
-    const durationSec = durationMs ? Math.round(durationMs / 1000) : 0;
+    // 1. Fetch details from YouTube (Lightweight metadata query first)
+    let title = '';
+    let primaryArtist = '';
+    let durationMs = 180000;
 
-    const primaryArtist = artists?.[0]?.name || '';
+    try {
+      console.log(`[LYRICS API] Fetching lightweight basic info for ID: "${id}"`);
+      const yt = await getYouTube();
+      const info = await yt.getBasicInfo(id);
+      title = info.basic_info.title || '';
+      primaryArtist = info.basic_info.author || '';
+      durationMs = info.basic_info.duration ? info.basic_info.duration * 1000 : 180000;
+      console.log(`[LYRICS API] getBasicInfo successfully resolved: Title="${title}", Artist="${primaryArtist}", DurationMs=${durationMs}`);
+    } catch (err) {
+      console.log(`[LYRICS API] getBasicInfo failed, trying getTrackDetails fallback for ID: "${id}". Error:`, err);
+      const details = await getTrackDetails(id);
+      title = details.track.title;
+      primaryArtist = details.track.artists?.[0]?.name || '';
+      durationMs = details.track.durationMs || 180000;
+      console.log(`[LYRICS API] getTrackDetails fallback resolved: Title="${title}", Artist="${primaryArtist}"`);
+    }
+
+    const durationSec = durationMs ? Math.round(durationMs / 1000) : 0;
     const cleanedTitle = cleanTrackTitle(title);
 
-    console.log(`[LYRICS API] Resolved track info: Title="${title}" (Cleaned: "${cleanedTitle}"), Artist="${primaryArtist}", Duration=${durationSec}s`);
+    console.log(`[LYRICS API] Target Query parameters: Cleaned Title="${cleanedTitle}", Artist="${primaryArtist}", Duration=${durationSec}s`);
 
     let plainLyrics = '';
     let syncedLyrics = '';
