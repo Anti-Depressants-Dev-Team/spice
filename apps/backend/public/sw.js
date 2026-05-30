@@ -1,4 +1,4 @@
-const CACHE_NAME = 'spice-v1.0.8';
+const CACHE_NAME = 'spice-v1.0.9';
 const ASSETS_TO_CACHE = [
   '/',
   '/icon.svg',

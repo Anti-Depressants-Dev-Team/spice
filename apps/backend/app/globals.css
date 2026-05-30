@@ -1678,22 +1678,17 @@ h4 { font-size: 1rem; }
   transition: transform 0.5s ease;
 }
 
-/* ── Floating PiP YouTube Player Panel base styles ── */
+/* ── Stealth YouTube Embed Container (invisible audio-only) ── */
 .floating-yt-panel {
-  position: fixed; 
-  bottom: 96px;
-  right: 24px;
-  width: 280px;
-  background: rgba(15, 15, 15, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6), 0 0 20px rgba(236, 72, 153, 0.15);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  z-index: 9998;
-  flex-direction: column;
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  width: 1px;
+  height: 1px;
   overflow: hidden;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
 }
 
 /* Mobile responsive scaling overrides */
@@ -1708,12 +1703,5 @@ h4 { font-size: 1rem; }
     width: 220px !important;
     height: 220px !important;
     margin-bottom: 16px !important;
-  }
-
-  .floating-yt-panel {
-    bottom: 140px !important; /* Stack beautifully above mobile now-playing bar (128px) */
-    right: 12px !important;
-    left: 12px !important;
-    width: calc(100vw - 24px) !important;
   }
 }

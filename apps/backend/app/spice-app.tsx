@@ -146,6 +146,39 @@ const Icons = {
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </svg>
   ),
+  shuffle: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+      <polyline points="16 3 21 3 21 8" />
+      <line x1="4" y1="20" x2="21" y2="3" />
+      <polyline points="21 16 21 21 16 21" />
+      <line x1="15" y1="15" x2="21" y2="21" />
+      <line x1="4" y1="4" x2="9" y2="9" />
+    </svg>
+  ),
+  repeat: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+      <polyline points="17 1 21 5 17 9" />
+      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+      <polyline points="7 23 3 19 7 15" />
+      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+    </svg>
+  ),
+  repeatOne: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+      <polyline points="17 1 21 5 17 9" />
+      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+      <polyline points="7 23 3 19 7 15" />
+      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+      <text x="12" y="14.5" textAnchor="middle" fill="currentColor" stroke="none" fontSize="8" fontWeight="bold">1</text>
+    </svg>
+  ),
+  musicFolder: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+      <circle cx="12" cy="14" r="3" />
+      <path d="M15 14V10" />
+    </svg>
+  ),
 };
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -604,6 +637,7 @@ export default function SpiceApp() {
   const isShuffleRef = useRef(isShuffle);
   const activeProfileRef = useRef(activeProfile);
   const errorSkipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const syncLockRef = useRef<boolean>(false);
 
   const handleAudioEndedRef = useRef<() => void>(() => {});
   const handleAudioErrorRef = useRef<() => void>(() => {});
@@ -935,9 +969,41 @@ export default function SpiceApp() {
   // ── Cloud Accounts Synchronization & Authentication ──────────────
   const syncWithCloud = async (token: string | null = cloudToken) => {
     if (!token) return;
+    if (syncLockRef.current) {
+      logDebug('database', 'Sync already in progress. Skipping duplicate sync request.');
+      return;
+    }
+    syncLockRef.current = true;
     setSyncingStatus('syncing');
     setDbError(null);
     logDebug('database', 'Initiating full sync merge with Cloud Neon Database...');
+
+    // Retry helper with exponential backoff
+    const fetchWithRetry = async (url: string, options: RequestInit = {}, label: string, maxRetries = 3): Promise<Response> => {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const res = await fetch(url, options);
+          if (res.ok) return res;
+          if (attempt < maxRetries && res.status >= 500) {
+            const delay = 500 * Math.pow(2, attempt - 1);
+            logDebug('database', `[SYNC] ⚠ ${label} returned ${res.status}, retrying in ${delay}ms (attempt ${attempt}/${maxRetries})`);
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
+          return res; // Return non-retriable errors as-is
+        } catch (err) {
+          if (attempt < maxRetries) {
+            const delay = 500 * Math.pow(2, attempt - 1);
+            logDebug('database', `[SYNC] ⚠ ${label} network error, retrying in ${delay}ms (attempt ${attempt}/${maxRetries})`);
+            await new Promise(r => setTimeout(r, delay));
+          } else {
+            throw err;
+          }
+        }
+      }
+      throw new Error(`${label} failed after ${maxRetries} retries`);
+    };
+
     try {
       // 0. Read current local states directly from localStorage to completely bypass React state hydration race conditions
       const savedProfilesStr = localStorage.getItem('spice_profiles_list');
@@ -956,15 +1022,16 @@ export default function SpiceApp() {
       const localPlaylists = activeProf.customPlaylists || [];
 
       // 1. Pull profiles list
-      const profRes = await fetch('/api/sync/profiles', {
+      const profRes = await fetchWithRetry('/api/sync/profiles', {
         headers: { 'Authorization': `Bearer ${token}` }
-      });
+      }, 'Profiles pull');
       if (!profRes.ok) {
         const errJson = await profRes.json().catch(() => ({}));
         throw new Error(errJson.message || `Failed to retrieve profiles (Status ${profRes.status})`);
       }
       const profData = await profRes.json();
       const serverProfiles = profData.profiles ?? [];
+      logDebug('database', `[SYNC] ✓ Profiles pulled (${serverProfiles.length} from cloud)`);
 
       if (profData.localFallback) {
         setIsLocalDbFallback(true);
@@ -975,37 +1042,55 @@ export default function SpiceApp() {
       }
 
       // 2. Pull active profile likes
-      const likesRes = await fetch(`/api/sync/likes?profileId=${encodeURIComponent(activeProf.id)}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!likesRes.ok) {
-        const errJson = await likesRes.json().catch(() => ({}));
-        throw new Error(errJson.message || `Failed to retrieve favorites (Status ${likesRes.status})`);
+      let serverLikes: string[] = [];
+      try {
+        const likesRes = await fetchWithRetry(`/api/sync/likes?profileId=${encodeURIComponent(activeProf.id)}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }, 'Likes pull');
+        if (likesRes.ok) {
+          const likesData = await likesRes.json();
+          serverLikes = likesData.likedTracks ?? [];
+          logDebug('database', `[SYNC] ✓ Likes pulled (${serverLikes.length} from cloud)`);
+        } else {
+          logDebug('database', `[SYNC] ✗ Likes pull failed (Status ${likesRes.status}), using local only`);
+        }
+      } catch (err: any) {
+        logDebug('database', `[SYNC] ✗ Likes pull error: ${err.message}, using local only`);
       }
-      const likesData = await likesRes.json();
-      const serverLikes = likesData.likedTracks ?? [];
 
       // 3. Pull active profile history
-      const histRes = await fetch(`/api/sync/history?profileId=${encodeURIComponent(activeProf.id)}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!histRes.ok) {
-        const errJson = await histRes.json().catch(() => ({}));
-        throw new Error(errJson.message || `Failed to retrieve history (Status ${histRes.status})`);
+      let serverHistory: Track[] = [];
+      try {
+        const histRes = await fetchWithRetry(`/api/sync/history?profileId=${encodeURIComponent(activeProf.id)}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }, 'History pull');
+        if (histRes.ok) {
+          const histData = await histRes.json();
+          serverHistory = histData.history ?? [];
+          logDebug('database', `[SYNC] ✓ History pulled (${serverHistory.length} from cloud)`);
+        } else {
+          logDebug('database', `[SYNC] ✗ History pull failed (Status ${histRes.status}), using local only`);
+        }
+      } catch (err: any) {
+        logDebug('database', `[SYNC] ✗ History pull error: ${err.message}, using local only`);
       }
-      const histData = await histRes.json();
-      const serverHistory = histData.history ?? [];
 
       // 4. Pull active profile playlists
-      const plRes = await fetch(`/api/sync/playlists?profileId=${encodeURIComponent(activeProf.id)}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!plRes.ok) {
-        const errJson = await plRes.json().catch(() => ({}));
-        throw new Error(errJson.message || `Failed to retrieve playlists (Status ${plRes.status})`);
+      let serverPlaylists: any[] = [];
+      try {
+        const plRes = await fetchWithRetry(`/api/sync/playlists?profileId=${encodeURIComponent(activeProf.id)}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }, 'Playlists pull');
+        if (plRes.ok) {
+          const plData = await plRes.json();
+          serverPlaylists = plData.playlists ?? [];
+          logDebug('database', `[SYNC] ✓ Playlists pulled (${serverPlaylists.length} from cloud)`);
+        } else {
+          logDebug('database', `[SYNC] ✗ Playlists pull failed (Status ${plRes.status}), using local only`);
+        }
+      } catch (err: any) {
+        logDebug('database', `[SYNC] ✗ Playlists pull error: ${err.message}, using local only`);
       }
-      const plData = await plRes.json();
-      const serverPlaylists = plData.playlists ?? [];
 
       // 5. Merge Active Profile Data
       const mergedLikes = new Set([...localLikes, ...serverLikes]);
@@ -1103,61 +1188,44 @@ export default function SpiceApp() {
         setEditAvatarUrl(activeProf.avatarUrl || '');
       }
 
-      // 9. Push Merged States to Cloud Database
-      const postLikesRes = await fetch('/api/sync/likes', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ likedTracks: mergedLikesArray, profileId: activeProf.id })
-      });
-      if (!postLikesRes.ok) {
-        const errJson = await postLikesRes.json().catch(() => ({}));
-        throw new Error(errJson.message || `Failed to synchronize favorites (Status ${postLikesRes.status})`);
+      // 9. Push Merged States to Cloud Database (each independently)
+      let pushFailures = 0;
+      const pushEndpoints = [
+        { label: 'Likes', url: '/api/sync/likes', body: { likedTracks: mergedLikesArray, profileId: activeProf.id } },
+        { label: 'History', url: '/api/sync/history', body: { history: mergedHistory, profileId: activeProf.id } },
+        { label: 'Playlists', url: '/api/sync/playlists', body: { playlists: mergedPlaylists, profileId: activeProf.id } },
+        { label: 'Profiles', url: '/api/sync/profiles', body: { profiles: finalProfiles } },
+      ];
+
+      for (const ep of pushEndpoints) {
+        try {
+          const res = await fetchWithRetry(ep.url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(ep.body)
+          }, `${ep.label} push`);
+          if (res.ok) {
+            logDebug('database', `[SYNC] ✓ ${ep.label} pushed successfully`);
+          } else {
+            pushFailures++;
+            logDebug('database', `[SYNC] ✗ ${ep.label} push failed (Status ${res.status})`);
+          }
+        } catch (err: any) {
+          pushFailures++;
+          logDebug('database', `[SYNC] ✗ ${ep.label} push error: ${err.message}`);
+        }
       }
 
-      const postHistRes = await fetch('/api/sync/history', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ history: mergedHistory, profileId: activeProf.id })
-      });
-      if (!postHistRes.ok) {
-        const errJson = await postHistRes.json().catch(() => ({}));
-        throw new Error(errJson.message || `Failed to synchronize history (Status ${postHistRes.status})`);
+      if (pushFailures === 0) {
+        logDebug('database', `[SYNC] Merged state with cloud database successfully. Merged: ${mergedLikesArray.length} likes, ${mergedHistory.length} history items, ${mergedPlaylists.length} playlists, ${finalProfiles.length} profiles.`);
+        setSyncingStatus('success');
+      } else {
+        logDebug('database', `[SYNC] Partial sync completed with ${pushFailures} push failure(s). Local state is up-to-date.`);
+        setSyncingStatus('success');
       }
-
-      const postPlRes = await fetch('/api/sync/playlists', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ playlists: mergedPlaylists, profileId: activeProf.id })
-      });
-      if (!postPlRes.ok) {
-        const errJson = await postPlRes.json().catch(() => ({}));
-        throw new Error(errJson.message || `Failed to synchronize playlists (Status ${postPlRes.status})`);
-      }
-
-      const postProfRes = await fetch('/api/sync/profiles', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ profiles: finalProfiles })
-      });
-      if (!postProfRes.ok) {
-        const errJson = await postProfRes.json().catch(() => ({}));
-        throw new Error(errJson.message || `Failed to synchronize profiles (Status ${postProfRes.status})`);
-      }
-
-      logDebug('database', `Merged state with cloud database successfully. Merged: ${mergedLikesArray.length} likes, ${mergedHistory.length} history items, ${mergedPlaylists.length} playlists, ${finalProfiles.length} profiles.`);
-      setSyncingStatus('success');
       setTimeout(() => setSyncingStatus(null), 3000);
     } catch (err: any) {
       console.error('Cloud synchronization error:', err);
@@ -1166,6 +1234,8 @@ export default function SpiceApp() {
         setDbError('DATABASE_URL is not set in backend environment.');
       }
       setSyncingStatus('error');
+    } finally {
+      syncLockRef.current = false;
     }
   };
 
@@ -1390,9 +1460,11 @@ export default function SpiceApp() {
         }
 
         logDebug('lyrics', `API Response successfully parsed for "${data.title || currentTrack.title}". Fallback engine used: ${data.isFallback ? 'YES' : 'NO'}`);
+        // Duration fallback chain: track metadata → API response → YouTube embed player → default
+        const ytEmbedDuration = ytPlayerRef.current?.getDuration?.() || 0;
         const totalSec = currentTrack.durationMs 
           ? currentTrack.durationMs / 1000 
-          : (data.durationMs ? data.durationMs / 1000 : 180);
+          : (data.durationMs ? data.durationMs / 1000 : (ytEmbedDuration > 0 ? ytEmbedDuration : 180));
         
         logDebug('lyrics', `Parsing LRC time-tags (Total duration: ${Math.round(totalSec)}s)`);
         const parsedLines = parseLRC(data.syncedLyrics, totalSec);
@@ -1413,7 +1485,8 @@ export default function SpiceApp() {
         if (!active) return;
         
         logDebug('lyrics', `Invoking client-side local safety net to construct timed atmospheric wave flow`);
-        const totalSec = currentTrack.durationMs ? currentTrack.durationMs / 1000 : 180;
+        const ytEmbedDur = ytPlayerRef.current?.getDuration?.() || 0;
+        const totalSec = currentTrack.durationMs ? currentTrack.durationMs / 1000 : (ytEmbedDur > 0 ? ytEmbedDur : 180);
         const fallbackText = `🎵 [Instrumental Vibe]\n✨ Now Streaming: ${currentTrack.title}\n💫 Let the rhythm wash over you...`;
         const parsedLines = parseLRC(fallbackText, totalSec);
         setLyricsData({
@@ -2399,38 +2472,14 @@ export default function SpiceApp() {
         />
       )}
 
-      {/* Floating Picture-in-Picture YouTube Player for Embed Mode */}
+      {/* Stealth YouTube Embed Container — Invisible but functional for audio fallback */}
       <div 
         className="floating-yt-panel"
-        style={{ 
-          display: streamProtocol === 'embed' ? 'flex' : 'none',
-        }}
+        aria-hidden="true"
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 600, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: isPlaying ? '#10b981' : '#f59e0b', boxShadow: isPlaying ? '0 0 8px #10b981' : 'none' }}></span>
-            YouTube Embed Player
-          </div>
-          <button 
-            onClick={() => {
-              setStreamProtocol('proxy');
-              localStorage.setItem('spice_stream_protocol', 'proxy');
-              logDebug('system', 'Switched stream endpoint back to direct proxy.');
-            }}
-            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '0.75rem', padding: '2px', outline: 'none' }}
-            title="Switch to Proxy Mode"
-          >
-            ✕
-          </button>
-        </div>
         <div 
           id="spice-yt-iframe-container" 
-          style={{ 
-            width: '100%', 
-            height: '160px',
-            background: '#000',
-            pointerEvents: 'auto'
-          }} 
+          style={{ width: '1px', height: '1px' }} 
         />
       </div>
 
@@ -2654,7 +2703,7 @@ export default function SpiceApp() {
                           {customPlaylists.map((pl) => (
                             <div key={pl.id} className="card animate-in" onClick={() => setSelectedPlaylist(pl)}>
                               <div className="card__art-wrapper" style={{ background: pl.gradient || PRESET_GRADIENTS[0], display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '180px' }}>
-                                <div style={{ fontSize: '3rem', textShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>📁</div>
+                                <div style={{ fontSize: '3rem', textShadow: '0 4px 12px rgba(0,0,0,0.3)', color: '#fff' }}>{Icons.musicFolder}</div>
                                 <div className="card__play-overlay">{Icons.play}</div>
                               </div>
                               <div className="card__title truncate" style={{ marginTop: '8px', fontWeight: 600 }}>{pl.title}</div>
@@ -3395,15 +3444,86 @@ export default function SpiceApp() {
                       </div>
 
                       <div style={{ marginBottom: '24px' }}>
-                        <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Profile Picture (PFP) URL</label>
-                        <input 
-                          type="text" 
-                          value={editAvatarUrl} 
-                          onChange={(e) => setEditAvatarUrl(e.target.value)} 
-                          placeholder="Paste custom image URL or select a preset..."
-                          style={{ width: '100%', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', marginBottom: '10px' }}
-                        />
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Profile Picture (PFP)</label>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
+                          <input 
+                            type="text" 
+                            value={editAvatarUrl} 
+                            onChange={(e) => setEditAvatarUrl(e.target.value)} 
+                            placeholder="Paste custom image URL or select below..."
+                            style={{ flex: 1, padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none' }}
+                          />
+                          <label
+                            style={{ 
+                              padding: '10px 14px', 
+                              background: 'rgba(236, 72, 153, 0.15)', 
+                              border: '1px solid rgba(236, 72, 153, 0.3)', 
+                              borderRadius: '8px', 
+                              color: 'var(--accent-pink)', 
+                              cursor: 'pointer', 
+                              fontSize: '0.8rem', 
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap',
+                              transition: 'all 0.15s ease'
+                            }}
+                            title="Upload image from device"
+                          >
+                            📷 Upload
+                            <input
+                              type="file"
+                              accept="image/*"
+                              style={{ display: 'none' }}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  if (file.size > 2 * 1024 * 1024) {
+                                    alert('Image must be under 2MB.');
+                                    return;
+                                  }
+                                  const reader = new FileReader();
+                                  reader.onload = () => {
+                                    if (typeof reader.result === 'string') {
+                                      setEditAvatarUrl(reader.result);
+                                      logDebug('system', `PFP uploaded from device: ${file.name} (${(file.size / 1024).toFixed(1)}KB)`);
+                                    }
+                                  };
+                                  reader.readAsDataURL(file);
+                                }
+                                e.target.value = '';
+                              }}
+                            />
+                          </label>
+                          {editAvatarUrl && (
+                            <button
+                              type="button"
+                              onClick={() => setEditAvatarUrl('')}
+                              style={{ 
+                                padding: '10px 14px', 
+                                background: 'rgba(239, 68, 68, 0.15)', 
+                                border: '1px solid rgba(239, 68, 68, 0.3)', 
+                                borderRadius: '8px', 
+                                color: '#ef4444', 
+                                cursor: 'pointer', 
+                                fontSize: '0.8rem', 
+                                fontWeight: 600,
+                                whiteSpace: 'nowrap',
+                                transition: 'all 0.15s ease'
+                              }}
+                              title="Remove avatar"
+                            >
+                              ✕ Remove
+                            </button>
+                          )}
+                        </div>
+                        {editAvatarUrl && (
+                          <div style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ width: '48px', height: '48px', borderRadius: '50%', overflow: 'hidden', border: '2px solid var(--accent-pink)', flexShrink: 0 }}>
+                              <img src={editAvatarUrl} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            </div>
+                            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Preview</span>
+                          </div>
+                        )}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '8px' }}>
                           {PRESET_AVATARS.map((avatar, idx) => {
                             const isSelected = editAvatarUrl === avatar.url;
                             return (
@@ -3413,14 +3533,16 @@ export default function SpiceApp() {
                                 onClick={() => setEditAvatarUrl(isSelected ? '' : avatar.url)}
                                 style={{ 
                                   position: 'relative', 
-                                  width: '40px', 
-                                  height: '40px', 
-                                  borderRadius: '8px', 
+                                  width: '100%',
+                                  aspectRatio: '1',
+                                  borderRadius: '10px', 
                                   overflow: 'hidden', 
                                   border: isSelected ? '2px solid var(--accent-pink)' : '1px solid rgba(255,255,255,0.1)', 
                                   padding: 0,
                                   cursor: 'pointer',
-                                  boxShadow: isSelected ? '0 0 8px var(--accent-pink)' : 'none'
+                                  boxShadow: isSelected ? '0 0 12px var(--accent-pink)' : 'none',
+                                  transition: 'all 0.2s ease',
+                                  transform: isSelected ? 'scale(1.05)' : 'scale(1)'
                                 }}
                                 title={avatar.name}
                               >
@@ -3618,7 +3740,7 @@ export default function SpiceApp() {
                         🛠️ System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        Spice Media Core v1.0.8 (Phase 4 Diagnostics)
+                        Spice Media Core v1.0.9 (Phase 5 Stealth)
                       </span>
                     </div>
 
@@ -3748,6 +3870,20 @@ export default function SpiceApp() {
                         >
                           Clear
                         </button>
+
+                        {streamProtocol === 'embed' && (
+                          <button
+                            className="btn btn--ghost"
+                            onClick={() => {
+                              setStreamProtocol('proxy');
+                              localStorage.setItem('spice_stream_protocol', 'proxy');
+                              logDebug('system', 'Switched stream endpoint back to direct proxy from diagnostics panel.');
+                            }}
+                            style={{ padding: '8px 16px', fontSize: '0.85rem', color: '#22d3ee', borderColor: 'rgba(34, 211, 238, 0.3)' }}
+                          >
+                            Force Proxy Mode
+                          </button>
+                        )}
                       </div>
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -4201,10 +4337,10 @@ export default function SpiceApp() {
               setIsShuffle(!isShuffle);
               localStorage.setItem('spice_is_shuffle', (!isShuffle).toString());
             }}
-            style={{ color: isShuffle ? 'var(--accent-pink)' : 'var(--text-secondary)', fontSize: '1rem', outline: 'none', transition: 'all 0.15s ease' }}
+            style={{ color: isShuffle ? 'var(--accent-pink)' : 'var(--text-secondary)', outline: 'none', transition: 'all 0.15s ease' }}
             title="Shuffle"
           >
-            🔀
+            {Icons.shuffle}
           </button>
           
           <button className="now-playing__btn" onClick={handlePrev} aria-label="Previous">
@@ -4226,10 +4362,10 @@ export default function SpiceApp() {
               setRepeatMode(nextMode);
               localStorage.setItem('spice_repeat_mode', nextMode);
             }}
-            style={{ color: repeatMode !== 'none' ? 'var(--accent-pink)' : 'var(--text-secondary)', fontSize: '1rem', outline: 'none', transition: 'all 0.15s ease' }}
+            style={{ color: repeatMode !== 'none' ? 'var(--accent-pink)' : 'var(--text-secondary)', outline: 'none', transition: 'all 0.15s ease' }}
             title={`Repeat Mode: ${repeatMode === 'none' ? 'Off' : repeatMode === 'all' ? 'Repeat All' : 'Repeat One'}`}
           >
-            {repeatMode === 'one' ? '🔂' : '🔁'}
+            {repeatMode === 'one' ? Icons.repeatOne : Icons.repeat}
           </button>
           
           <button
@@ -4501,11 +4637,11 @@ export default function SpiceApp() {
                           setIsShuffle(!isShuffle);
                           localStorage.setItem('spice_is_shuffle', (!isShuffle).toString());
                         }}
-                        style={{ background: 'none', border: 'none', color: isShuffle ? 'var(--accent-pink)' : '#fff', opacity: isShuffle ? 1 : 0.4, cursor: 'pointer', outline: 'none', fontSize: '1.5rem', transition: 'all 0.15s ease' }} 
+                        style={{ background: 'none', border: 'none', color: isShuffle ? 'var(--accent-pink)' : '#fff', opacity: isShuffle ? 1 : 0.4, cursor: 'pointer', outline: 'none', transition: 'all 0.15s ease' }} 
                         className="expanded-player__btn"
                         title="Shuffle"
                       >
-                        🔀
+                        <span style={{ transform: 'scale(1.4)', display: 'inline-block' }}>{Icons.shuffle}</span>
                       </button>
 
                       <button 
@@ -4554,11 +4690,11 @@ export default function SpiceApp() {
                           setRepeatMode(nextMode);
                           localStorage.setItem('spice_repeat_mode', nextMode);
                         }}
-                        style={{ background: 'none', border: 'none', color: repeatMode !== 'none' ? 'var(--accent-pink)' : '#fff', opacity: repeatMode !== 'none' ? 1 : 0.4, cursor: 'pointer', outline: 'none', fontSize: '1.5rem', transition: 'all 0.15s ease' }} 
+                        style={{ background: 'none', border: 'none', color: repeatMode !== 'none' ? 'var(--accent-pink)' : '#fff', opacity: repeatMode !== 'none' ? 1 : 0.4, cursor: 'pointer', outline: 'none', transition: 'all 0.15s ease' }} 
                         className="expanded-player__btn"
                         title={`Repeat Mode: ${repeatMode === 'none' ? 'Off' : repeatMode === 'all' ? 'Repeat All' : 'Repeat One'}`}
                       >
-                        {repeatMode === 'one' ? '🔂' : '🔁'}
+                        <span style={{ transform: 'scale(1.4)', display: 'inline-block' }}>{repeatMode === 'one' ? Icons.repeatOne : Icons.repeat}</span>
                       </button>
                     </div>
 
@@ -4791,7 +4927,7 @@ export default function SpiceApp() {
           <div style={{ opacity: 0.3, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span>Spice Premium Audio Resolution Engine</span>
             <span>•</span>
-            <span>PWA v1.0.8</span>
+            <span>PWA v1.0.9</span>
           </div>
 
         </div>
