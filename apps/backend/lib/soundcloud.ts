@@ -78,7 +78,7 @@ export async function searchSoundCloudTracks(query: string, limit: number) {
   );
 
   return (data.collection ?? [])
-    .filter((track) => track.streamable !== false && track.policy !== 'BLOCK')
+    .filter((track) => track.streamable !== false && track.policy !== 'BLOCK' && track.policy !== 'SNIP')
     .map(soundCloudTrackToSpiceTrack)
     .slice(0, limit);
 }
@@ -101,6 +101,9 @@ export async function getSoundCloudTrackDetails(
   }
   if (track.policy === 'BLOCK') {
     throw new Error('This SoundCloud track is blocked in the current region.');
+  }
+  if (track.policy === 'SNIP') {
+    throw new Error('SoundCloud only exposes a preview for this track, so SPICE hides it from full-song playback.');
   }
 
   const transcodings = track.media?.transcodings ?? [];

@@ -29,6 +29,7 @@ interface ResolveLyricsInput {
 const lyricsCache = new Map<string, { expiresAt: number; payload: LyricsPayload }>();
 const LYRICS_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const MISSING_LYRICS_CACHE_TTL_MS = 10 * 60 * 1000;
+const LYRICS_REQUEST_TIMEOUT_MS = 9000;
 
 export async function resolveLyrics(input: ResolveLyricsInput): Promise<LyricsPayload> {
   const cached = getCachedLyrics(input.trackId);
@@ -36,8 +37,13 @@ export async function resolveLyrics(input: ResolveLyricsInput): Promise<LyricsPa
 
   const durationMs = input.durationMs || 180000;
   const durationSec = Math.round(durationMs / 1000);
-  const title = cleanTrackTitle(input.title);
-  const artist = input.artist;
+  const searchTerms = deriveLyricsSearchTerms(
+    cleanTrackTitle(input.title),
+    cleanArtistName(input.artist),
+    input.artist,
+  );
+  const title = searchTerms.title;
+  const artist = searchTerms.artist;
   let plainLyrics = '';
   let syncedLyrics = '';
 
@@ -82,7 +88,7 @@ async function getDirectLyrics(
     });
     const response = await fetch(`https://lrclib.net/api/get?${queryParams.toString()}`, {
       headers,
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.timeout(LYRICS_REQUEST_TIMEOUT_MS),
     });
     return response.ok ? await response.json() as LrcLibTrack : null;
   } catch (error) {
@@ -104,7 +110,7 @@ async function searchLyrics(
     });
     const response = await fetch(`https://lrclib.net/api/search?${searchParams.toString()}`, {
       headers,
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.timeout(LYRICS_REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) return null;
 
@@ -128,8 +134,48 @@ function getCachedLyrics(id: string) {
 
 function cleanTrackTitle(title: string) {
   return title
-    .replace(/\s*(?:\([^)]*(?:official|video|audio|visualizer|lyrics?|remastered)[^)]*\)|\[[^\]]*(?:official|video|audio|visualizer|lyrics?|remastered)[^\]]*\])/gi, '')
+    .replace(/\s*(?:\([^)]*(?:official|video|audio|visualizer|lyrics?|remaster(?:ed)?|4k|hd)[^)]*\)|\[[^\]]*(?:official|video|audio|visualizer|lyrics?|remaster(?:ed)?|4k|hd)[^\]]*\])/gi, '')
     .trim();
+}
+
+function cleanArtistName(artist: string) {
+  return artist
+    .replace(/\s*-\s*topic$/i, '')
+    .replace(/\s+official$/i, '')
+    .replace(/vevo$/i, '')
+    .trim();
+}
+
+function looksLikeVideoChannelArtist(artist: string) {
+  return /(?:-\s*topic|vevo$|official$|youtube)/i.test(artist);
+}
+
+function deriveLyricsSearchTerms(title: string, artist: string, originalArtist: string) {
+  const splitTitle = title.match(/^(.{2,80}?)\s+[-–—]\s+(.{2,160})$/);
+  if (!splitTitle) return { title, artist };
+
+  const candidateArtist = cleanArtistName(splitTitle[1]);
+  const candidateTitle = cleanTrackTitle(splitTitle[2]);
+  const normalizedArtist = normalizeMatchText(artist);
+  const normalizedCandidateArtist = normalizeMatchText(candidateArtist);
+
+  if (
+    candidateTitle
+    && candidateArtist
+    && (
+      !artist
+      || looksLikeVideoChannelArtist(originalArtist)
+      || normalizedArtist.includes(normalizedCandidateArtist)
+      || normalizedCandidateArtist.includes(normalizedArtist)
+    )
+  ) {
+    return {
+      title: candidateTitle,
+      artist: candidateArtist,
+    };
+  }
+
+  return { title, artist };
 }
 
 function normalizeMatchText(value: string) {

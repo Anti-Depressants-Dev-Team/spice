@@ -7,7 +7,8 @@ import {
   type YTNodes,
 } from 'youtubei.js';
 
-const sourceId = 'youtube_music';
+const YOUTUBE_MUSIC_SOURCE_ID = 'youtube_music';
+const YOUTUBE_VIDEO_SOURCE_ID = 'youtube_video';
 const cache = new UniversalCache(false);
 
 // Stream URL resolution executes the transformation script extracted from
@@ -147,7 +148,7 @@ async function resolveWithClient(
 
   return {
     track: {
-      sourceId,
+      sourceId: YOUTUBE_MUSIC_SOURCE_ID,
       id,
       title: info.basic_info.title ?? 'Unknown track',
       artists: artistNameToList(info.basic_info.author),
@@ -165,9 +166,34 @@ function toMusicSearchType(kind: string): Types.MusicSearchType {
   return kind === 'videos' ? 'video' : 'song';
 }
 
+type MusicItemEndpointData = YTNodes.MusicResponsiveListItem & {
+  overlay?: {
+    content?: {
+      endpoint?: {
+        payload?: {
+          videoId?: unknown;
+        };
+      };
+    };
+  };
+  menu?: {
+    items?: Array<{
+      endpoint?: {
+        payload?: {
+          videoId?: unknown;
+        };
+      };
+    }>;
+  };
+  thumbnail?: {
+    contents?: { url: string; width?: number; height?: number }[];
+  };
+};
+
 function musicItemToTrack(item: YTNodes.MusicResponsiveListItem): SpiceTrack | null {
   if (item.item_type !== 'song' && item.item_type !== 'video') return null;
-  if (!item.id || !item.title) return null;
+  const id = musicItemVideoId(item);
+  if (!id || !item.title) return null;
 
   const artists =
     item.artists?.map((artist) => ({
@@ -181,8 +207,8 @@ function musicItemToTrack(item: YTNodes.MusicResponsiveListItem): SpiceTrack | n
     [];
 
   return {
-    sourceId,
-    id: item.id,
+    sourceId: item.item_type === 'video' ? YOUTUBE_VIDEO_SOURCE_ID : YOUTUBE_MUSIC_SOURCE_ID,
+    id,
     title: item.title,
     artists,
     album: item.album
@@ -196,8 +222,25 @@ function musicItemToTrack(item: YTNodes.MusicResponsiveListItem): SpiceTrack | n
       item.duration?.seconds === undefined
         ? undefined
         : item.duration.seconds * 1000,
-    artworkUrl: bestThumbnailUrl(item.thumbnails),
+    artworkUrl: bestThumbnailUrl(item.thumbnails ?? (item as MusicItemEndpointData).thumbnail?.contents),
   };
+}
+
+function musicItemVideoId(item: YTNodes.MusicResponsiveListItem) {
+  const directId = item.id;
+  if (typeof directId === 'string' && directId) return directId;
+
+  const endpointData = item as MusicItemEndpointData;
+  const endpointId = endpointData.overlay?.content?.endpoint?.payload?.videoId;
+  if (typeof endpointId === 'string' && endpointId) return endpointId;
+
+  const menuItems = endpointData.menu?.items ?? [];
+  for (const menuItem of menuItems) {
+    const menuId = menuItem?.endpoint?.payload?.videoId;
+    if (typeof menuId === 'string' && menuId) return menuId;
+  }
+
+  return null;
 }
 
 async function formatToStream(
@@ -271,7 +314,7 @@ export async function getPlaylistTracks(playlistId: string) {
       : [];
       
     tracks.push({
-      sourceId,
+      sourceId: YOUTUBE_VIDEO_SOURCE_ID,
       id: video.id,
       title: video.title.toString(),
       artists,

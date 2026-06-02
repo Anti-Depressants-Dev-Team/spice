@@ -288,6 +288,18 @@ const Icons = {
       <line x1="12" y1="17" x2="12" y2="21" />
     </svg>
   ),
+  video: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M10 9.5v5l5-2.5z" fill="currentColor" stroke="none" />
+    </svg>
+  ),
+  miniPlayer: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <rect x="13" y="11" width="6" height="5" rx="1" />
+    </svg>
+  ),
   shield: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -369,6 +381,15 @@ interface Track {
   previewOnly?: boolean;
 }
 
+type SearchProvider = 'hybrid' | 'youtube_music' | 'youtube_videos' | 'soundcloud';
+
+const SEARCH_PROVIDER_LABELS: Record<SearchProvider, string> = {
+  hybrid: 'Hybrid',
+  youtube_music: 'YouTube Music',
+  youtube_videos: 'YouTube Videos',
+  soundcloud: 'SoundCloud',
+};
+
 interface Playlist {
   id: string;
   title: string;
@@ -434,7 +455,34 @@ const soundCloudTrackId = (track: Track) =>
   track.id.startsWith('soundcloud:') ? track.id.slice('soundcloud:'.length) : track.id;
 
 const trackSourceLabel = (track: Track) =>
-  isSoundCloudTrack(track) ? 'SoundCloud' : 'YouTube Music';
+  isSoundCloudTrack(track)
+    ? 'SoundCloud'
+    : track.sourceId === 'youtube_video'
+      ? 'YouTube Video'
+      : 'YouTube Music';
+
+const isSearchProvider = (value: string | null): value is SearchProvider =>
+  value === 'hybrid' || value === 'youtube_music' || value === 'youtube_videos' || value === 'soundcloud';
+
+const canShowVideoForTrack = (track: Track) =>
+  track.id !== 'placeholder' && !isSoundCloudTrack(track);
+
+const playableSearchTracks = (tracks: Track[]) =>
+  tracks.filter((track) => !track.previewOnly);
+
+const dedupeTracks = (tracks: Track[]) => {
+  const seen = new Set<string>();
+  const deduped: Track[] = [];
+
+  for (const track of tracks) {
+    const key = `${track.sourceId ?? 'youtube_music'}:${track.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(track);
+  }
+
+  return deduped;
+};
 
 const randomIndex = (length: number) => Math.floor(Math.random() * length);
 const randomSuffix = () => Math.random().toString(36).substring(2, 5);
@@ -566,7 +614,6 @@ const initialDefaultProfile: UserProfile = {
 };
 
 export default function SpiceApp() {
-  const isJune = new Date().getMonth() === 5;
   const [currentPage, setCurrentPage] = useState<'home' | 'search' | 'library' | 'account' | 'settings'>('home');
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
 
@@ -679,6 +726,7 @@ export default function SpiceApp() {
   const [isLocalDbFallback, setIsLocalDbFallback] = useState<boolean>(false);
   const [playerPlacement, setPlayerPlacement] = useState<'bottom' | 'top'>('bottom');
   const [playerViewMode, setPlayerViewMode] = useState<'bar' | 'expanded' | 'mini'>('bar');
+  const [showVideoPlayer, setShowVideoPlayer] = useState(false);
   const [miniPlayerPos, setMiniPlayerPos] = useState<{ x: number; y: number } | null>(null);
   const [isDraggingMini, setIsDraggingMini] = useState(false);
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -714,7 +762,7 @@ export default function SpiceApp() {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchProvider, setSearchProvider] = useState<'youtube_music' | 'soundcloud'>('youtube_music');
+  const [searchProvider, setSearchProvider] = useState<SearchProvider>('hybrid');
   const [searchResults, setSearchResults] = useState<Track[]>([]);
   const [searchResultsSource, setSearchResultsSource] = useState<'network' | 'cache' | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -933,7 +981,7 @@ export default function SpiceApp() {
       if (savedProtocol) setStreamProtocol(savedProtocol as any);
 
       const savedSearchProvider = localStorage.getItem('spice_search_provider');
-      if (savedSearchProvider === 'soundcloud' || savedSearchProvider === 'youtube_music') {
+      if (isSearchProvider(savedSearchProvider)) {
         setSearchProvider(savedSearchProvider);
       }
 
@@ -1009,9 +1057,12 @@ export default function SpiceApp() {
         const cachedSearch = getLatestCachedSearch();
         if (cachedSearch) {
           setSearchQuery(cachedSearch.query);
-          setSearchResults(cachedSearch.tracks);
+          setSearchResults(playableSearchTracks(cachedSearch.tracks as Track[]));
           setSearchResultsSource('cache');
-          setSearchProvider((cachedSearch.sourceId ?? 'youtube_music') as 'youtube_music' | 'soundcloud');
+          const cachedProvider = cachedSearch.sourceId ?? 'youtube_music';
+          if (isSearchProvider(cachedProvider)) {
+            setSearchProvider(cachedProvider);
+          }
         }
         logDebug('system', `Loaded active profile "${activeProf.displayName}" successfully. Hydration secured.`);
       }
@@ -1803,6 +1854,40 @@ export default function SpiceApp() {
     };
   }, [currentTrack.id, currentTrack.durationMs]);
 
+  const openVideoPlayer = () => {
+    if (!canShowVideoForTrack(currentTrack)) return;
+
+    const wasPlaying = isPlaying;
+    setShowVideoPlayer(true);
+    setShowBarLyrics(false);
+    setShowQueueDrawer(false);
+    setStreamProtocol('embed');
+    setStreamUrl('youtube-embed-active');
+    setIsLoadingStream(false);
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+
+    if (ytPlayerRef.current) {
+      if (typeof ytPlayerRef.current.stopVideo === 'function') {
+        ytPlayerRef.current.stopVideo();
+      }
+      if (wasPlaying || !streamUrl) {
+        ytPlayerRef.current.loadVideoById(currentTrack.id);
+        ytPlayerRef.current.playVideo();
+        setIsPlaying(true);
+      } else if (typeof ytPlayerRef.current.cueVideoById === 'function') {
+        ytPlayerRef.current.cueVideoById(currentTrack.id);
+        setIsPlaying(false);
+      } else {
+        ytPlayerRef.current.loadVideoById(currentTrack.id);
+        ytPlayerRef.current.pauseVideo();
+        setIsPlaying(false);
+      }
+    }
+  };
+
   // Play a track
   const playTrack = async (track: Track, newQueue?: Track[], startSearchIndex?: number) => {
     if (errorSkipTimeoutRef.current) {
@@ -1821,6 +1906,9 @@ export default function SpiceApp() {
     setStreamUrl(null);
     rememberTrackSnapshots([track, ...(newQueue || [])]);
     setCurrentTrack(track);
+    if (isSoundCloudTrack(track)) {
+      setShowVideoPlayer(false);
+    }
     setIsLoadingStream(true);
 
     let updatedQueue = [...queue];
@@ -1848,8 +1936,9 @@ export default function SpiceApp() {
       const isSoundCloud = isSoundCloudTrack(track);
       logDebug('player', `Initiating ${trackSourceLabel(track)} format resolution for track "${track.title}" (ID: ${track.id})`);
       
-      if (streamProtocol === 'embed' && !isSoundCloud) {
+      if ((streamProtocol === 'embed' || showVideoPlayer) && !isSoundCloud) {
         logDebug('stream', `YouTube Embedded Player active. Loading iframe player for track ID: ${track.id}`);
+        setStreamProtocol('embed');
         setStreamUrl('youtube-embed-active');
         setIsLoadingStream(false);
         setIsPlaying(true);
@@ -1889,7 +1978,7 @@ export default function SpiceApp() {
 
       const bestStream = streams[0];
       const streamLabel = bestStream.preset ? `preset ${bestStream.preset}` : `itag ${bestStream.itag}`;
-      logDebug('stream', `Resolved ${streams.length} ${trackSourceLabel(track)} formats. Selected ${streamLabel} (${bestStream.container}, bitrate: ${Math.round(bestStream.bitrate / 1000)}kbps)${bestStream.previewOnly ? ' [PREVIEW]' : ''}`);
+      logDebug('stream', `Resolved ${streams.length} ${trackSourceLabel(track)} formats. Selected ${streamLabel} (${bestStream.container}, bitrate: ${Math.round(bestStream.bitrate / 1000)}kbps)`);
       setStreamUrl(bestStream.url);
       setIsPlaying(true);
 
@@ -2155,6 +2244,38 @@ export default function SpiceApp() {
     setProgress(seekTime);
   };
 
+  const fetchSearchProviderResults = async (query: string, provider: SearchProvider) => {
+    const fetchProvider = async (targetProvider: Exclude<SearchProvider, 'hybrid'>, limit: number) => {
+      const params = new URLSearchParams({
+        q: query,
+        limit: String(limit),
+      });
+      const endpoint = targetProvider === 'soundcloud' ? '/api/sc/search' : '/api/yt/search';
+
+      if (targetProvider !== 'soundcloud') {
+        params.set('kind', targetProvider === 'youtube_videos' ? 'videos' : 'tracks');
+      }
+
+      const res = await fetch(`${endpoint}?${params}`);
+      if (!res.ok) throw new Error(`${SEARCH_PROVIDER_LABELS[targetProvider]} search failed`);
+      const data = await res.json();
+      return playableSearchTracks((data.tracks ?? []).map(enrichTrackSnapshot) as Track[]);
+    };
+
+    if (provider === 'hybrid') {
+      const batches = await Promise.allSettled([
+        fetchProvider('youtube_music', 8),
+        fetchProvider('youtube_videos', 8),
+        fetchProvider('soundcloud', 8),
+      ]);
+      return dedupeTracks(
+        batches.flatMap((batch) => batch.status === 'fulfilled' ? batch.value : []),
+      ).slice(0, 24);
+    }
+
+    return fetchProvider(provider, 20);
+  };
+
   // Search logic (debounced)
   const queueSearch = (query: string, provider = searchProvider) => {
     setSearchQuery(query);
@@ -2173,24 +2294,15 @@ export default function SpiceApp() {
 
     const cachedSearch = getCachedSearch(query, provider);
     if (cachedSearch) {
-      setSearchResults(cachedSearch.tracks);
+      setSearchResults(playableSearchTracks(cachedSearch.tracks as Track[]));
       setSearchResultsSource('cache');
     }
 
     setIsSearching(true);
     searchTimeoutRef.current = setTimeout(async () => {
       try {
-        const searchParams = new URLSearchParams({
-          q: query,
-          kind: 'tracks',
-          limit: '20',
-        });
-        const searchEndpoint = provider === 'soundcloud' ? '/api/sc/search' : '/api/yt/search';
-        const res = await fetch(`${searchEndpoint}?${searchParams}`);
-        if (!res.ok) throw new Error('Search failed');
-        const data = await res.json();
+        const tracks = await fetchSearchProviderResults(query, provider);
         if (requestId !== searchRequestRef.current) return;
-        const tracks = (data.tracks ?? []).map(enrichTrackSnapshot);
         rememberSearchResults(query, tracks, provider);
         setSearchResults(tracks);
         setSearchResultsSource('network');
@@ -2209,7 +2321,7 @@ export default function SpiceApp() {
   };
 
   const handleSearchProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const provider = e.target.value as 'youtube_music' | 'soundcloud';
+    const provider = e.target.value as SearchProvider;
     setSearchProvider(provider);
     localStorage.setItem('spice_search_provider', provider);
     queueSearch(searchQuery, provider);
@@ -2830,12 +2942,26 @@ export default function SpiceApp() {
 
       {/* Stealth YouTube Embed Container — Invisible but functional for audio fallback */}
       <div 
-        className="floating-yt-panel"
-        aria-hidden="true"
+        className={`floating-yt-panel ${showVideoPlayer ? 'is-visible' : ''}`}
+        aria-hidden={!showVideoPlayer}
       >
+        {showVideoPlayer && (
+          <div className="floating-yt-panel__header">
+            <span className="floating-yt-panel__title">YouTube Video</span>
+            <button
+              className="floating-yt-panel__close"
+              type="button"
+              onClick={() => setShowVideoPlayer(false)}
+              aria-label="Close video player"
+              title="Close video player"
+            >
+              {Icons.close}
+            </button>
+          </div>
+        )}
         <div 
           id="spice-yt-iframe-container" 
-          style={{ width: '1px', height: '1px' }} 
+          className="floating-yt-panel__frame"
         />
       </div>
 
@@ -2844,37 +2970,12 @@ export default function SpiceApp() {
         <div className="sidebar__logo" onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); }}>
           <div 
             className="sidebar__logo-icon" 
-            style={{ 
-              background: isJune 
-                ? 'linear-gradient(135deg, #FF007F 0%, #FF0000 20%, #FF7F00 40%, #028121 60%, #004CFF 80%, #760089 100%)' 
-                : activeProfile.gradient 
-            }}
+            style={{ background: activeProfile.gradient }}
           >
             <span style={{ fontSize: '1rem', fontWeight: 900, color: '#fff' }}>S</span>
           </div>
-          <span 
-            className="sidebar__logo-text"
-            style={isJune ? {
-              background: 'linear-gradient(135deg, #FF007F 0%, #FF0000 20%, #FF7F00 40%, #028121 60%, #004CFF 80%, #760089 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-            } : undefined}
-          >
+          <span className="sidebar__logo-text">
             Spice
-            {isJune && (
-              <span 
-                style={{ 
-                  WebkitTextFillColor: 'initial', 
-                  fontSize: '0.95rem', 
-                  marginLeft: '6px',
-                  display: 'inline-block',
-                  verticalAlign: 'middle'
-                }}
-              >
-                🏳️‍🌈
-              </span>
-            )}
           </span>
         </div>
 
@@ -3240,7 +3341,7 @@ export default function SpiceApp() {
                       {Icons.search}
                       <input
                         type="text"
-                        placeholder={`Search tracks on ${searchProvider === 'soundcloud' ? 'SoundCloud' : 'YouTube Music'}...`}
+                        placeholder={`Search ${SEARCH_PROVIDER_LABELS[searchProvider]}...`}
                         value={searchQuery}
                         onChange={handleSearchInput}
                         autoComplete="off"
@@ -3253,7 +3354,9 @@ export default function SpiceApp() {
                         onChange={handleSearchProviderChange}
                         aria-label="Search provider"
                       >
+                        <option value="hybrid">Hybrid</option>
                         <option value="youtube_music">YouTube Music</option>
+                        <option value="youtube_videos">YouTube Videos</option>
                         <option value="soundcloud">SoundCloud</option>
                       </select>
                     </div>
@@ -3280,7 +3383,6 @@ export default function SpiceApp() {
                                 <span className="library-item__subtitle">
                                   {song.artists.map(a => a.name).join(', ')} {song.durationMs ? `· ${formatTime(song.durationMs / 1000)}` : ''}
                                   <span className="track-source-badge">{trackSourceLabel(song)}</span>
-                                  {song.previewOnly && <span className="track-source-badge">Preview</span>}
                                 </span>
                               </div>
                               
@@ -4145,7 +4247,7 @@ export default function SpiceApp() {
                         {Icons.tool} System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        Spice Media Core v1.0.13 (Phase 9 SoundCloud Provider)
+                        Spice Media Core v1.0.14 (Phase 10 Hybrid Video Search)
                       </span>
                     </div>
 
@@ -4757,10 +4859,6 @@ export default function SpiceApp() {
             className="now-playing__btn now-playing__btn--play" 
             onClick={togglePlayPause} 
             aria-label={isPlaying ? 'Pause' : 'Play'}
-            style={isJune ? {
-              background: 'linear-gradient(135deg, #FF007F 0%, #FF0000 20%, #FF7F00 40%, #028121 60%, #004CFF 80%, #760089 100%)',
-              boxShadow: '0 0 20px rgba(255, 0, 127, 0.45)',
-            } : undefined}
           >
             {isPlaying ? Icons.pause : Icons.play}
           </button>
@@ -4825,6 +4923,16 @@ export default function SpiceApp() {
         {/* Right: volume & queue controls */}
         <div className="now-playing__right-controls">
           <button 
+            className={`now-playing__btn ${showVideoPlayer ? 'active' : ''}`}
+            onClick={openVideoPlayer}
+            disabled={!canShowVideoForTrack(currentTrack)}
+            title={canShowVideoForTrack(currentTrack) ? 'Open YouTube Video Player' : 'Video is available for YouTube tracks'}
+            aria-label="Open YouTube Video Player"
+          >
+            {Icons.video}
+          </button>
+
+          <button 
             className={`now-playing__btn ${showBarLyrics ? 'active' : ''}`}
             onClick={() => {
               setShowBarLyrics(!showBarLyrics);
@@ -4859,7 +4967,7 @@ export default function SpiceApp() {
             title="Switch to Floating Mini Player"
             aria-label="Switch to Floating Mini Player"
           >
-            {Icons.expand}
+            {Icons.miniPlayer}
           </button>
           
           <div className="now-playing__volume">
@@ -4918,7 +5026,7 @@ export default function SpiceApp() {
               style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', padding: '8px 16px', borderRadius: '20px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
               title="Mini Player"
             >
-              {Icons.expand} Floating Mini Player
+              {Icons.miniPlayer} Floating Mini Player
             </button>
             <div style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.2em', opacity: 0.5, fontWeight: 700 }}>Now Playing</div>
             <button 
@@ -5113,15 +5221,38 @@ export default function SpiceApp() {
 
                     {/* Volume and info footer */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
-                      <button
-                        className={`now-playing__like ${likedTracks.has(currentTrack.id) ? 'liked' : ''}`}
-                        onClick={() => toggleLike(currentTrack)}
-                        style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', borderRadius: '50%', cursor: 'pointer' }}
-                      >
-                        <span style={{ display: 'inline-flex', transform: 'scale(1.2)' }}>
-                          {likedTracks.has(currentTrack.id) ? Icons.heartFilled : Icons.heart}
-                        </span>
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <button
+                          className={`now-playing__like ${likedTracks.has(currentTrack.id) ? 'liked' : ''}`}
+                          onClick={() => toggleLike(currentTrack)}
+                          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', borderRadius: '50%', cursor: 'pointer' }}
+                        >
+                          <span style={{ display: 'inline-flex', transform: 'scale(1.2)' }}>
+                            {likedTracks.has(currentTrack.id) ? Icons.heartFilled : Icons.heart}
+                          </span>
+                        </button>
+
+                        <button
+                          onClick={openVideoPlayer}
+                          disabled={!canShowVideoForTrack(currentTrack)}
+                          style={{
+                            width: '40px',
+                            height: '40px',
+                            borderRadius: '50%',
+                            background: showVideoPlayer ? 'var(--accent-pink)' : 'rgba(255,255,255,0.05)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            color: '#fff',
+                            cursor: canShowVideoForTrack(currentTrack) ? 'pointer' : 'not-allowed',
+                            opacity: canShowVideoForTrack(currentTrack) ? 1 : 0.35,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                          title={canShowVideoForTrack(currentTrack) ? 'Open YouTube Video Player' : 'Video is available for YouTube tracks'}
+                        >
+                          {Icons.video}
+                        </button>
+                      </div>
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '180px' }}>
                         <span style={{ opacity: 0.6 }}>{Icons.volume}</span>
@@ -5341,7 +5472,7 @@ export default function SpiceApp() {
           <div style={{ opacity: 0.3, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span>Spice Premium Audio Resolution Engine</span>
             <span>•</span>
-            <span>PWA v1.0.13</span>
+            <span>PWA v1.0.14</span>
           </div>
 
         </div>
@@ -5454,6 +5585,25 @@ export default function SpiceApp() {
                   title={likedTracks.has(currentTrack.id) ? 'Unlike' : 'Like'}
                 >
                   {likedTracks.has(currentTrack.id) ? Icons.heartFilled : Icons.heart}
+                </button>
+
+                <button
+                  onClick={openVideoPlayer}
+                  disabled={!canShowVideoForTrack(currentTrack)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: showVideoPlayer ? 'var(--accent-pink)' : 'rgba(255,255,255,0.4)',
+                    cursor: canShowVideoForTrack(currentTrack) ? 'pointer' : 'not-allowed',
+                    opacity: canShowVideoForTrack(currentTrack) ? 1 : 0.35,
+                    outline: 'none',
+                    padding: '4px',
+                    fontSize: '0.95rem',
+                    transition: 'all 0.15s ease'
+                  }}
+                  title={canShowVideoForTrack(currentTrack) ? 'Open video' : 'Video is available for YouTube tracks'}
+                >
+                  {Icons.video}
                 </button>
 
                 <button
