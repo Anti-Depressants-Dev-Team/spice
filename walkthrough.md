@@ -1,5 +1,11 @@
 # SPICE Walkthrough
 
+## v1.0.21
+
+- Split the root page by request host so `spice-app.xyz` and `www.spice-app.xyz` render a standalone marketing landing page while `music.spice-app.xyz`, localhost, and preview hosts keep serving the full SPICE music app.
+- Add a high-impact SPICE landing page with service CTAs, SVG branding, feature callouts, and a clear handoff to `music.spice-app.xyz`.
+- Document the domain split as the public site structure: apex domain for the ad/home page, music subdomain for the player service.
+
 ## v1.0.20
 
 - Replace the Settings Last.fm API-key, shared-secret, session-key, and manual-complete controls with one `Set up Last.fm` button.

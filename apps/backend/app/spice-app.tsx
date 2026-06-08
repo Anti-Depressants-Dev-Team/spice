@@ -4949,7 +4949,7 @@ export default function SpiceApp() {
                         {Icons.tool} System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        Spice Media Core v1.0.20 (Phase 16 One-click Last.fm Setup)
+                        Spice Media Core v1.0.21 (Phase 17 Domain Split Landing Page)
                       </span>
                     </div>
 
@@ -6174,7 +6174,7 @@ export default function SpiceApp() {
           <div style={{ opacity: 0.3, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span>Spice Premium Audio Resolution Engine</span>
             <span>•</span>
-            <span>PWA v1.0.20</span>
+            <span>PWA v1.0.21</span>
           </div>
 
         </div>
