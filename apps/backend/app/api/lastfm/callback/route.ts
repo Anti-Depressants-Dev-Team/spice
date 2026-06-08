@@ -1,13 +1,16 @@
 import type { NextRequest } from 'next/server';
 
+import { verifyLastFmLinkState } from '@/lib/auth';
 import { createLastFmSession } from '@/lib/lastfm';
+import { saveLastFmConnection } from '@/lib/profile-connections';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get('token')?.trim() || '';
+  const spiceState = request.nextUrl.searchParams.get('spice_state')?.trim() || '';
   const result = token
-    ? await completeLastFmLink(token, request.nextUrl.origin)
+    ? await completeLastFmLink(token, spiceState, request.nextUrl.origin)
     : { html: callbackInfoHtml(request.nextUrl.origin), status: 200 };
 
   return new Response(result.html, {
@@ -18,14 +21,21 @@ export async function GET(request: NextRequest) {
   });
 }
 
-async function completeLastFmLink(token: string, origin: string) {
+async function completeLastFmLink(token: string, spiceState: string, origin: string) {
   try {
     const session = await createLastFmSession({ token });
     const linkedUser = session.name?.trim() || 'Last.fm account';
+    const accountLinked = await persistLastFmAccountLink({
+      spiceState,
+      linkedUser,
+      sessionKey: session.sessionKey,
+    });
+
     return {
       html: linkedHtml({
         sessionKey: session.sessionKey,
         linkedUser,
+        accountLinked,
         origin,
       }),
       status: 200,
@@ -36,6 +46,27 @@ async function completeLastFmLink(token: string, origin: string) {
       status: 502,
     };
   }
+}
+
+async function persistLastFmAccountLink({
+  spiceState,
+  linkedUser,
+  sessionKey,
+}: {
+  spiceState: string;
+  linkedUser: string;
+  sessionKey: string;
+}) {
+  if (!spiceState || !process.env.DATABASE_URL) return false;
+
+  const spiceSession = await verifyLastFmLinkState(spiceState);
+  await saveLastFmConnection({
+    userId: spiceSession.userId,
+    linkedUser,
+    sessionKey,
+  });
+
+  return true;
 }
 
 function callbackInfoHtml(origin: string) {
@@ -51,23 +82,28 @@ function callbackInfoHtml(origin: string) {
 function linkedHtml({
   sessionKey,
   linkedUser,
+  accountLinked,
   origin,
 }: {
   sessionKey: string;
   linkedUser: string;
+  accountLinked: boolean;
   origin: string;
 }) {
   const safeSessionKey = JSON.stringify(sessionKey);
   const safeLinkedUser = JSON.stringify(linkedUser);
+  const safeAccountLinked = JSON.stringify(accountLinked);
   const safeOrigin = JSON.stringify(origin);
   return pageHtml(`
     <h1>Last.fm Linked</h1>
-    <p>Signed in as <strong>${escapeHtml(linkedUser)}</strong>. SPICE saved the session locally and enabled profile sync.</p>
+    <p>Signed in as <strong>${escapeHtml(linkedUser)}</strong>. SPICE saved the session ${accountLinked ? 'to your account and locally' : 'locally'} and enabled profile sync.</p>
     <script>
       const sessionKey = ${safeSessionKey};
       const linkedUser = ${safeLinkedUser};
+      const accountLinked = ${safeAccountLinked};
       localStorage.setItem('spice_lastfm_session_key', sessionKey);
       localStorage.setItem('spice_lastfm_linked_user', linkedUser);
+      localStorage.setItem('spice_lastfm_account_linked', String(accountLinked));
       localStorage.setItem('spice_profile_sync_enabled', 'true');
       localStorage.removeItem('spice_lastfm_link_token');
       if (window.opener && !window.opener.closed) {
@@ -75,6 +111,7 @@ function linkedHtml({
           type: 'spice:lastfm-linked',
           sessionKey,
           name: linkedUser,
+          accountLinked,
         }, ${safeOrigin});
       }
       setTimeout(() => {

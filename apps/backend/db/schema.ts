@@ -13,7 +13,7 @@ export const oauthLinks = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    provider: text('provider').notNull(), // 'google'
+    provider: text('provider').notNull(), // 'google', 'lastfm'
     providerUserId: text('provider_user_id').notNull(),
     refreshTokenEnc: text('refresh_token_enc').notNull(),
     scopes: text('scopes').notNull(),

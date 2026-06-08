@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server';
 
 import { jsonResponse, optionsResponse } from '@/lib/cors';
 import { createLastFmAuthToken, createLastFmSession, createLastFmWebAuthUrl } from '@/lib/lastfm';
+import { signLastFmLinkState, verifySession } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
@@ -26,12 +27,18 @@ export async function POST(request: NextRequest) {
 
   try {
     if (body.action === 'web_auth') {
+      const spiceSession = await optionalSession(request);
+      const callbackUrl = new URL('/api/lastfm/callback', request.nextUrl.origin);
+      if (spiceSession) {
+        callbackUrl.searchParams.set('spice_state', await signLastFmLinkState(spiceSession));
+      }
+
       return jsonResponse(createLastFmWebAuthUrl(
         {
           apiKey: body.apiKey,
           sharedSecret: body.sharedSecret,
         },
-        `${request.nextUrl.origin}/api/lastfm/callback`,
+        callbackUrl.toString(),
       ));
     }
 
@@ -63,5 +70,16 @@ export async function POST(request: NextRequest) {
       },
       { status: 502 },
     );
+  }
+}
+
+async function optionalSession(request: NextRequest) {
+  const auth = request.headers.get('Authorization');
+  if (!auth?.startsWith('Bearer ')) return null;
+
+  try {
+    return await verifySession(auth.substring(7));
+  } catch {
+    return null;
   }
 }

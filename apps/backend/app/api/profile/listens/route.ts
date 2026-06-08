@@ -1,8 +1,10 @@
 import type { NextRequest } from 'next/server';
 
+import { verifySession } from '@/lib/auth';
 import { jsonResponse, optionsResponse } from '@/lib/cors';
 import { submitLastFmNowPlaying, submitLastFmScrobble, type ProfileListenTrack } from '@/lib/lastfm';
 import { submitListenBrainzNowPlaying, submitListenBrainzScrobble } from '@/lib/listenbrainz';
+import { getLastFmConnection } from '@/lib/profile-connections';
 
 export const runtime = 'nodejs';
 
@@ -66,7 +68,14 @@ export async function POST(request: NextRequest) {
   };
   const tasks: Promise<void>[] = [];
 
-  const lastFmSessionKey = body.providers?.lastfm?.sessionKey?.trim();
+  let lastFmSessionKey = body.providers?.lastfm?.sessionKey?.trim();
+  if (!lastFmSessionKey && body.providers?.lastfm && process.env.DATABASE_URL) {
+    const session = await optionalSession(request);
+    if (session) {
+      lastFmSessionKey = (await getLastFmConnection(session.userId))?.sessionKey;
+    }
+  }
+
   if (lastFmSessionKey) {
     tasks.push((async () => {
       try {
@@ -105,4 +114,15 @@ export async function POST(request: NextRequest) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Profile update failed.';
+}
+
+async function optionalSession(request: NextRequest) {
+  const auth = request.headers.get('Authorization');
+  if (!auth?.startsWith('Bearer ')) return null;
+
+  try {
+    return await verifySession(auth.substring(7));
+  } catch {
+    return null;
+  }
 }

@@ -743,6 +743,7 @@ export default function SpiceApp() {
   const [streamProtocol, setStreamProtocol] = useState<'proxy' | 'web' | 'embed'>('proxy');
   const [profileSyncEnabled, setProfileSyncEnabled] = useState(false);
   const [lastFmSessionKey, setLastFmSessionKey] = useState('');
+  const [lastFmAccountLinked, setLastFmAccountLinked] = useState(false);
   const [lastFmLinkedUser, setLastFmLinkedUser] = useState('');
   const [lastFmLinkStatus, setLastFmLinkStatus] = useState<string | null>(null);
   const [isLinkingLastFm, setIsLinkingLastFm] = useState(false);
@@ -913,15 +914,19 @@ export default function SpiceApp() {
     setDebugLogs(prev => [...prev.slice(-99), `[${time}] [${category.toUpperCase()}] ${message}`]);
   }, []);
 
-  const applyLastFmSession = useCallback((sessionKey: string, linkedUser?: string) => {
+  const applyLastFmSession = useCallback((sessionKey: string, linkedUser?: string, accountLinked?: boolean) => {
     const trimmedSessionKey = sessionKey.trim();
     if (!trimmedSessionKey) return;
 
     const resolvedUser = linkedUser?.trim() || 'Last.fm account';
     setLastFmSessionKey(trimmedSessionKey);
     setLastFmLinkedUser(resolvedUser);
+    if (typeof accountLinked === 'boolean') {
+      setLastFmAccountLinked(accountLinked);
+      localStorage.setItem('spice_lastfm_account_linked', String(accountLinked));
+    }
     setProfileSyncEnabled(true);
-    setLastFmLinkStatus(`Linked ${resolvedUser}. Profile sync is enabled.`);
+    setLastFmLinkStatus(`Linked ${resolvedUser}${accountLinked ? ' to your SPICE account' : ''}. Profile sync is enabled.`);
     localStorage.setItem('spice_lastfm_session_key', trimmedSessionKey);
     localStorage.setItem('spice_lastfm_linked_user', resolvedUser);
     localStorage.setItem('spice_profile_sync_enabled', 'true');
@@ -943,12 +948,14 @@ export default function SpiceApp() {
         type?: unknown;
         sessionKey?: unknown;
         name?: unknown;
+        accountLinked?: unknown;
       } | null;
       if (data?.type !== 'spice:lastfm-linked' || typeof data.sessionKey !== 'string') return;
 
       applyLastFmSession(
         data.sessionKey,
         typeof data.name === 'string' ? data.name : undefined,
+        typeof data.accountLinked === 'boolean' ? data.accountLinked : undefined,
       );
     };
 
@@ -957,6 +964,7 @@ export default function SpiceApp() {
       applyLastFmSession(
         event.newValue,
         localStorage.getItem('spice_lastfm_linked_user') || undefined,
+        localStorage.getItem('spice_lastfm_account_linked') === 'true',
       );
     };
 
@@ -1142,6 +1150,50 @@ export default function SpiceApp() {
     });
   };
 
+  const restoreLastFmAccountLink = useCallback(async (token: string | null = cloudToken) => {
+    if (!token) {
+      setLastFmAccountLinked(false);
+      localStorage.setItem('spice_lastfm_account_linked', 'false');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/profile/connections', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json().catch(() => ({})) as {
+        lastfm?: {
+          linked?: boolean;
+          name?: string;
+          linkedAt?: string;
+        };
+        message?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to restore Last.fm account link.');
+      }
+
+      if (data.lastfm?.linked) {
+        const linkedUser = data.lastfm.name || 'Last.fm account';
+        setLastFmAccountLinked(true);
+        setLastFmLinkedUser(linkedUser);
+        setProfileSyncEnabled(true);
+        localStorage.setItem('spice_lastfm_account_linked', 'true');
+        localStorage.setItem('spice_lastfm_linked_user', linkedUser);
+        localStorage.setItem('spice_profile_sync_enabled', 'true');
+        setLastFmLinkStatus(`Restored ${linkedUser} from your SPICE account. Profile sync is enabled.`);
+        logDebug('profile', `Last.fm account link restored for ${linkedUser}.`);
+      } else {
+        setLastFmAccountLinked(false);
+        localStorage.setItem('spice_lastfm_account_linked', 'false');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to restore Last.fm account link.';
+      logDebug('error', `Last.fm account restore failed: ${message}`);
+    }
+  }, [cloudToken, logDebug]);
+
   const [isMounted, setIsMounted] = useState(false);
 
   // Load localStorage states safely on client mount to prevent SSR hydration mismatch
@@ -1171,6 +1223,10 @@ export default function SpiceApp() {
 
       setProfileSyncEnabled(localStorage.getItem('spice_profile_sync_enabled') === 'true');
       setLastFmSessionKey(localStorage.getItem('spice_lastfm_session_key') || '');
+      setLastFmAccountLinked(
+        localStorage.getItem('spice_lastfm_account_linked') === 'true'
+        && Boolean(localStorage.getItem('spice_cloud_token')),
+      );
       setLastFmLinkedUser(localStorage.getItem('spice_lastfm_linked_user') || '');
       localStorage.removeItem('spice_lastfm_api_key');
       localStorage.removeItem('spice_lastfm_shared_secret');
@@ -1265,6 +1321,11 @@ export default function SpiceApp() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (!cloudToken) return;
+    void restoreLastFmAccountLink(cloudToken);
+  }, [cloudToken, restoreLastFmAccountLink]);
 
   // ── YouTube Embedded Player Fallback API Integration ──────────────
   useEffect(() => {
@@ -1823,6 +1884,7 @@ export default function SpiceApp() {
       
       // Auto sync after login
       await syncWithCloud(data.token);
+      await restoreLastFmAccountLink(data.token);
     } catch (err: any) {
       console.error(err);
       logDebug('error', `Authentication attempt failed: ${err.message || err}`);
@@ -1837,6 +1899,8 @@ export default function SpiceApp() {
     localStorage.removeItem('spice_cloud_user');
     setCloudToken(null);
     setCloudUser(null);
+    setLastFmAccountLinked(false);
+    localStorage.setItem('spice_lastfm_account_linked', 'false');
     setDbError(null);
     setAuthError(null);
     logDebug('auth', 'Logged out from Spice Cloud Account. Switched to offline database sandbox mode.');
@@ -1970,8 +2034,9 @@ export default function SpiceApp() {
     if (!profileSyncEnabled || currentTrack.id === 'placeholder') return;
 
     const lastfmSession = lastFmSessionKey.trim();
+    const shouldSyncLastFm = Boolean(lastfmSession || lastFmAccountLinked);
     const listenbrainzToken = listenBrainzToken.trim();
-    if (!lastfmSession && !listenbrainzToken) {
+    if (!shouldSyncLastFm && !listenbrainzToken) {
       setProfileSyncStatus('idle');
       return;
     }
@@ -1980,14 +2045,17 @@ export default function SpiceApp() {
     try {
       const response = await fetch('/api/profile/listens', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(cloudToken ? { Authorization: `Bearer ${cloudToken}` } : {}),
+        },
         body: JSON.stringify({
           type,
           listenedAt,
           providers: {
-            lastfm: lastfmSession
+            lastfm: shouldSyncLastFm
               ? {
-                  sessionKey: lastfmSession,
+                  sessionKey: lastfmSession || undefined,
                 }
               : undefined,
             listenbrainz: listenbrainzToken ? { token: listenbrainzToken } : undefined,
@@ -2043,7 +2111,10 @@ export default function SpiceApp() {
     try {
       const response = await fetch('/api/lastfm/auth', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(cloudToken ? { Authorization: `Bearer ${cloudToken}` } : {}),
+        },
         body: JSON.stringify({
           action: 'web_auth',
         }),
@@ -2060,7 +2131,9 @@ export default function SpiceApp() {
       );
       if (popup) {
         popup.focus();
-        setLastFmLinkStatus('Finish signing in inside the Last.fm popup. SPICE will link automatically when it returns.');
+        setLastFmLinkStatus(cloudToken
+          ? 'Finish signing in inside the Last.fm popup. SPICE will save Last.fm to this account automatically.'
+          : 'Finish signing in inside the Last.fm popup. Sign in to a SPICE account first if you want this saved in the backend.');
       } else {
         setLastFmLinkStatus('Popup blocked. Allow popups for SPICE and try Set up Last.fm again.');
       }
@@ -2092,7 +2165,7 @@ export default function SpiceApp() {
 
   useEffect(() => {
     if (!profileSyncEnabled || currentTrack.id === 'placeholder' || !isPlaying) return;
-    if (!lastFmSessionKey.trim() && !listenBrainzToken.trim()) return;
+    if (!lastFmSessionKey.trim() && !lastFmAccountLinked && !listenBrainzToken.trim()) return;
 
     const scrobbleState = scrobbleStateRef.current;
     if (!scrobbleState || scrobbleState.trackKey !== currentTrackKey) return;
@@ -2114,7 +2187,7 @@ export default function SpiceApp() {
       scrobbleState.scrobbled = true;
       void submitProfileListen('scrobble', scrobbleState.startedAt);
     }
-  }, [profileSyncEnabled, lastFmSessionKey, listenBrainzToken, isPlaying, progress, duration, currentTrackKey]);
+  }, [profileSyncEnabled, cloudToken, lastFmSessionKey, lastFmAccountLinked, listenBrainzToken, isPlaying, progress, duration, currentTrackKey]);
 
   useEffect(() => {
     handleAudioEndedRef.current = handleAudioEnded;
@@ -4805,7 +4878,7 @@ export default function SpiceApp() {
                           <div>
                             <div style={{ color: '#fff', fontWeight: 800, fontSize: '0.92rem' }}>Last.fm Account</div>
                             <p style={{ color: 'var(--text-secondary)', fontSize: '0.74rem', lineHeight: 1.4, margin: '4px 0 0 0' }}>
-                              Uses the backend Last.fm API credentials and saves only your approved session locally.
+                              Uses backend Last.fm API credentials. Signed-in SPICE accounts store the approved session in the backend.
                               Callback route: /api/lastfm/callback.
                             </p>
                           </div>
@@ -4819,12 +4892,14 @@ export default function SpiceApp() {
                         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '12px', alignItems: 'center', marginBottom: '12px' }}>
                           <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', padding: '12px', background: '#0a0a0a' }}>
                             <div style={{ color: '#fff', fontWeight: 800, fontSize: '0.86rem', marginBottom: '4px' }}>
-                              {lastFmSessionKey ? (lastFmLinkedUser || 'Last.fm connected') : 'No Last.fm account linked'}
+                              {(lastFmSessionKey || lastFmAccountLinked) ? (lastFmLinkedUser || 'Last.fm connected') : 'No Last.fm account linked'}
                             </div>
                             <p style={{ color: 'var(--text-secondary)', fontSize: '0.73rem', lineHeight: 1.4, margin: 0 }}>
-                              {lastFmSessionKey
-                                ? 'Now-playing and scrobble updates can use this linked account.'
-                                : 'Click setup, sign in through Last.fm, and the callback will finish the link automatically.'}
+                              {lastFmAccountLinked
+                                ? 'Saved to your SPICE account, so it can be restored after clearing browser storage.'
+                                : lastFmSessionKey
+                                  ? 'Saved locally. Sign in to SPICE before setup to keep it backed up on the account.'
+                                  : 'Click setup, sign in through Last.fm, and the callback will finish the link automatically.'}
                             </p>
                           </div>
 
@@ -4949,7 +5024,7 @@ export default function SpiceApp() {
                         {Icons.tool} System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        Spice Media Core v1.0.21 (Phase 17 Domain Split Landing Page)
+                        Spice Media Core v1.0.22 (Phase 18 Account-backed Last.fm Links)
                       </span>
                     </div>
 
@@ -6174,7 +6249,7 @@ export default function SpiceApp() {
           <div style={{ opacity: 0.3, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span>Spice Premium Audio Resolution Engine</span>
             <span>•</span>
-            <span>PWA v1.0.21</span>
+            <span>PWA v1.0.22</span>
           </div>
 
         </div>

@@ -8,6 +8,12 @@ export interface SpiceSession {
   email: string;
 }
 
+interface LastFmLinkPayload {
+  userId: string;
+  email: string;
+  purpose: 'lastfm_link';
+}
+
 export async function signSession(session: SpiceSession): Promise<string> {
   return await new SignJWT({ userId: session.userId, email: session.email })
     .setProtectedHeader({ alg: 'HS256' })
@@ -16,10 +22,35 @@ export async function signSession(session: SpiceSession): Promise<string> {
     .sign(JWT_SECRET);
 }
 
+export async function signLastFmLinkState(session: SpiceSession): Promise<string> {
+  return await new SignJWT({
+    userId: session.userId,
+    email: session.email,
+    purpose: 'lastfm_link',
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('10m')
+    .sign(JWT_SECRET);
+}
+
 export async function verifySession(token: string): Promise<SpiceSession> {
   const { payload } = await jwtVerify(token, JWT_SECRET);
   return {
     userId: payload.userId as string,
     email: payload.email as string,
+  };
+}
+
+export async function verifyLastFmLinkState(token: string): Promise<SpiceSession> {
+  const { payload } = await jwtVerify(token, JWT_SECRET);
+  const linkPayload = payload as unknown as LastFmLinkPayload;
+  if (linkPayload.purpose !== 'lastfm_link') {
+    throw new Error('Invalid Last.fm link state.');
+  }
+
+  return {
+    userId: linkPayload.userId,
+    email: linkPayload.email,
   };
 }
