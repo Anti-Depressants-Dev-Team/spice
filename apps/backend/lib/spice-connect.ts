@@ -1,4 +1,4 @@
-export type SpiceConnectCommandType = 'play' | 'pause' | 'toggle' | 'next' | 'previous' | 'seek' | 'volume';
+export type SpiceConnectCommandType = 'play' | 'pause' | 'toggle' | 'next' | 'previous' | 'seek' | 'volume' | 'play_track';
 
 export interface SpiceConnectDeviceInput {
   deviceId: string;
@@ -27,6 +27,7 @@ const allowedCommands = new Set<SpiceConnectCommandType>([
   'previous',
   'seek',
   'volume',
+  'play_track',
 ]);
 
 export function safeJsonStringify(value: unknown, fallback: string) {

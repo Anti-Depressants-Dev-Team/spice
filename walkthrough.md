@@ -1,5 +1,11 @@
 # SPICE Walkthrough
 
+## v1.0.31
+
+- Promote Spice Connect into the player with a receiver selector for this device or another signed-in account device.
+- Route normal player controls through the selected receiver, including play/pause, previous/next, seek, volume, and track handoff.
+- Add a `play_track` Spice Connect command payload so selecting a song can start it on the chosen receiver instead of only local playback.
+
 ## v1.0.30
 
 - Split pause and resume into explicit player control paths so pausing a loading or fallback stream cannot restart the current track.

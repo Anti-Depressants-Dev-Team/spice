@@ -460,7 +460,7 @@ interface PlaylistInvitePreview {
   expiresAt?: string | null;
 }
 
-type RemoteCommandType = 'play' | 'pause' | 'toggle' | 'next' | 'previous' | 'seek' | 'volume';
+type RemoteCommandType = 'play' | 'pause' | 'toggle' | 'next' | 'previous' | 'seek' | 'volume' | 'play_track';
 
 interface RemoteDevice {
   deviceId: string;
@@ -484,6 +484,9 @@ interface RemoteCommand {
   payload?: {
     progress?: number;
     volume?: number;
+    track?: Track;
+    queue?: Track[];
+    queueIndex?: number;
   };
   createdAt: string;
 }
@@ -976,7 +979,12 @@ export default function SpiceApp() {
     return 'Spice Connect Device';
   });
   const [remoteDevices, setRemoteDevices] = useState<RemoteDevice[]>([]);
-  const [selectedRemoteDeviceId, setSelectedRemoteDeviceId] = useState('');
+  const [selectedRemoteDeviceId, setSelectedRemoteDeviceId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('spice_connect_receiver_id') || '';
+    }
+    return '';
+  });
   const [remoteStatus, setRemoteStatus] = useState<string | null>(null);
   const [playerPlacement, setPlayerPlacement] = useState<'bottom' | 'top'>('bottom');
   const [playerViewMode, setPlayerViewMode] = useState<'bar' | 'expanded' | 'mini'>('bar');
@@ -2819,22 +2827,6 @@ export default function SpiceApp() {
     e.currentTarget.releasePointerCapture(e.pointerId);
   };
 
-  const handleMiniPlayerSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (duration <= 0) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const percentage = clickX / rect.width;
-    const newProgress = percentage * duration;
-
-    setProgress(newProgress);
-    if (streamProtocol === 'embed' && isYouTubeTrack(currentTrack) && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
-      ytPlayerRef.current.seekTo(newProgress, true);
-    }
-    if (audioRef.current) {
-      audioRef.current.currentTime = newProgress;
-    }
-  };
-
   const handlePrev = (overrideIndex?: any) => {
     const progressTime = streamProtocolRef.current === 'embed' && isYouTubeTrack(currentTrack) && ytPlayerRef.current && typeof ytPlayerRef.current.getCurrentTime === 'function'
       ? ytPlayerRef.current.getCurrentTime()
@@ -2942,26 +2934,6 @@ export default function SpiceApp() {
     autoSyncLikes(Array.from(updated), savedLikedDetails);
   };
 
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (duration === 0) return;
-    if (streamProtocol === 'embed' && isYouTubeTrack(currentTrack) && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const pct = x / rect.width;
-      const seekTime = pct * duration;
-      ytPlayerRef.current.seekTo(seekTime, true);
-      setProgress(seekTime);
-      return;
-    }
-    if (!audioRef.current) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const pct = x / rect.width;
-    const seekTime = pct * duration;
-    audioRef.current.currentTime = seekTime;
-    setProgress(seekTime);
-  };
-
   const seekToPosition = (seekTime: number) => {
     const safeDuration = durationRef.current || duration || 0;
     const safeSeek = Math.max(0, Math.min(seekTime, safeDuration || seekTime));
@@ -3033,11 +3005,10 @@ export default function SpiceApp() {
         : [];
       setRemoteDevices(devices);
 
-      const availableTarget = devices.find((device: RemoteDevice) => device.deviceId !== remoteDeviceId);
       setSelectedRemoteDeviceId((current) => (
         current && devices.some((device: RemoteDevice) => device.deviceId === current && device.deviceId !== remoteDeviceId)
           ? current
-          : availableTarget?.deviceId || ''
+          : ''
       ));
 
       if (showStatus) {
@@ -3078,6 +3049,17 @@ export default function SpiceApp() {
         const nextVolume = Number(command.payload?.volume);
         if (Number.isFinite(nextVolume)) {
           setVolume(Math.max(0, Math.min(100, Math.round(nextVolume))));
+        }
+        break;
+      }
+      case 'play_track': {
+        const payloadTrack = command.payload?.track;
+        if (payloadTrack && typeof payloadTrack === 'object' && payloadTrack.id) {
+          const hydratedTrack = enrichTrackSnapshot(payloadTrack as Track);
+          const hydratedQueue = Array.isArray(command.payload?.queue)
+            ? command.payload.queue.map(enrichTrackSnapshot)
+            : [hydratedTrack];
+          playTrack(hydratedTrack, hydratedQueue.length > 0 ? hydratedQueue : [hydratedTrack]);
         }
         break;
       }
@@ -3564,8 +3546,169 @@ export default function SpiceApp() {
   const editablePlaylists = customPlaylists.filter((playlist) => !playlist.shared);
   const remoteTargetDevices = remoteDevices.filter((device) => device.deviceId !== remoteDeviceId);
   const selectedRemoteDevice = remoteTargetDevices.find((device) => device.deviceId === selectedRemoteDeviceId) || null;
+  const isControllingRemoteReceiver = Boolean(selectedRemoteDevice);
+  const remoteReceiverPlaceholder: Track = {
+    id: 'spice-connect-placeholder',
+    title: selectedRemoteDevice ? 'No active track on receiver' : 'Select a track to play',
+    artists: [{ id: 'spice-connect', name: selectedRemoteDevice?.displayName || 'Spice Connect' }],
+    artworkUrl: '/icon.svg',
+  };
+  const playerTrack = isControllingRemoteReceiver
+    ? (selectedRemoteDevice?.currentTrack || remoteReceiverPlaceholder)
+    : currentTrack;
+  const playerQueue = isControllingRemoteReceiver
+    ? (
+        selectedRemoteDevice?.queue && selectedRemoteDevice.queue.length > 0
+          ? selectedRemoteDevice.queue
+          : (selectedRemoteDevice?.currentTrack ? [selectedRemoteDevice.currentTrack] : [])
+      )
+    : queue;
+  const playerQueueIndex = isControllingRemoteReceiver ? (selectedRemoteDevice?.queueIndex || 0) : queueIndex;
+  const playerIsPlaying = isControllingRemoteReceiver ? Boolean(selectedRemoteDevice?.isPlaying) : isPlaying;
+  const playerProgress = isControllingRemoteReceiver ? (selectedRemoteDevice?.progress || 0) : progress;
+  const playerDuration = isControllingRemoteReceiver ? (selectedRemoteDevice?.duration || 0) : duration;
+  const playerVolume = isControllingRemoteReceiver ? (selectedRemoteDevice?.volume ?? 70) : volume;
+  const playerIsPlaceholder = playerTrack.id === 'placeholder' || playerTrack.id === 'spice-connect-placeholder';
+  const receiverLabel = selectedRemoteDevice?.displayName || 'This device';
+  const receiverSelectDisabled = !cloudToken || !remoteControlEnabled;
+
+  const selectSpiceConnectReceiver = (deviceId: string) => {
+    const safeDeviceId = deviceId === remoteDeviceId ? '' : deviceId;
+    setSelectedRemoteDeviceId(safeDeviceId);
+    if (safeDeviceId) {
+      localStorage.setItem('spice_connect_receiver_id', safeDeviceId);
+      const device = remoteTargetDevices.find((entry) => entry.deviceId === safeDeviceId);
+      setRemoteStatus(`Player controls now target ${device?.displayName || 'selected Spice Connect device'}.`);
+    } else {
+      localStorage.removeItem('spice_connect_receiver_id');
+      setRemoteStatus('Player controls now target this device.');
+    }
+  };
+
+  const patchSelectedRemoteDevice = (updates: Partial<RemoteDevice>) => {
+    if (!selectedRemoteDeviceId) return;
+    setRemoteDevices((devices) => devices.map((device) => (
+      device.deviceId === selectedRemoteDeviceId
+        ? {
+            ...device,
+            ...updates,
+            updatedAt: new Date().toISOString(),
+            lastSeenSeconds: 0,
+          }
+        : device
+    )));
+  };
+
+  const startTrackOnActiveReceiver = (track: Track, newQueue?: Track[]) => {
+    if (isControllingRemoteReceiver) {
+      const queuePayload = newQueue && newQueue.length > 0 ? newQueue : [track];
+      const queueIndexPayload = Math.max(0, queuePayload.findIndex((entry) => entry.id === track.id));
+      rememberTrackSnapshots([track, ...queuePayload]);
+      patchSelectedRemoteDevice({
+        currentTrack: track,
+        queue: queuePayload,
+        queueIndex: queueIndexPayload,
+        isPlaying: true,
+        progress: 0,
+        duration: track.durationMs ? track.durationMs / 1000 : selectedRemoteDevice?.duration || 0,
+      });
+      void sendRemoteCommand('play_track', {
+        track,
+        queue: queuePayload,
+        queueIndex: queueIndexPayload,
+      });
+      setRemoteStatus(`Sent "${track.title}" to ${receiverLabel}.`);
+      return;
+    }
+
+    playTrack(track, newQueue);
+  };
+
+  const handleReceiverPrev = () => {
+    if (isControllingRemoteReceiver) {
+      patchSelectedRemoteDevice({ isPlaying: true });
+      void sendRemoteCommand('previous');
+      return;
+    }
+    handlePrev();
+  };
+
+  const handleReceiverNext = () => {
+    if (isControllingRemoteReceiver) {
+      patchSelectedRemoteDevice({ isPlaying: true });
+      void sendRemoteCommand('next');
+      return;
+    }
+    handleNext();
+  };
+
+  const toggleReceiverPlayPause = () => {
+    if (isControllingRemoteReceiver) {
+      const nextCommand: RemoteCommandType = playerIsPlaying ? 'pause' : 'play';
+      patchSelectedRemoteDevice({ isPlaying: !playerIsPlaying });
+      void sendRemoteCommand(nextCommand);
+      return;
+    }
+    togglePlayPause();
+  };
+
+  const seekActiveReceiverTo = (seekTime: number) => {
+    if (isControllingRemoteReceiver) {
+      const safeSeek = Math.max(0, Math.min(seekTime, playerDuration || seekTime));
+      patchSelectedRemoteDevice({ progress: safeSeek });
+      void sendRemoteCommand('seek', { progress: safeSeek });
+      return;
+    }
+    seekToPosition(seekTime);
+  };
+
+  const handleReceiverSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (playerDuration <= 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const pct = x / rect.width;
+    seekActiveReceiverTo(pct * playerDuration);
+  };
+
+  const setReceiverVolume = (nextVolume: number) => {
+    const safeVolume = Math.max(0, Math.min(100, Math.round(nextVolume)));
+    if (isControllingRemoteReceiver) {
+      patchSelectedRemoteDevice({ volume: safeVolume });
+      void sendRemoteCommand('volume', { volume: safeVolume });
+      return;
+    }
+    setVolume(safeVolume);
+  };
+
+  const renderSpiceConnectReceiverSelect = (variant: 'bar' | 'expanded' | 'mini') => (
+    <div className={`spice-connect-receiver spice-connect-receiver--${variant} ${isControllingRemoteReceiver ? 'is-remote' : ''}`}>
+      <span className="spice-connect-receiver__icon">{Icons.monitor}</span>
+      <label className="sr-only" htmlFor={`spice-connect-receiver-${variant}`}>Spice Connect Receiver</label>
+      <select
+        id={`spice-connect-receiver-${variant}`}
+        value={selectedRemoteDeviceId}
+        onChange={(e) => selectSpiceConnectReceiver(e.target.value)}
+        onFocus={() => {
+          if (cloudToken && remoteControlEnabled) {
+            void reportRemoteDeviceState();
+            void loadRemoteDevices();
+          }
+        }}
+        disabled={receiverSelectDisabled}
+        title={receiverSelectDisabled ? 'Sign in and enable Spice Connect to choose another receiver' : `Receiver: ${receiverLabel}`}
+      >
+        <option value="">This device</option>
+        {remoteTargetDevices.map((device) => (
+          <option key={device.deviceId} value={device.deviceId}>
+            {device.displayName}{device.lastSeenSeconds !== undefined ? ` (${device.lastSeenSeconds}s)` : ''}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+
   const getLikedTrackClickHandler = (track: Track) => () => {
-    playTrack(track);
+    startTrackOnActiveReceiver(track);
   };
 
   const clearHistory = () => {
@@ -4476,7 +4619,7 @@ export default function SpiceApp() {
                       {selectedPlaylist.tracks.length > 0 && (
                         <button 
                           className="btn btn--primary" 
-                          onClick={() => playTrack(selectedPlaylist.tracks[0], selectedPlaylist.tracks)}
+                          onClick={() => startTrackOnActiveReceiver(selectedPlaylist.tracks[0], selectedPlaylist.tracks)}
                         >
                           {Icons.play} Play
                         </button>
@@ -4523,12 +4666,12 @@ export default function SpiceApp() {
                   <div className="library-list">
                     {selectedPlaylist.tracks.map((song, i) => {
                       const isLiked = likedTracks.has(song.id);
-                      const isPlayingCurrent = currentTrack.id === song.id;
+                      const isPlayingCurrent = playerTrack.id === song.id;
                       return (
                         <div key={song.id} className="library-item animate-in">
                           <span className="library-item__index" style={{ width: '24px', color: 'var(--text-secondary)' }}>{i + 1}</span>
-                          <img className="library-item__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} onClick={() => playTrack(song, selectedPlaylist.tracks)} />
-                          <div className="library-item__info" onClick={() => playTrack(song, selectedPlaylist.tracks)}>
+                          <img className="library-item__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} onClick={() => startTrackOnActiveReceiver(song, selectedPlaylist.tracks)} />
+                          <div className="library-item__info" onClick={() => startTrackOnActiveReceiver(song, selectedPlaylist.tracks)}>
                             <span className="library-item__title" style={isPlayingCurrent ? { color: 'var(--accent-pink)' } : {}}>
                               {song.title}
                             </span>
@@ -4622,7 +4765,7 @@ export default function SpiceApp() {
                       <div className="carousel-wrapper">
                         <div className="carousel">
                           {history.map((song) => (
-                            <div key={song.id} className="card card--round animate-in" onClick={() => playTrack(song, history)}>
+                            <div key={song.id} className="card card--round animate-in" onClick={() => startTrackOnActiveReceiver(song, history)}>
                               <div className="card__art-wrapper">
                                 <img className="card__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} />
                                 <div className="card__play-overlay">{Icons.play}</div>
@@ -4645,7 +4788,7 @@ export default function SpiceApp() {
                       <div className="carousel-wrapper">
                         <div className="carousel">
                           {homeListenAgain.map((song) => (
-                            <div key={song.id} className="card animate-in" onClick={() => playTrack(song, homeListenAgain)}>
+                            <div key={song.id} className="card animate-in" onClick={() => startTrackOnActiveReceiver(song, homeListenAgain)}>
                               <div className="card__art-wrapper">
                                 <img className="card__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} />
                                 <div className="card__play-overlay">{Icons.play}</div>
@@ -4694,7 +4837,7 @@ export default function SpiceApp() {
                             ))
                           ) : (
                             homeRecommended.map((song) => (
-                              <div key={`${song.sourceId || 'youtube_music'}:${song.id}`} className="card animate-in" onClick={() => playTrack(song, homeRecommended)}>
+                              <div key={`${song.sourceId || 'youtube_music'}:${song.id}`} className="card animate-in" onClick={() => startTrackOnActiveReceiver(song, homeRecommended)}>
                                 <div className="card__art-wrapper">
                                   <img className="card__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} />
                                   <div className="card__play-overlay">{Icons.play}</div>
@@ -4723,7 +4866,7 @@ export default function SpiceApp() {
                     ) : (
                       <div className="quick-grid">
                         {homeTrending.slice(1, 7).map((song) => (
-                          <div key={song.id} className="quick-card animate-in" onClick={() => playTrack(song, homeTrending)}>
+                          <div key={song.id} className="quick-card animate-in" onClick={() => startTrackOnActiveReceiver(song, homeTrending)}>
                             <img className="quick-card__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} />
                             <span className="quick-card__title truncate">{song.title}</span>
                             <div className="quick-card__play">{Icons.play}</div>
@@ -4746,7 +4889,7 @@ export default function SpiceApp() {
                           ))
                         ) : (
                           homeChill.map((song) => (
-                            <div key={song.id} className="card animate-in" onClick={() => playTrack(song, homeChill)}>
+                            <div key={song.id} className="card animate-in" onClick={() => startTrackOnActiveReceiver(song, homeChill)}>
                               <div className="card__art-wrapper">
                                 <img className="card__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} />
                                 <div className="card__play-overlay">{Icons.play}</div>
@@ -4773,7 +4916,7 @@ export default function SpiceApp() {
                           ))
                         ) : (
                           homeEnergy.map((song) => (
-                            <div key={song.id} className="card animate-in" onClick={() => playTrack(song, homeEnergy)}>
+                            <div key={song.id} className="card animate-in" onClick={() => startTrackOnActiveReceiver(song, homeEnergy)}>
                               <div className="card__art-wrapper">
                                 <img className="card__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} />
                                 <div className="card__play-overlay">{Icons.play}</div>
@@ -4830,11 +4973,11 @@ export default function SpiceApp() {
                       <div className="library-list">
                         {searchResults.map((song) => {
                           const isLiked = likedTracks.has(song.id);
-                          const isPlayingCurrent = currentTrack.id === song.id;
+                          const isPlayingCurrent = playerTrack.id === song.id;
                           return (
                             <div key={song.id} className="library-item animate-in">
-                              <img className="library-item__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} onClick={() => playTrack(song, searchResults)} />
-                              <div className="library-item__info" onClick={() => playTrack(song, searchResults)}>
+                              <img className="library-item__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} onClick={() => startTrackOnActiveReceiver(song, searchResults)} />
+                              <div className="library-item__info" onClick={() => startTrackOnActiveReceiver(song, searchResults)}>
                                 <span className="library-item__title" style={isPlayingCurrent ? { color: 'var(--accent-pink)' } : {}}>
                                   {song.title}
                                 </span>
@@ -4903,11 +5046,11 @@ export default function SpiceApp() {
                             <div className="library-list">
                               {homeRecommended.slice(0, 8).map((song) => {
                                 const isLiked = likedTracks.has(song.id);
-                                const isPlayingCurrent = currentTrack.id === song.id;
+                                const isPlayingCurrent = playerTrack.id === song.id;
                                 return (
                                   <div key={`${song.sourceId || 'youtube_music'}:${song.id}`} className="library-item animate-in">
-                                    <img className="library-item__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} onClick={() => playTrack(song, homeRecommended)} />
-                                    <div className="library-item__info" onClick={() => playTrack(song, homeRecommended)}>
+                                    <img className="library-item__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} onClick={() => startTrackOnActiveReceiver(song, homeRecommended)} />
+                                    <div className="library-item__info" onClick={() => startTrackOnActiveReceiver(song, homeRecommended)}>
                                       <span className="library-item__title" style={isPlayingCurrent ? { color: 'var(--accent-pink)' } : {}}>
                                         {song.title}
                                       </span>
@@ -5020,7 +5163,7 @@ export default function SpiceApp() {
                         </div>
                       ) : (
                         likedTracksList.map((song) => {
-                          const isPlayingCurrent = currentTrack.id === song.id;
+                          const isPlayingCurrent = playerTrack.id === song.id;
                           return (
                             <div
                               key={song.id}
@@ -5073,9 +5216,9 @@ export default function SpiceApp() {
                         </div>
                       ) : (
                         history.map((song) => {
-                          const isPlayingCurrent = currentTrack.id === song.id;
+                          const isPlayingCurrent = playerTrack.id === song.id;
                           return (
-                            <div key={song.id} className="library-item animate-in" onClick={() => playTrack(song, history)}>
+                            <div key={song.id} className="library-item animate-in" onClick={() => startTrackOnActiveReceiver(song, history)}>
                               <img className="library-item__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} />
                               <div className="library-item__info">
                                 <span className="library-item__title" style={isPlayingCurrent ? { color: 'var(--accent-pink)' } : {}}>
@@ -5937,9 +6080,9 @@ export default function SpiceApp() {
 
                   {/* Spice Connect Settings */}
                   <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
-                    <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: '#fff', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>{Icons.monitor} Spice Connect</h3>
+                    <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: '#fff', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>{Icons.monitor} Spice Connect Setup</h3>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 20px 0', lineHeight: 1.4 }}>
-                      Control playback across signed-in SPICE devices from the same account. Keep SPICE open on both devices and Spice Connect will check for commands about once a second.
+                      Name this device and keep cross-device control enabled here. Use the receiver selector in the player to decide whether the normal controls target this device or another signed-in device.
                     </p>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 0.85fr) minmax(0, 1.15fr)', gap: '20px', alignItems: 'start' }}>
@@ -5978,9 +6121,9 @@ export default function SpiceApp() {
                       <div style={{ border: '1px solid var(--border-color)', borderRadius: '12px', padding: '16px', background: '#070707' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                           <div>
-                            <div style={{ color: '#fff', fontWeight: 800, fontSize: '0.92rem' }}>Connect to Another Device</div>
+                            <div style={{ color: '#fff', fontWeight: 800, fontSize: '0.92rem' }}>Player Receiver</div>
                             <p style={{ color: 'var(--text-secondary)', fontSize: '0.74rem', lineHeight: 1.4, margin: '4px 0 0 0' }}>
-                              {cloudToken ? `${remoteTargetDevices.length} other Spice Connect device(s) visible.` : 'Sign in to SPICE to see Spice Connect devices.'}
+                              {cloudToken ? `${remoteTargetDevices.length} other Spice Connect device(s) visible. The player uses this same receiver.` : 'Sign in to SPICE to see Spice Connect devices.'}
                             </p>
                           </div>
                           <button
@@ -5998,11 +6141,11 @@ export default function SpiceApp() {
 
                         <select
                           value={selectedRemoteDeviceId}
-                          onChange={(e) => setSelectedRemoteDeviceId(e.target.value)}
-                          disabled={!cloudToken || !remoteControlEnabled || remoteTargetDevices.length === 0}
+                          onChange={(e) => selectSpiceConnectReceiver(e.target.value)}
+                          disabled={!cloudToken || !remoteControlEnabled}
                           style={{ width: '100%', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', cursor: 'pointer', marginBottom: '14px' }}
                         >
-                          <option value="">{remoteTargetDevices.length === 0 ? 'No Spice Connect devices yet' : 'Choose a Spice Connect device'}</option>
+                          <option value="">This device (current browser)</option>
                           {remoteTargetDevices.map((device) => (
                             <option key={device.deviceId} value={device.deviceId}>
                               {device.displayName} - {device.isPlaying ? 'Playing' : 'Idle'}
@@ -6109,7 +6252,7 @@ export default function SpiceApp() {
                         {Icons.tool} System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        Spice Media Core v1.0.30 (Phase 26 Playback Controls)
+                        Spice Media Core v1.0.31 (Phase 27 Spice Connect Receiver)
                       </span>
                     </div>
 
@@ -6590,20 +6733,25 @@ export default function SpiceApp() {
             <button onClick={() => setShowQueueDrawer(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex' }} title="Close queue">{Icons.close}</button>
           </div>
           <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '280px', paddingRight: '4px' }} className="custom-scrollbar">
-            {queue.map((song, idx) => {
-              const isActive = idx === queueIndex;
+            {playerQueue.length === 0 && (
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', padding: '12px', textAlign: 'center' }}>
+                {isControllingRemoteReceiver ? `${receiverLabel} has no visible queue yet.` : 'Queue is empty.'}
+              </div>
+            )}
+            {playerQueue.map((song, idx) => {
+              const isActive = idx === playerQueueIndex;
               return (
                 <div 
                   key={`${song.id}-${idx}`}
                   style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', borderRadius: '8px', background: isActive ? 'rgba(255,255,255,0.06)' : 'transparent', border: isActive ? '1px solid var(--accent-pink)' : '1px solid transparent', cursor: 'pointer', transition: 'all 0.15s ease' }}
-                  onClick={() => playTrack(song)}
+                  onClick={() => startTrackOnActiveReceiver(song, playerQueue)}
                 >
                   <img src={song.artworkUrl || '/icon.svg'} alt="" style={{ width: '36px', height: '36px', borderRadius: '4px', objectFit: 'cover' }} />
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isActive ? 'var(--accent-pink)' : '#fff' }} className="truncate">{song.title}</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }} className="truncate">{song.artists.map(a => a.name).join(', ')}</div>
                   </div>
-                  {queue.length > 1 && (
+                  {!isControllingRemoteReceiver && queue.length > 1 && (
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
@@ -6625,11 +6773,11 @@ export default function SpiceApp() {
             })}
           </div>
           <div style={{ marginTop: '12px', display: 'flex', gap: '8px', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
-            <button className="btn btn--ghost" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => {
+            <button className="btn btn--ghost" style={{ padding: '4px 8px', fontSize: '0.75rem' }} disabled={isControllingRemoteReceiver} onClick={() => {
               setQueue([currentTrack]);
               setQueueIndex(0);
             }}>
-              Clear Queue
+              {isControllingRemoteReceiver ? 'Remote Queue' : 'Clear Queue'}
             </button>
           </div>
         </div>
@@ -6774,19 +6922,19 @@ export default function SpiceApp() {
             {Icons.shuffle}
           </button>
           
-          <button className="now-playing__btn" onClick={handlePrev} aria-label="Previous">
+          <button className="now-playing__btn" onClick={handleReceiverPrev} aria-label="Previous">
             {Icons.prev}
           </button>
           
           <button 
             className="now-playing__btn now-playing__btn--play" 
-            onClick={togglePlayPause} 
-            aria-label={isPlaying ? 'Pause' : 'Play'}
+            onClick={toggleReceiverPlayPause}
+            aria-label={playerIsPlaying ? 'Pause' : 'Play'}
           >
-            {isPlaying ? Icons.pause : Icons.play}
+            {playerIsPlaying ? Icons.pause : Icons.play}
           </button>
           
-          <button className="now-playing__btn" onClick={handleNext} aria-label="Next">
+          <button className="now-playing__btn" onClick={handleReceiverNext} aria-label="Next">
             {Icons.next}
           </button>
 
@@ -6803,25 +6951,28 @@ export default function SpiceApp() {
           </button>
           
           <button
-            className={`now-playing__like ${likedTracks.has(currentTrack.id) ? 'liked' : ''}`}
-            onClick={() => toggleLike(currentTrack)}
+            className={`now-playing__like ${likedTracks.has(playerTrack.id) ? 'liked' : ''}`}
+            onClick={() => !playerIsPlaceholder && toggleLike(playerTrack)}
+            disabled={playerIsPlaceholder}
             aria-label="Like"
           >
-            {likedTracks.has(currentTrack.id) ? Icons.heartFilled : Icons.heart}
+            {likedTracks.has(playerTrack.id) ? Icons.heartFilled : Icons.heart}
           </button>
         </div>
 
         {/* Center: song info & seek slider */}
         <div className="now-playing__center">
           <div className="now-playing__song" onClick={() => { setPlayerViewMode('expanded'); localStorage.setItem('spice_player_view_mode', 'expanded'); }} style={{ cursor: 'pointer' }} title="Expand Player View">
-            <img className="now-playing__art" src={currentTrack.artworkUrl || '/icon.svg'} alt={currentTrack.title} />
+            <img className="now-playing__art" src={playerTrack.artworkUrl || '/icon.svg'} alt={playerTrack.title} />
             <div className="now-playing__info">
-              <span className="now-playing__title truncate">{currentTrack.title}</span>
-              <span className="now-playing__artist truncate">{currentTrack.artists.map(a => a.name).join(', ')}</span>
+              <span className="now-playing__title truncate">{playerTrack.title}</span>
+              <span className="now-playing__artist truncate">
+                {isControllingRemoteReceiver ? `${receiverLabel} - ` : ''}{playerTrack.artists.map(a => a.name).join(', ')}
+              </span>
             </div>
             
             {/* Animative waveform */}
-            <div className={`now-playing__waveform ${!isPlaying ? 'paused' : ''}`}>
+            <div className={`now-playing__waveform ${!playerIsPlaying ? 'paused' : ''}`}>
               <div className="now-playing__waveform-bar"></div>
               <div className="now-playing__waveform-bar"></div>
               <div className="now-playing__waveform-bar"></div>
@@ -6831,25 +6982,27 @@ export default function SpiceApp() {
           </div>
 
           <div className="now-playing__seek">
-            <span>{formatTime(progress)}</span>
-            <div className="now-playing__seek-track" onClick={handleSeek}>
+            <span>{formatTime(playerProgress)}</span>
+            <div className="now-playing__seek-track" onClick={handleReceiverSeek}>
               <div
                 className="now-playing__progress-fill"
-                style={{ width: `${duration > 0 ? (progress / duration) * 100 : 0}%` }}
+                style={{ width: `${playerDuration > 0 ? (playerProgress / playerDuration) * 100 : 0}%` }}
               ></div>
             </div>
-            <span>{formatTime(duration)}</span>
-            {isLoadingStream && <span className="loader-glow">Resolving stream...</span>}
+            <span>{formatTime(playerDuration)}</span>
+            {!isControllingRemoteReceiver && isLoadingStream && <span className="loader-glow">Resolving stream...</span>}
           </div>
         </div>
 
         {/* Right: volume & queue controls */}
         <div className="now-playing__right-controls">
+          {renderSpiceConnectReceiverSelect('bar')}
+
           <button 
             className={`now-playing__btn ${showVideoPlayer ? 'active' : ''}`}
             onClick={openVideoPlayer}
-            disabled={!canShowVideoForTrack(currentTrack)}
-            title={canShowVideoForTrack(currentTrack) ? 'Open YouTube Video Player' : 'Video is available for YouTube tracks'}
+            disabled={isControllingRemoteReceiver || !canShowVideoForTrack(currentTrack)}
+            title={isControllingRemoteReceiver ? 'Video opens on this browser only. Switch receiver to this device first.' : (canShowVideoForTrack(currentTrack) ? 'Open YouTube Video Player' : 'Video is available for YouTube tracks')}
             aria-label="Open YouTube Video Player"
           >
             {Icons.video}
@@ -6858,10 +7011,12 @@ export default function SpiceApp() {
           <button 
             className={`now-playing__btn ${showBarLyrics ? 'active' : ''}`}
             onClick={() => {
+              if (isControllingRemoteReceiver) return;
               setShowBarLyrics(!showBarLyrics);
               setShowQueueDrawer(false);
             }} 
-            title="Real-time Synced Lyrics"
+            disabled={isControllingRemoteReceiver}
+            title={isControllingRemoteReceiver ? 'Lyrics open on this browser only. Switch receiver to this device first.' : 'Real-time Synced Lyrics'}
             aria-label="Real-time Synced Lyrics"
           >
             {Icons.microphone}
@@ -6894,16 +7049,16 @@ export default function SpiceApp() {
           </button>
           
           <div className="now-playing__volume">
-            <button className="now-playing__volume-btn" onClick={() => setVolume(volume === 0 ? 70 : 0)}>
-              {volume === 0 ? Icons.volumeMuted : Icons.volume}
+            <button className="now-playing__volume-btn" onClick={() => setReceiverVolume(playerVolume === 0 ? 70 : 0)}>
+              {playerVolume === 0 ? Icons.volumeMuted : Icons.volume}
             </button>
             <input
               type="range"
               className="now-playing__volume-slider"
               min="0"
               max="100"
-              value={volume}
-              onChange={(e) => setVolume(Number(e.target.value))}
+              value={playerVolume}
+              onChange={(e) => setReceiverVolume(Number(e.target.value))}
             />
           </div>
         </div>
@@ -6911,10 +7066,10 @@ export default function SpiceApp() {
         {/* Mobile-only Play/Pause button */}
         <button 
           className="now-playing__mobile-play"
-          onClick={(e) => { e.stopPropagation(); togglePlayPause(); }}
+          onClick={(e) => { e.stopPropagation(); toggleReceiverPlayPause(); }}
           style={{ display: 'none' }}
         >
-          {isPlaying ? Icons.pause : Icons.play}
+          {playerIsPlaying ? Icons.pause : Icons.play}
         </button>
       </footer>
 
@@ -6971,24 +7126,27 @@ export default function SpiceApp() {
             {/* Column 1: Massive Spinning Artwork & Titles */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
               <div 
-                className={`expanded-player__art-box ${isPlaying ? 'vinyl-spin' : ''}`}
+                className={`expanded-player__art-box ${playerIsPlaying ? 'vinyl-spin' : ''}`}
                 style={{ 
                   boxShadow: `0 24px 64px rgba(0,0,0,0.8), 0 0 40px rgba(var(--accent-pink-rgb, 236, 72, 153), 0.25)`
                 }}
               >
                 <img 
-                  src={currentTrack.artworkUrl || '/icon.svg'} 
+                  src={playerTrack.artworkUrl || '/icon.svg'}
                   alt="" 
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
                 />
               </div>
 
               <h2 style={{ fontSize: '2rem', fontWeight: 800, margin: '0 0 8px 0', width: '100%', fontFamily: 'Outfit, sans-serif' }} className="truncate">
-                {currentTrack.title}
+                {playerTrack.title}
               </h2>
               <p style={{ fontSize: '1.1rem', color: 'var(--text-secondary)', margin: 0, width: '100%' }} className="truncate">
-                {currentTrack.artists.map(a => a.name).join(', ')}
+                {isControllingRemoteReceiver ? `${receiverLabel} - ` : ''}{playerTrack.artists.map(a => a.name).join(', ')}
               </p>
+              <div style={{ marginTop: '18px', width: 'min(100%, 320px)' }}>
+                {renderSpiceConnectReceiverSelect('expanded')}
+              </div>
             </div>
 
             {/* Column 2: Immersive Tabbed Controller (Controls / Up Next / Lyrics) */}
@@ -7034,8 +7192,8 @@ export default function SpiceApp() {
                     {/* Audio visualization mock */}
                     <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', height: '60px', width: '100%', padding: '12px 24px', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.04)' }}>
                       {[...Array(24)].map((_, i) => {
-                        const baseVal = 20 + Math.abs(Math.sin((i + progress) * 0.5)) * 60;
-                        const randHeight = isPlaying ? baseVal + Math.abs(Math.sin(i * 12.9898 + progress)) * 20 : 15;
+                        const baseVal = 20 + Math.abs(Math.sin((i + playerProgress) * 0.5)) * 60;
+                        const randHeight = playerIsPlaying ? baseVal + Math.abs(Math.sin(i * 12.9898 + playerProgress)) * 20 : 15;
                         return (
                           <div 
                             key={i} 
@@ -7054,14 +7212,14 @@ export default function SpiceApp() {
 
                     {/* Progress seeker */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <div style={{ position: 'relative', height: '8px', width: '100%', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', cursor: 'pointer' }} onClick={handleSeek}>
+                      <div style={{ position: 'relative', height: '8px', width: '100%', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', cursor: 'pointer' }} onClick={handleReceiverSeek}>
                         <div 
                           style={{ 
                             position: 'absolute', 
                             left: 0, 
                             top: 0, 
                             bottom: 0, 
-                            width: `${duration > 0 ? (progress / duration) * 100 : 0}%`, 
+                            width: `${playerDuration > 0 ? (playerProgress / playerDuration) * 100 : 0}%`,
                             background: 'var(--accent-pink)', 
                             borderRadius: '4px',
                             boxShadow: '0 0 10px var(--accent-pink)'
@@ -7069,8 +7227,8 @@ export default function SpiceApp() {
                         />
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                        <span>{formatTime(progress)}</span>
-                        <span>{formatTime(duration)}</span>
+                        <span>{formatTime(playerProgress)}</span>
+                        <span>{formatTime(playerDuration)}</span>
                       </div>
                     </div>
 
@@ -7089,7 +7247,7 @@ export default function SpiceApp() {
                       </button>
 
                       <button 
-                        onClick={handlePrev} 
+                        onClick={handleReceiverPrev}
                         style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', outline: 'none', transition: 'all 0.15s ease' }} 
                         className="expanded-player__btn"
                       >
@@ -7097,7 +7255,7 @@ export default function SpiceApp() {
                       </button>
 
                       <button 
-                        onClick={togglePlayPause} 
+                        onClick={toggleReceiverPlayPause}
                         style={{ 
                           width: '80px', 
                           height: '80px', 
@@ -7116,12 +7274,12 @@ export default function SpiceApp() {
                         className="expanded-player__btn-play"
                       >
                         <span style={{ transform: 'scale(2.0)', display: 'inline-block' }}>
-                          {isPlaying ? Icons.pause : Icons.play}
+                          {playerIsPlaying ? Icons.pause : Icons.play}
                         </span>
                       </button>
 
                       <button 
-                        onClick={handleNext} 
+                        onClick={handleReceiverNext}
                         style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', outline: 'none', transition: 'all 0.15s ease' }} 
                         className="expanded-player__btn"
                       >
@@ -7146,18 +7304,19 @@ export default function SpiceApp() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <button
-                          className={`now-playing__like ${likedTracks.has(currentTrack.id) ? 'liked' : ''}`}
-                          onClick={() => toggleLike(currentTrack)}
-                          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', borderRadius: '50%', cursor: 'pointer' }}
+                          className={`now-playing__like ${likedTracks.has(playerTrack.id) ? 'liked' : ''}`}
+                          onClick={() => !playerIsPlaceholder && toggleLike(playerTrack)}
+                          disabled={playerIsPlaceholder}
+                          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '10px', borderRadius: '50%', cursor: playerIsPlaceholder ? 'not-allowed' : 'pointer' }}
                         >
                           <span style={{ display: 'inline-flex', transform: 'scale(1.2)' }}>
-                            {likedTracks.has(currentTrack.id) ? Icons.heartFilled : Icons.heart}
+                            {likedTracks.has(playerTrack.id) ? Icons.heartFilled : Icons.heart}
                           </span>
                         </button>
 
                         <button
                           onClick={openVideoPlayer}
-                          disabled={!canShowVideoForTrack(currentTrack)}
+                          disabled={isControllingRemoteReceiver || !canShowVideoForTrack(currentTrack)}
                           style={{
                             width: '40px',
                             height: '40px',
@@ -7165,13 +7324,13 @@ export default function SpiceApp() {
                             background: showVideoPlayer ? 'var(--accent-pink)' : 'rgba(255,255,255,0.05)',
                             border: '1px solid rgba(255,255,255,0.1)',
                             color: '#fff',
-                            cursor: canShowVideoForTrack(currentTrack) ? 'pointer' : 'not-allowed',
-                            opacity: canShowVideoForTrack(currentTrack) ? 1 : 0.35,
+                            cursor: (!isControllingRemoteReceiver && canShowVideoForTrack(currentTrack)) ? 'pointer' : 'not-allowed',
+                            opacity: (!isControllingRemoteReceiver && canShowVideoForTrack(currentTrack)) ? 1 : 0.35,
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                           }}
-                          title={canShowVideoForTrack(currentTrack) ? 'Open YouTube Video Player' : 'Video is available for YouTube tracks'}
+                          title={isControllingRemoteReceiver ? 'Video opens on this browser only. Switch receiver to this device first.' : (canShowVideoForTrack(currentTrack) ? 'Open YouTube Video Player' : 'Video is available for YouTube tracks')}
                         >
                           {Icons.video}
                         </button>
@@ -7183,8 +7342,8 @@ export default function SpiceApp() {
                           type="range"
                           min="0"
                           max="100"
-                          value={volume}
-                          onChange={(e) => setVolume(Number(e.target.value))}
+                          value={playerVolume}
+                          onChange={(e) => setReceiverVolume(Number(e.target.value))}
                           style={{ width: '100%', cursor: 'pointer', accentColor: 'var(--accent-pink)' }}
                         />
                       </div>
@@ -7195,12 +7354,17 @@ export default function SpiceApp() {
                 {expandedTab === 'queue' && (
                   <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                     <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '310px', paddingRight: '4px' }} className="custom-scrollbar">
-                      {queue.map((song, idx) => {
-                        const isActive = idx === queueIndex;
+                      {playerQueue.length === 0 && (
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.86rem', padding: '12px', textAlign: 'center' }}>
+                          {isControllingRemoteReceiver ? `${receiverLabel} has no visible queue yet.` : 'Queue is empty.'}
+                        </div>
+                      )}
+                      {playerQueue.map((song, idx) => {
+                        const isActive = idx === playerQueueIndex;
                         return (
                           <div 
                             key={`${song.id}-${idx}`}
-                            onClick={() => playTrack(song)}
+                            onClick={() => startTrackOnActiveReceiver(song, playerQueue)}
                             style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px', borderRadius: '12px', background: isActive ? 'rgba(255,255,255,0.06)' : 'transparent', border: isActive ? '1px solid var(--accent-pink)' : '1px solid transparent', cursor: 'pointer', transition: 'all 0.15s ease' }}
                           >
                             <img src={song.artworkUrl || '/icon.svg'} alt="" style={{ width: '40px', height: '40px', borderRadius: '6px', objectFit: 'cover' }} />
@@ -7395,7 +7559,7 @@ export default function SpiceApp() {
           <div style={{ opacity: 0.3, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span>Spice Premium Audio Resolution Engine</span>
             <span>•</span>
-            <span>PWA v1.0.30</span>
+            <span>PWA v1.0.31</span>
           </div>
 
         </div>
@@ -7451,11 +7615,11 @@ export default function SpiceApp() {
               boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
               cursor: 'pointer' 
             }}
-            onClick={togglePlayPause}
-            title={isPlaying ? 'Pause' : 'Play'}
+            onClick={toggleReceiverPlayPause}
+            title={playerIsPlaying ? 'Pause' : 'Play'}
           >
             <img 
-              src={currentTrack.artworkUrl || '/icon.svg'} 
+              src={playerTrack.artworkUrl || '/icon.svg'}
               alt="" 
               style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
             />
@@ -7473,7 +7637,7 @@ export default function SpiceApp() {
             className="mini-player__art-hover"
             >
               <span style={{ display: 'inline-flex' }}>
-                {isPlaying ? Icons.pause : Icons.play}
+                {playerIsPlaying ? Icons.pause : Icons.play}
               </span>
             </div>
           </div>
@@ -7484,53 +7648,55 @@ export default function SpiceApp() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fff', lineHeight: 1.2 }} className="truncate">
-                  {currentTrack.title}
+                  {playerTrack.title}
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }} className="truncate">
-                  {currentTrack.artists.map(a => a.name).join(', ')}
+                  {isControllingRemoteReceiver ? `${receiverLabel} - ` : ''}{playerTrack.artists.map(a => a.name).join(', ')}
                 </div>
+                {renderSpiceConnectReceiverSelect('mini')}
               </div>
 
               {/* Action Buttons */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <button
-                  onClick={() => toggleLike(currentTrack)}
+                  onClick={() => !playerIsPlaceholder && toggleLike(playerTrack)}
+                  disabled={playerIsPlaceholder}
                   style={{
                     background: 'none',
                     border: 'none',
-                    color: likedTracks.has(currentTrack.id) ? 'var(--accent-pink)' : 'rgba(255,255,255,0.4)',
-                    cursor: 'pointer',
+                    color: likedTracks.has(playerTrack.id) ? 'var(--accent-pink)' : 'rgba(255,255,255,0.4)',
+                    cursor: playerIsPlaceholder ? 'not-allowed' : 'pointer',
                     outline: 'none',
                     padding: '4px',
                     fontSize: '0.95rem',
                     transition: 'all 0.15s ease'
                   }}
-                  title={likedTracks.has(currentTrack.id) ? 'Unlike' : 'Like'}
+                  title={likedTracks.has(playerTrack.id) ? 'Unlike' : 'Like'}
                 >
-                  {likedTracks.has(currentTrack.id) ? Icons.heartFilled : Icons.heart}
+                  {likedTracks.has(playerTrack.id) ? Icons.heartFilled : Icons.heart}
                 </button>
 
                 <button
                   onClick={openVideoPlayer}
-                  disabled={!canShowVideoForTrack(currentTrack)}
+                  disabled={isControllingRemoteReceiver || !canShowVideoForTrack(currentTrack)}
                   style={{
                     background: 'none',
                     border: 'none',
                     color: showVideoPlayer ? 'var(--accent-pink)' : 'rgba(255,255,255,0.4)',
-                    cursor: canShowVideoForTrack(currentTrack) ? 'pointer' : 'not-allowed',
-                    opacity: canShowVideoForTrack(currentTrack) ? 1 : 0.35,
+                    cursor: (!isControllingRemoteReceiver && canShowVideoForTrack(currentTrack)) ? 'pointer' : 'not-allowed',
+                    opacity: (!isControllingRemoteReceiver && canShowVideoForTrack(currentTrack)) ? 1 : 0.35,
                     outline: 'none',
                     padding: '4px',
                     fontSize: '0.95rem',
                     transition: 'all 0.15s ease'
                   }}
-                  title={canShowVideoForTrack(currentTrack) ? 'Open video' : 'Video is available for YouTube tracks'}
+                  title={isControllingRemoteReceiver ? 'Video opens on this browser only. Switch receiver to this device first.' : (canShowVideoForTrack(currentTrack) ? 'Open video' : 'Video is available for YouTube tracks')}
                 >
                   {Icons.video}
                 </button>
 
                 <button
-                  onClick={() => setVolume(volume === 0 ? 70 : 0)}
+                  onClick={() => setReceiverVolume(playerVolume === 0 ? 70 : 0)}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -7541,9 +7707,9 @@ export default function SpiceApp() {
                     fontSize: '0.95rem',
                     transition: 'all 0.15s ease'
                   }}
-                  title={volume === 0 ? 'Unmute' : 'Mute'}
+                  title={playerVolume === 0 ? 'Unmute' : 'Mute'}
                 >
-                  {volume === 0 ? Icons.volumeMuted : Icons.volume}
+                  {playerVolume === 0 ? Icons.volumeMuted : Icons.volume}
                 </button>
               </div>
             </div>
@@ -7552,7 +7718,7 @@ export default function SpiceApp() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <button
-                  onClick={handlePrev}
+                  onClick={handleReceiverPrev}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -7569,7 +7735,7 @@ export default function SpiceApp() {
                 </button>
 
                 <button 
-                  onClick={togglePlayPause} 
+                  onClick={toggleReceiverPlayPause}
                   style={{ 
                     width: '30px', 
                     height: '30px', 
@@ -7589,12 +7755,12 @@ export default function SpiceApp() {
                   onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                 >
                   <span style={{ display: 'inline-flex' }}>
-                    {isPlaying ? Icons.pause : Icons.play}
+                    {playerIsPlaying ? Icons.pause : Icons.play}
                   </span>
                 </button>
 
                 <button
-                  onClick={handleNext}
+                  onClick={handleReceiverNext}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -7614,7 +7780,8 @@ export default function SpiceApp() {
               {/* View Switches */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <button 
-                  onClick={() => setShowMiniLyrics(!showMiniLyrics)}
+                  onClick={() => !isControllingRemoteReceiver && setShowMiniLyrics(!showMiniLyrics)}
+                  disabled={isControllingRemoteReceiver}
                   style={{ 
                     background: showMiniLyrics ? 'var(--accent-pink)' : 'rgba(255,255,255,0.05)', 
                     border: '1px solid rgba(255,255,255,0.1)', 
@@ -7622,7 +7789,8 @@ export default function SpiceApp() {
                     width: '28px',
                     height: '28px',
                     borderRadius: '8px', 
-                    cursor: 'pointer', 
+                    cursor: isControllingRemoteReceiver ? 'not-allowed' : 'pointer',
+                    opacity: isControllingRemoteReceiver ? 0.35 : 1,
                     outline: 'none', 
                     display: 'flex', 
                     alignItems: 'center', 
@@ -7732,7 +7900,7 @@ export default function SpiceApp() {
 
           {/* Interactive Seek Progress strip at the very bottom */}
           <div 
-            onClick={handleMiniPlayerSeek}
+            onClick={handleReceiverSeek}
             style={{ 
               position: 'absolute', 
               bottom: 0, 
@@ -7753,7 +7921,7 @@ export default function SpiceApp() {
             <div 
               style={{ 
                 height: '100%', 
-                width: `${duration > 0 ? (progress / duration) * 100 : 0}%`, 
+                width: `${playerDuration > 0 ? (playerProgress / playerDuration) * 100 : 0}%`,
                 background: 'var(--accent-pink)',
                 transition: 'width 0.1s linear'
               }} 

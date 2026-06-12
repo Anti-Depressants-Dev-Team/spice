@@ -52,6 +52,27 @@ test('Spice Connect command normalization accepts supported cross-device command
   assert.deepEqual(JSON.parse(input.payloadJson), { progress: 91.5 });
 });
 
+test('Spice Connect command normalization accepts remote track handoff payloads', () => {
+  const input = normalizeSpiceConnectCommandInput({
+    sourceDeviceId: 'phone',
+    targetDeviceId: 'desktop',
+    command: 'play_track',
+    payload: {
+      track: { id: 'yt-1', title: 'Remote Start' },
+      queue: [{ id: 'yt-1', title: 'Remote Start' }],
+      queueIndex: 0,
+    },
+  });
+
+  assert.ok(!('error' in input));
+  assert.equal(input.command, 'play_track');
+  assert.deepEqual(JSON.parse(input.payloadJson), {
+    track: { id: 'yt-1', title: 'Remote Start' },
+    queue: [{ id: 'yt-1', title: 'Remote Start' }],
+    queueIndex: 0,
+  });
+});
+
 test('Spice Connect command normalization rejects same-device and unsupported commands', () => {
   assert.deepEqual(
     normalizeSpiceConnectCommandInput({
