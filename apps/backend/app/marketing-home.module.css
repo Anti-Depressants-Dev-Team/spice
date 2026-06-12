@@ -1,13 +1,11 @@
 .shell {
   position: relative;
   min-height: 100vh;
-  height: 100vh;
-  overflow-y: auto;
   overflow-x: hidden;
   background:
-    radial-gradient(circle at 20% 12%, rgba(147, 51, 234, 0.34), transparent 32rem),
-    radial-gradient(circle at 85% 18%, rgba(192, 132, 252, 0.2), transparent 28rem),
-    linear-gradient(135deg, #000 0%, #08070b 58%, #120718 100%);
+    radial-gradient(circle at 18% 10%, rgba(147, 51, 234, 0.28), transparent 28rem),
+    radial-gradient(circle at 88% 12%, rgba(192, 132, 252, 0.16), transparent 26rem),
+    linear-gradient(135deg, #000 0%, #060509 58%, #110716 100%);
   color: #f8fafc;
 }
 
@@ -16,18 +14,23 @@
   inset: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.65), transparent 76%);
+    linear-gradient(rgba(255, 255, 255, 0.032) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.032) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.72), transparent 78%);
 }
 
-.hero {
+.hero,
+.services,
+.bottomBand {
   position: relative;
   z-index: 1;
   width: min(1180px, calc(100% - 40px));
   margin: 0 auto;
-  padding: 28px 0 42px;
+}
+
+.hero {
+  padding: 28px 0 50px;
 }
 
 .nav {
@@ -35,7 +38,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  margin-bottom: clamp(42px, 8vh, 92px);
+  margin-bottom: clamp(42px, 7vh, 84px);
 }
 
 .brand {
@@ -55,13 +58,29 @@
   place-items: center;
   border-radius: 15px;
   background: linear-gradient(135deg, #7c3aed, #c084fc);
-  box-shadow: 0 0 32px rgba(168, 85, 247, 0.45);
+  box-shadow: 0 0 32px rgba(168, 85, 247, 0.42);
 }
 
 .logoMark svg {
   width: 31px;
   height: 31px;
   fill: #fff;
+}
+
+.navLinks {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.navLinks a {
+  color: #c4c4cf;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.navLinks a:hover {
+  color: #fff;
 }
 
 .navCta,
@@ -71,7 +90,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  font-weight: 800;
+  font-weight: 900;
   transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, color 180ms ease;
 }
 
@@ -80,25 +99,37 @@
   padding: 0 18px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.06);
-  color: #e9d5ff;
-  font-size: 0.82rem;
+  color: #e9d5ff !important;
 }
 
 .navCta:hover,
 .primaryAction:hover,
-.secondaryAction:hover {
+.secondaryAction:hover,
+.serviceCardLive:hover {
   transform: translateY(-2px);
 }
 
 .heroGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1.03fr) minmax(360px, 0.72fr);
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.68fr);
   align-items: center;
-  gap: clamp(36px, 8vw, 94px);
+  gap: clamp(36px, 7vw, 88px);
 }
 
 .copy {
-  max-width: 720px;
+  max-width: 760px;
+}
+
+.kicker,
+.sectionHeading span,
+.panelTop span,
+.musicTile span,
+.bottomBand span {
+  color: #d8b4fe;
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 .kicker {
@@ -108,27 +139,22 @@
   border: 1px solid rgba(192, 132, 252, 0.26);
   border-radius: 999px;
   background: rgba(168, 85, 247, 0.1);
-  color: #d8b4fe;
-  font-size: 0.76rem;
-  font-weight: 900;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
 }
 
 .copy h1 {
-  max-width: 760px;
+  max-width: 780px;
   margin: 0;
   font-family: "Outfit", "Inter", sans-serif;
-  font-size: clamp(3rem, 9vw, 7.2rem);
-  line-height: 0.9;
-  letter-spacing: -0.08em;
+  font-size: clamp(3rem, 8.2vw, 6.6rem);
+  line-height: 0.92;
+  letter-spacing: -0.075em;
 }
 
 .lede {
-  max-width: 620px;
+  max-width: 640px;
   margin: 24px 0 0;
   color: #c4c4cf;
-  font-size: clamp(1rem, 2vw, 1.26rem);
+  font-size: clamp(1rem, 2vw, 1.18rem);
   line-height: 1.62;
 }
 
@@ -189,10 +215,10 @@
   fill: currentColor;
 }
 
-.productCard {
+.commandPanel {
   position: relative;
-  min-height: 560px;
-  padding: 22px;
+  min-height: 520px;
+  padding: 24px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 34px;
   background:
@@ -202,139 +228,242 @@
   overflow: hidden;
 }
 
-.productCard::before {
+.commandPanel::before {
   content: "";
   position: absolute;
-  inset: -40% -20% auto;
-  height: 420px;
+  inset: -36% -20% auto;
+  height: 390px;
   background: radial-gradient(circle, rgba(168, 85, 247, 0.28), transparent 68%);
   pointer-events: none;
 }
 
-.cardHeader {
+.panelTop,
+.musicTile,
+.signalGrid,
+.panelFooter {
   position: relative;
   z-index: 1;
+}
+
+.panelTop {
   display: flex;
-  gap: 8px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 28px;
 }
 
-.cardHeader span {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.18);
-}
-
-.albumArt {
-  position: relative;
-  z-index: 1;
-  width: min(280px, 70%);
-  margin: 58px auto 28px;
-}
-
-.albumGlow {
-  position: absolute;
-  inset: -28px;
-  border-radius: 42px;
-  background: linear-gradient(135deg, rgba(124, 58, 237, 0.6), rgba(192, 132, 252, 0.24));
-  filter: blur(34px);
-}
-
-.albumArt svg {
-  position: relative;
-  width: 100%;
-  height: auto;
-  border-radius: 28px;
-  overflow: visible;
-}
-
-.albumArt rect {
-  fill: #111016;
-  stroke: rgba(255, 255, 255, 0.14);
-}
-
-.albumArt path {
-  fill: #c084fc;
-}
-
-.trackPreview {
-  position: relative;
-  z-index: 1;
-  text-align: center;
-}
-
-.trackPreview span {
-  color: #a78bfa;
-  font-size: 0.76rem;
-  font-weight: 900;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-
-.trackPreview strong {
-  display: block;
-  margin-top: 9px;
+.panelTop strong {
   color: #fff;
-  font-size: clamp(1.8rem, 4vw, 2.8rem);
   font-family: "Outfit", "Inter", sans-serif;
-  line-height: 1;
+  font-size: 1.05rem;
 }
 
-.trackPreview p {
-  margin: 10px 0 0;
-  color: #a1a1aa;
+.musicTile {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 18px;
+  align-items: center;
+  padding: 22px;
+  border: 1px solid rgba(192, 132, 252, 0.22);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(192, 132, 252, 0.16), transparent 54%),
+    rgba(255, 255, 255, 0.055);
 }
 
-.waveform {
-  position: relative;
-  z-index: 1;
-  display: flex;
+.musicTile h2 {
+  margin: 8px 0 8px;
+  color: #fff;
+  font-family: "Outfit", "Inter", sans-serif;
+  font-size: clamp(2rem, 5vw, 3rem);
+  letter-spacing: -0.05em;
+}
+
+.musicTile p {
+  margin: 0;
+  color: #c4c4cf;
+  line-height: 1.5;
+}
+
+.musicTile a {
+  display: inline-flex;
+  min-height: 44px;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  height: 74px;
-  margin-top: 30px;
-}
-
-.waveform span {
-  width: 5px;
+  padding: 0 18px;
   border-radius: 999px;
-  background: linear-gradient(180deg, #c084fc, #7c3aed);
+  background: #fff;
+  color: #111016;
+  font-size: 0.84rem;
+  font-weight: 900;
 }
 
-.playerBar {
-  position: relative;
-  z-index: 1;
+.signalGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.signalGrid span {
+  min-height: 92px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+    rgba(255, 255, 255, 0.035);
+}
+
+.signalGrid span:nth-child(2),
+.signalGrid span:nth-child(5) {
+  background:
+    linear-gradient(135deg, rgba(124, 58, 237, 0.42), rgba(192, 132, 252, 0.08)),
+    rgba(255, 255, 255, 0.04);
+}
+
+.panelFooter {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 13px;
+  gap: 12px;
+  margin-top: 26px;
   color: #a1a1aa;
   font-size: 0.8rem;
 }
 
-.playerBar div {
+.panelFooter div {
   height: 5px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
 }
 
-.playerBar div span {
+.panelFooter div span {
   display: block;
-  width: 38%;
+  width: 72%;
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #7c3aed, #c084fc);
 }
 
-.bottomBand {
-  position: relative;
-  z-index: 1;
-  width: min(1180px, calc(100% - 40px));
-  margin: 0 auto 36px;
+.services {
+  padding: 20px 0 18px;
+}
+
+.sectionHeading {
+  max-width: 720px;
+  margin-bottom: 24px;
+}
+
+.sectionHeading h2 {
+  margin: 10px 0 0;
+  color: #fff;
+  font-family: "Outfit", "Inter", sans-serif;
+  font-size: clamp(1.9rem, 5vw, 3.6rem);
+  line-height: 1;
+  letter-spacing: -0.06em;
+}
+
+.serviceGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.serviceCard {
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.055);
+  color: #f8fafc;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.serviceCardLive {
+  border-color: rgba(192, 132, 252, 0.28);
+  background:
+    radial-gradient(circle at 18% 0%, rgba(168, 85, 247, 0.18), transparent 56%),
+    rgba(255, 255, 255, 0.07);
+}
+
+.serviceCardLive:hover {
+  border-color: rgba(216, 180, 254, 0.48);
+}
+
+.serviceHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.serviceHeader svg {
+  width: 30px;
+  height: 30px;
+  color: #c084fc;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+}
+
+.serviceHeader svg path:nth-child(2) {
+  fill: currentColor;
+  stroke: none;
+}
+
+.statusLive,
+.statusPlanned {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.statusLive {
+  color: #fff;
+  background: linear-gradient(135deg, #7c3aed, #c084fc);
+}
+
+.statusPlanned {
+  color: #c4c4cf;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.serviceCard h3 {
+  margin: 26px 0 0;
+  color: #fff;
+  font-family: "Outfit", "Inter", sans-serif;
+  font-size: 1.32rem;
+}
+
+.serviceCard p {
+  flex: 1;
+  margin: 12px 0 22px;
+  color: #a1a1aa;
+  line-height: 1.5;
+}
+
+.serviceCard strong {
+  color: #e9d5ff;
+  font-size: 0.84rem;
+}
+
+.bottomBand {
+  margin-bottom: 36px;
+  padding-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -343,14 +472,6 @@
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.055);
   padding: 18px;
-}
-
-.bottomBand span {
-  color: #a78bfa;
-  font-size: 0.72rem;
-  font-weight: 900;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
 }
 
 .bottomBand strong {
@@ -366,23 +487,26 @@
   line-height: 1.45;
 }
 
-@media (max-width: 920px) {
-  .heroGrid {
-    grid-template-columns: 1fr;
+@media (max-width: 1020px) {
+  .heroGrid,
+  .serviceGrid,
+  .bottomBand {
+    grid-template-columns: 1fr 1fr;
   }
 
-  .productCard {
-    min-height: 500px;
+  .copy {
+    grid-column: 1 / -1;
   }
 }
 
-@media (max-width: 640px) {
-  .shell {
-    height: 100vh;
+@media (max-width: 720px) {
+  .hero,
+  .services,
+  .bottomBand {
+    width: min(100% - 28px, 1180px);
   }
 
   .hero {
-    width: min(100% - 28px, 1180px);
     padding-top: 18px;
   }
 
@@ -392,8 +516,23 @@
     margin-bottom: 42px;
   }
 
+  .navLinks {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .navCta {
+    width: 100%;
+  }
+
+  .heroGrid,
+  .serviceGrid,
+  .bottomBand {
+    grid-template-columns: 1fr;
+  }
+
   .copy h1 {
-    font-size: clamp(3.2rem, 17vw, 4.8rem);
+    font-size: clamp(3rem, 15vw, 4.5rem);
   }
 
   .actions {
@@ -401,19 +540,37 @@
   }
 
   .primaryAction,
-  .secondaryAction,
-  .navCta {
+  .secondaryAction {
     width: 100%;
   }
 
-  .productCard {
-    min-height: 440px;
+  .commandPanel {
+    min-height: auto;
     padding: 18px;
     border-radius: 26px;
   }
 
-  .bottomBand {
-    width: min(100% - 28px, 1180px);
+  .musicTile {
     grid-template-columns: 1fr;
+  }
+
+  .musicTile a {
+    width: 100%;
+  }
+
+  .signalGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .signalGrid span {
+    min-height: 70px;
+  }
+
+  .panelFooter {
+    grid-template-columns: 1fr;
+  }
+
+  .serviceCard {
+    min-height: 220px;
   }
 }

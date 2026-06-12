@@ -436,6 +436,43 @@ interface Playlist {
   tracks: Track[];
   gradient: string;
   createdAt: string;
+  shared?: boolean;
+  ownerId?: string;
+  shareRole?: 'listener' | 'editor' | string;
+}
+
+interface PlaylistInvitePreview {
+  token: string;
+  playlist: Playlist;
+  expiresAt?: string | null;
+}
+
+type RemoteCommandType = 'play' | 'pause' | 'toggle' | 'next' | 'previous' | 'seek' | 'volume';
+
+interface RemoteDevice {
+  deviceId: string;
+  displayName: string;
+  currentTrack?: Track | null;
+  queue?: Track[];
+  queueIndex: number;
+  isPlaying: boolean;
+  progress: number;
+  duration: number;
+  volume: number;
+  updatedAt: string;
+  lastSeenSeconds?: number;
+}
+
+interface RemoteCommand {
+  id: string;
+  sourceDeviceId: string;
+  targetDeviceId: string;
+  command: RemoteCommandType;
+  payload?: {
+    progress?: number;
+    volume?: number;
+  };
+  createdAt: string;
 }
 
 interface UserProfile {
@@ -602,6 +639,49 @@ const scrobbleThresholdSeconds = (durationSeconds: number) => {
 
 const randomIndex = (length: number) => Math.floor(Math.random() * length);
 const randomSuffix = () => Math.random().toString(36).substring(2, 5);
+const playlistUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isPlaylistUuid = (id: string) => playlistUuidPattern.test(id);
+
+const createPlaylistId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${randomSuffix()}`;
+};
+
+const ownedPlaylistsOnly = (playlists: Playlist[]) =>
+  playlists.filter((playlist) => !playlist.shared);
+
+const normalizePlaylistSnapshot = (playlist: any): Playlist => ({
+  id: typeof playlist?.id === 'string' && playlist.id ? playlist.id : createPlaylistId(),
+  title: typeof playlist?.title === 'string' && playlist.title ? playlist.title : 'Shared Playlist',
+  description: typeof playlist?.description === 'string' ? playlist.description : '',
+  tracks: Array.isArray(playlist?.tracks) ? playlist.tracks.map(enrichTrackSnapshot) : [],
+  gradient: typeof playlist?.gradient === 'string' && playlist.gradient ? playlist.gradient : PRESET_GRADIENTS[0],
+  createdAt: typeof playlist?.createdAt === 'string' && playlist.createdAt
+    ? playlist.createdAt
+    : new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
+  ...(playlist?.shared ? { shared: true } : {}),
+  ...(typeof playlist?.ownerId === 'string' ? { ownerId: playlist.ownerId } : {}),
+  ...(typeof playlist?.shareRole === 'string' ? { shareRole: playlist.shareRole } : {}),
+});
+
+const createRemoteDeviceId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `device-${Date.now()}-${randomSuffix()}`;
+};
+
+const defaultRemoteDeviceName = () => {
+  if (typeof navigator === 'undefined') return 'SPICE Device';
+  const ua = navigator.userAgent.toLowerCase();
+  if (/iphone|android|mobile/.test(ua)) return 'SPICE Phone';
+  if (/ipad|tablet/.test(ua)) return 'SPICE Tablet';
+  return 'SPICE Desktop';
+};
 
 const sanitizePfpUrl = (url: string): string => {
   const cleaned = url.trim();
@@ -832,6 +912,11 @@ export default function SpiceApp() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newPlTitle, setNewPlTitle] = useState('');
   const [newPlDesc, setNewPlDesc] = useState('');
+  const [sharingPlaylistId, setSharingPlaylistId] = useState<string | null>(null);
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const [invitePreview, setInvitePreview] = useState<PlaylistInvitePreview | null>(null);
+  const [inviteStatus, setInviteStatus] = useState<string | null>(null);
+  const [acceptingInvite, setAcceptingInvite] = useState(false);
 
   // Cloud Sync & Accounts state
   const [cloudToken, setCloudToken] = useState<string | null>(() => {
@@ -852,6 +937,31 @@ export default function SpiceApp() {
   const [syncingStatus, setSyncingStatus] = useState<'idle' | 'syncing' | 'success' | 'error' | null>(null);
   const [dbError, setDbError] = useState<string | null>(null);
   const [isLocalDbFallback, setIsLocalDbFallback] = useState<boolean>(false);
+  const [remoteControlEnabled, setRemoteControlEnabled] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('spice_remote_control_enabled') !== 'false';
+    }
+    return true;
+  });
+  const [remoteDeviceId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('spice_remote_device_id');
+      if (saved) return saved;
+      const created = createRemoteDeviceId();
+      localStorage.setItem('spice_remote_device_id', created);
+      return created;
+    }
+    return 'server-device';
+  });
+  const [remoteDeviceName, setRemoteDeviceName] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('spice_remote_device_name') || defaultRemoteDeviceName();
+    }
+    return 'SPICE Device';
+  });
+  const [remoteDevices, setRemoteDevices] = useState<RemoteDevice[]>([]);
+  const [selectedRemoteDeviceId, setSelectedRemoteDeviceId] = useState('');
+  const [remoteStatus, setRemoteStatus] = useState<string | null>(null);
   const [playerPlacement, setPlayerPlacement] = useState<'bottom' | 'top'>('bottom');
   const [playerViewMode, setPlayerViewMode] = useState<'bar' | 'expanded' | 'mini'>('bar');
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
@@ -1059,6 +1169,10 @@ export default function SpiceApp() {
   const isShuffleRef = useRef(isShuffle);
   const activeProfileRef = useRef(activeProfile);
   const progressRef = useRef(progress);
+  const currentTrackRef = useRef(currentTrack);
+  const isPlayingRef = useRef(isPlaying);
+  const durationRef = useRef(duration);
+  const volumeRef = useRef(volume);
   const errorSkipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const syncLockRef = useRef<boolean>(false);
   const scrobbleStateRef = useRef<ScrobbleState | null>(null);
@@ -1122,7 +1236,7 @@ export default function SpiceApp() {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${cloudToken}`
       },
-      body: JSON.stringify({ playlists: updatedPlaylists, profileId: activeProfileId })
+      body: JSON.stringify({ playlists: ownedPlaylistsOnly(updatedPlaylists), profileId: activeProfileId })
     }).then(res => {
       if (res.ok) logDebug('database', 'Playlists configuration auto-saved to cloud database.');
     }).catch(err => {
@@ -1326,6 +1440,38 @@ export default function SpiceApp() {
     if (!cloudToken) return;
     void restoreLastFmAccountLink(cloudToken);
   }, [cloudToken, restoreLastFmAccountLink]);
+
+  const loadPlaylistInvite = useCallback(async (token: string) => {
+    setInviteStatus('Loading shared playlist invite...');
+    try {
+      const response = await fetch(`/api/playlists/invites/${encodeURIComponent(token)}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.message || 'This shared playlist invite is not available.');
+      }
+
+      setInvitePreview({
+        token,
+        playlist: normalizePlaylistSnapshot(data.playlist),
+        expiresAt: data.invite?.expiresAt || null,
+      });
+      setInviteStatus(cloudToken ? null : 'Sign in to your SPICE account to accept this shared playlist.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load shared playlist invite.';
+      setInviteStatus(message);
+      setInvitePreview(null);
+      logDebug('error', `Shared playlist invite preview failed: ${message}`);
+    }
+  }, [cloudToken, logDebug]);
+
+  useEffect(() => {
+    if (!isMounted || typeof window === 'undefined') return;
+
+    const inviteToken = new URLSearchParams(window.location.search).get('playlistInvite');
+    if (inviteToken) {
+      void loadPlaylistInvite(inviteToken);
+    }
+  }, [isMounted, loadPlaylistInvite]);
 
   // ── YouTube Embedded Player Fallback API Integration ──────────────
   useEffect(() => {
@@ -1665,6 +1811,7 @@ export default function SpiceApp() {
 
       // 4. Pull active profile playlists
       let serverPlaylists: any[] = [];
+      let playlistsPullSucceeded = false;
       try {
         const plRes = await fetchWithRetry(`/api/sync/playlists?profileId=${encodeURIComponent(activeProf.id)}`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -1672,6 +1819,7 @@ export default function SpiceApp() {
         if (plRes.ok) {
           const plData = await plRes.json();
           serverPlaylists = plData.playlists ?? [];
+          playlistsPullSucceeded = true;
           logDebug('database', `[SYNC] [OK] Playlists pulled (${serverPlaylists.length} from cloud)`);
         } else {
           logDebug('database', `[SYNC] [ERROR] Playlists pull failed (Status ${plRes.status}), using local only`);
@@ -1702,27 +1850,34 @@ export default function SpiceApp() {
       });
       const mergedHistory = Array.from(mergedHistoryMap.values()).slice(0, 50);
 
-      const mergedPlaylists = [...localPlaylists];
+      const localOwnedPlaylists = localPlaylists.filter((playlist) => !playlist.shared);
+      const mergedPlaylists = playlistsPullSucceeded ? [...localOwnedPlaylists] : [...localPlaylists];
       serverPlaylists.forEach((serverPl: any) => {
-        const existing = mergedPlaylists.find(pl => pl.title === serverPl.title);
-        if (!existing) {
-          mergedPlaylists.push({
-            id: serverPl.id,
-            title: serverPl.title,
-            description: serverPl.description || '',
-            gradient: serverPl.gradient || PRESET_GRADIENTS[0],
-            createdAt: serverPl.createdAt || new Date().toLocaleDateString(),
-            tracks: (serverPl.tracks || []).map(enrichTrackSnapshot)
-          });
+        const incoming = normalizePlaylistSnapshot(serverPl);
+        const existingIndex = mergedPlaylists.findIndex((playlist) => (
+          playlist.id === incoming.id || (!playlist.shared && !incoming.shared && playlist.title === incoming.title)
+        ));
+
+        if (existingIndex === -1) {
+          mergedPlaylists.push(incoming);
         } else {
-          serverPl.tracks.forEach((t: any) => {
-            const existingIndex = existing.tracks.findIndex((track) => track.id === t.id);
-            if (existingIndex === -1) {
-              existing.tracks.push(t);
+          const existing = mergedPlaylists[existingIndex];
+          const mergedTracks = [...existing.tracks];
+          incoming.tracks.forEach((track) => {
+            const trackIndex = mergedTracks.findIndex((existingTrack) => (
+              `${existingTrack.sourceId ?? 'youtube_music'}:${existingTrack.id}` === `${track.sourceId ?? 'youtube_music'}:${track.id}`
+            ));
+            if (trackIndex === -1) {
+              mergedTracks.push(track);
             } else {
-              existing.tracks[existingIndex] = enrichTrackSnapshot(mergeTrackSnapshots(existing.tracks[existingIndex], t));
+              mergedTracks[trackIndex] = enrichTrackSnapshot(mergeTrackSnapshots(mergedTracks[trackIndex], track));
             }
           });
+          mergedPlaylists[existingIndex] = {
+            ...existing,
+            ...incoming,
+            tracks: mergedTracks,
+          };
         }
       });
 
@@ -1801,7 +1956,7 @@ export default function SpiceApp() {
       const pushEndpoints = [
         { label: 'Likes', url: '/api/sync/likes', body: { likedTracks: mergedLikesArray, likedTrackDetails: mergedLikedDetails, profileId: activeProf.id } },
         { label: 'History', url: '/api/sync/history', body: { history: mergedHistory, profileId: activeProf.id } },
-        { label: 'Playlists', url: '/api/sync/playlists', body: { playlists: mergedPlaylists, profileId: activeProf.id } },
+        { label: 'Playlists', url: '/api/sync/playlists', body: { playlists: ownedPlaylistsOnly(mergedPlaylists), profileId: activeProf.id } },
         { label: 'Profiles', url: '/api/sync/profiles', body: { profiles: finalProfiles } },
       ];
 
@@ -2029,6 +2184,10 @@ export default function SpiceApp() {
   useEffect(() => { isShuffleRef.current = isShuffle; }, [isShuffle]);
   useEffect(() => { activeProfileRef.current = activeProfile; }, [activeProfile]);
   useEffect(() => { progressRef.current = progress; }, [progress]);
+  useEffect(() => { currentTrackRef.current = currentTrack; }, [currentTrack]);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
+  useEffect(() => { durationRef.current = duration; }, [duration]);
+  useEffect(() => { volumeRef.current = volume; }, [volume]);
 
   async function submitProfileListen(type: ProfileListenType, listenedAt: number) {
     if (!profileSyncEnabled || currentTrack.id === 'placeholder') return;
@@ -2681,6 +2840,214 @@ export default function SpiceApp() {
     setProgress(seekTime);
   };
 
+  const seekToPosition = (seekTime: number) => {
+    const safeDuration = durationRef.current || duration || 0;
+    const safeSeek = Math.max(0, Math.min(seekTime, safeDuration || seekTime));
+
+    setProgress(safeSeek);
+    const targetTrack = currentTrackRef.current;
+    if (streamProtocolRef.current === 'embed' && isYouTubeTrack(targetTrack) && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+      ytPlayerRef.current.seekTo(safeSeek, true);
+    }
+    if (audioRef.current) {
+      audioRef.current.currentTime = safeSeek;
+    }
+  };
+
+  const reportRemoteDeviceState = async () => {
+    if (!cloudToken || !remoteControlEnabled) return;
+
+    const targetTrack = currentTrackRef.current;
+    const currentQueue = queueRef.current || [];
+    try {
+      const response = await fetch('/api/remote/devices', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cloudToken}`,
+        },
+        body: JSON.stringify({
+          deviceId: remoteDeviceId,
+          displayName: remoteDeviceName,
+          currentTrack: targetTrack.id === 'placeholder' ? null : targetTrack,
+          queue: currentQueue.slice(0, 80),
+          queueIndex: queueIndexRef.current,
+          isPlaying: isPlayingRef.current,
+          progress: progressRef.current,
+          duration: durationRef.current,
+          volume: volumeRef.current,
+        }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || `Remote state update failed with status ${response.status}.`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Remote state update failed.';
+      setRemoteStatus(message);
+      logDebug('error', `Remote device state failed: ${message}`);
+    }
+  };
+
+  const loadRemoteDevices = async (showStatus = false) => {
+    if (!cloudToken || !remoteControlEnabled) return;
+
+    try {
+      const response = await fetch('/api/remote/devices', {
+        headers: { Authorization: `Bearer ${cloudToken}` },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.message || `Remote device load failed with status ${response.status}.`);
+      }
+
+      const devices = Array.isArray(data.devices)
+        ? data.devices.map((device: RemoteDevice) => ({
+            ...device,
+            currentTrack: device.currentTrack ? enrichTrackSnapshot(device.currentTrack) : null,
+            queue: Array.isArray(device.queue) ? device.queue.map(enrichTrackSnapshot) : [],
+            lastSeenSeconds: Math.max(0, Math.round((Date.now() - new Date(device.updatedAt).getTime()) / 1000)),
+          }))
+        : [];
+      setRemoteDevices(devices);
+
+      const availableTarget = devices.find((device: RemoteDevice) => device.deviceId !== remoteDeviceId);
+      setSelectedRemoteDeviceId((current) => (
+        current && devices.some((device: RemoteDevice) => device.deviceId === current && device.deviceId !== remoteDeviceId)
+          ? current
+          : availableTarget?.deviceId || ''
+      ));
+
+      if (showStatus) {
+        setRemoteStatus(`Found ${Math.max(devices.length - 1, 0)} controllable device(s).`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Remote device load failed.';
+      setRemoteStatus(message);
+      logDebug('error', `Remote device load failed: ${message}`);
+    }
+  };
+
+  const applyRemoteCommand = (command: RemoteCommand) => {
+    if (command.sourceDeviceId === remoteDeviceId) return;
+
+    switch (command.command) {
+      case 'play':
+        if (!isPlayingRef.current) togglePlayPause();
+        break;
+      case 'pause':
+        if (isPlayingRef.current) togglePlayPause();
+        break;
+      case 'toggle':
+        togglePlayPause();
+        break;
+      case 'next':
+        handleNextRef.current();
+        break;
+      case 'previous':
+        handlePrev();
+        break;
+      case 'seek': {
+        const seekTime = Number(command.payload?.progress);
+        if (Number.isFinite(seekTime)) seekToPosition(seekTime);
+        break;
+      }
+      case 'volume': {
+        const nextVolume = Number(command.payload?.volume);
+        if (Number.isFinite(nextVolume)) {
+          setVolume(Math.max(0, Math.min(100, Math.round(nextVolume))));
+        }
+        break;
+      }
+    }
+
+    setRemoteStatus(`Remote command received: ${command.command}.`);
+  };
+
+  const pollRemoteCommands = async () => {
+    if (!cloudToken || !remoteControlEnabled) return;
+
+    try {
+      const response = await fetch(`/api/remote/commands?deviceId=${encodeURIComponent(remoteDeviceId)}`, {
+        headers: { Authorization: `Bearer ${cloudToken}` },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.message || `Remote command poll failed with status ${response.status}.`);
+      }
+
+      const commands = Array.isArray(data.commands) ? data.commands as RemoteCommand[] : [];
+      commands.forEach(applyRemoteCommand);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Remote command poll failed.';
+      setRemoteStatus(message);
+      logDebug('error', `Remote command poll failed: ${message}`);
+    }
+  };
+
+  const sendRemoteCommand = async (command: RemoteCommandType, payload: RemoteCommand['payload'] = {}) => {
+    if (!cloudToken) {
+      setRemoteStatus('Sign in to use remote control.');
+      return;
+    }
+    if (!selectedRemoteDeviceId) {
+      setRemoteStatus('Choose another signed-in device first.');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/remote/commands', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cloudToken}`,
+        },
+        body: JSON.stringify({
+          sourceDeviceId: remoteDeviceId,
+          targetDeviceId: selectedRemoteDeviceId,
+          command,
+          payload,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.message || `Remote command failed with status ${response.status}.`);
+      }
+
+      setRemoteStatus(`Sent ${command} to remote device.`);
+      void loadRemoteDevices();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Remote command failed.';
+      setRemoteStatus(message);
+      logDebug('error', `Remote command send failed: ${message}`);
+    }
+  };
+
+  useEffect(() => {
+    if (!isMounted || !cloudToken || !remoteControlEnabled) return;
+
+    void reportRemoteDeviceState();
+    void loadRemoteDevices();
+
+    const interval = setInterval(() => {
+      void reportRemoteDeviceState();
+      void loadRemoteDevices();
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [isMounted, cloudToken, remoteControlEnabled, remoteDeviceId, remoteDeviceName]);
+
+  useEffect(() => {
+    if (!isMounted || !cloudToken || !remoteControlEnabled) return;
+
+    void pollRemoteCommands();
+    const interval = setInterval(() => {
+      void pollRemoteCommands();
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [isMounted, cloudToken, remoteControlEnabled, remoteDeviceId]);
+
   const fetchSearchProviderResults = async (query: string, provider: SearchProvider) => {
     const fetchProvider = async (targetProvider: Exclude<SearchProvider, 'hybrid'>, limit: number) => {
       const params = new URLSearchParams({
@@ -2773,12 +3140,20 @@ export default function SpiceApp() {
   };
 
   // Playlists Operations
+  const persistCustomPlaylists = (updated: Playlist[], syncOwnedPlaylists = true) => {
+    setCustomPlaylists(updated);
+    updateActiveProfileData({ customPlaylists: updated });
+    if (syncOwnedPlaylists) {
+      autoSyncPlaylists(updated);
+    }
+  };
+
   const createPlaylist = (e: FormEvent) => {
     e.preventDefault();
     if (!newPlTitle.trim()) return;
 
     const newPlaylist: Playlist = {
-      id: Date.now().toString(),
+      id: createPlaylistId(),
       title: newPlTitle,
       description: newPlDesc || 'Custom Spice compilation.',
       tracks: [],
@@ -2787,25 +3162,58 @@ export default function SpiceApp() {
     };
 
     const updated = [...customPlaylists, newPlaylist];
-    setCustomPlaylists(updated);
-    updateActiveProfileData({ customPlaylists: updated });
-    autoSyncPlaylists(updated);
+    persistCustomPlaylists(updated);
 
     setNewPlTitle('');
     setNewPlDesc('');
     setShowCreateDialog(false);
   };
 
-  const deletePlaylist = (playlistId: string) => {
+  const deletePlaylist = async (playlistId: string) => {
+    const target = customPlaylists.find(pl => pl.id === playlistId);
+    if (!target) return;
+
+    if (target.shared) {
+      if (!confirm('Leave this shared playlist? It will be removed from your library.')) return;
+      if (cloudToken && isPlaylistUuid(target.id)) {
+        try {
+          const response = await fetch(`/api/playlists/shared/${encodeURIComponent(target.id)}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${cloudToken}` },
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(data.message || 'Failed to leave shared playlist.');
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Failed to leave shared playlist.';
+          setShareStatus(message);
+          logDebug('error', `Leave shared playlist failed: ${message}`);
+          return;
+        }
+      } else if (!cloudToken) {
+        setShareStatus('Removed locally. Sign in to leave account-backed shared playlists permanently.');
+      }
+
+      const updated = customPlaylists.filter(pl => pl.id !== playlistId);
+      persistCustomPlaylists(updated, false);
+      setSelectedPlaylist(null);
+      return;
+    }
+
     if (!confirm('Are you sure you want to delete this playlist?')) return;
     const updated = customPlaylists.filter(pl => pl.id !== playlistId);
-    setCustomPlaylists(updated);
-    updateActiveProfileData({ customPlaylists: updated });
-    autoSyncPlaylists(updated);
+    persistCustomPlaylists(updated);
     setSelectedPlaylist(null);
   };
 
   const addTrackToPlaylist = (track: Track, playlistId: string) => {
+    const target = customPlaylists.find(pl => pl.id === playlistId);
+    if (target?.shared) {
+      setShareStatus('Shared playlists are read-only in this version.');
+      return;
+    }
+
     rememberTrackSnapshots([track]);
     const updated = customPlaylists.map(pl => {
       if (pl.id === playlistId) {
@@ -2814,9 +3222,7 @@ export default function SpiceApp() {
       }
       return pl;
     });
-    setCustomPlaylists(updated);
-    updateActiveProfileData({ customPlaylists: updated });
-    autoSyncPlaylists(updated);
+    persistCustomPlaylists(updated);
 
     if (selectedPlaylist && selectedPlaylist.id === playlistId) {
       setSelectedPlaylist(updated.find(p => p.id === playlistId) || null);
@@ -2824,22 +3230,150 @@ export default function SpiceApp() {
   };
 
   const removeTrackFromPlaylist = (trackId: string, playlistId: string) => {
+    const target = customPlaylists.find(pl => pl.id === playlistId);
+    if (target?.shared) {
+      setShareStatus('Shared playlists are read-only in this version.');
+      return;
+    }
+
     const updated = customPlaylists.map(pl => {
       if (pl.id === playlistId) {
         return { ...pl, tracks: pl.tracks.filter(t => t.id !== trackId) };
       }
       return pl;
     });
-    setCustomPlaylists(updated);
-    updateActiveProfileData({ customPlaylists: updated });
-    autoSyncPlaylists(updated);
+    persistCustomPlaylists(updated);
 
     if (selectedPlaylist && selectedPlaylist.id === playlistId) {
       setSelectedPlaylist(updated.find(p => p.id === playlistId) || null);
     }
   };
 
+  const sharePlaylist = async (playlist: Playlist) => {
+    if (playlist.shared) {
+      setShareStatus('Shared playlists can only be shared by their owner.');
+      return;
+    }
+
+    if (!cloudToken) {
+      setShareStatus('Sign in to your SPICE account before creating share links.');
+      return;
+    }
+
+    setSharingPlaylistId(playlist.id);
+    setShareStatus('Saving playlist before creating a share link...');
+
+    try {
+      let shareablePlaylist = playlist;
+      let updatedPlaylists = customPlaylists;
+
+      if (!isPlaylistUuid(playlist.id)) {
+        shareablePlaylist = { ...playlist, id: createPlaylistId() };
+        updatedPlaylists = customPlaylists.map(pl => pl.id === playlist.id ? shareablePlaylist : pl);
+        setSharingPlaylistId(shareablePlaylist.id);
+        persistCustomPlaylists(updatedPlaylists);
+        if (selectedPlaylist?.id === playlist.id) {
+          setSelectedPlaylist(shareablePlaylist);
+        }
+      }
+
+      const syncResponse = await fetch('/api/sync/playlists', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cloudToken}`,
+        },
+        body: JSON.stringify({
+          playlists: ownedPlaylistsOnly(updatedPlaylists),
+          profileId: activeProfileId,
+        }),
+      });
+      const syncData = await syncResponse.json().catch(() => ({}));
+      if (!syncResponse.ok) {
+        throw new Error(syncData.message || 'Could not save playlist before sharing.');
+      }
+
+      const inviteResponse = await fetch('/api/playlists/invites', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cloudToken}`,
+        },
+        body: JSON.stringify({ playlistId: shareablePlaylist.id }),
+      });
+      const inviteData = await inviteResponse.json().catch(() => ({}));
+      if (!inviteResponse.ok) {
+        throw new Error(inviteData.message || 'Could not create playlist invite.');
+      }
+
+      const inviteUrl = inviteData.inviteUrl as string;
+      let copied = false;
+      if (inviteUrl && navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(inviteUrl);
+          copied = true;
+        } catch {}
+      }
+
+      setShareStatus(copied ? 'Share link copied to clipboard.' : `Share link ready: ${inviteUrl}`);
+      logDebug('database', `Created shared playlist invite for "${shareablePlaylist.title}".`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to share playlist.';
+      setShareStatus(message);
+      logDebug('error', `Share playlist failed: ${message}`);
+    } finally {
+      setSharingPlaylistId(null);
+    }
+  };
+
+  const acceptSharedPlaylistInvite = async () => {
+    if (!invitePreview) return;
+    if (!cloudToken) {
+      setInviteStatus('Sign in to your SPICE account first, then accept the invite.');
+      setCurrentPage('account');
+      return;
+    }
+
+    setAcceptingInvite(true);
+    setInviteStatus('Accepting shared playlist...');
+    try {
+      const response = await fetch(`/api/playlists/invites/${encodeURIComponent(invitePreview.token)}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${cloudToken}` },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to accept shared playlist invite.');
+      }
+
+      const acceptedPlaylist = normalizePlaylistSnapshot(data.playlist);
+      const updated = [
+        acceptedPlaylist,
+        ...customPlaylists.filter(pl => pl.id !== acceptedPlaylist.id),
+      ];
+      rememberTrackSnapshots(acceptedPlaylist.tracks);
+      persistCustomPlaylists(updated, false);
+      setSelectedPlaylist(acceptedPlaylist);
+      setCurrentPage('library');
+      setInvitePreview(null);
+      setInviteStatus(null);
+      if (typeof window !== 'undefined') {
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+      logDebug('database', `Accepted shared playlist "${acceptedPlaylist.title}".`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to accept shared playlist.';
+      setInviteStatus(message);
+      logDebug('error', `Accept shared playlist failed: ${message}`);
+    } finally {
+      setAcceptingInvite(false);
+    }
+  };
+
   const likedTracksList = Object.values(likedTrackDetails);
+  const editablePlaylists = customPlaylists.filter((playlist) => !playlist.shared);
+  const remoteTargetDevices = remoteDevices.filter((device) => device.deviceId !== remoteDeviceId);
+  const selectedRemoteDevice = remoteTargetDevices.find((device) => device.deviceId === selectedRemoteDeviceId) || null;
   const getLikedTrackClickHandler = (track: Track) => () => {
     playTrack(track);
   };
@@ -3063,7 +3597,7 @@ export default function SpiceApp() {
 
       // Add as custom playlist
       const newPlaylist: Playlist = {
-        id: 'imported_' + Date.now(),
+        id: createPlaylistId(),
         title: playlistData.title || 'YT Import',
         description: playlistData.description || 'Imported YouTube playlist.',
         tracks,
@@ -3072,8 +3606,7 @@ export default function SpiceApp() {
       };
 
       const updated = [...customPlaylists, newPlaylist];
-      setCustomPlaylists(updated);
-      updateActiveProfileData({ customPlaylists: updated });
+      persistCustomPlaylists(updated);
 
       setPlaylistImportSuccess(`Successfully imported "${playlistData.title}" with ${tracks.length} tracks!`);
       setYtPlaylistLink('');
@@ -3617,7 +4150,10 @@ export default function SpiceApp() {
                 }}
               >
                 {Icons.playlist}
-                <span className="truncate">{pl.title}</span>
+                <span className="sidebar__playlist-title">
+                  <span className="truncate">{pl.title}</span>
+                  {pl.shared && <span className="playlist-shared-pill">Shared</span>}
+                </span>
               </button>
             ))
           )}
@@ -3657,11 +4193,13 @@ export default function SpiceApp() {
                     )}
                   </div>
                   <div className="playlist-detail-banner__info">
-                    <span className="playlist-detail-banner__tag">Playlist</span>
+                    <span className="playlist-detail-banner__tag">
+                      {selectedPlaylist.shared ? 'Shared playlist' : 'Playlist'}
+                    </span>
                     <h1 className="playlist-detail-banner__title">{selectedPlaylist.title}</h1>
                     <p className="playlist-detail-banner__desc">{selectedPlaylist.description}</p>
                     <p className="playlist-detail-banner__meta">
-                      Created on {selectedPlaylist.createdAt} · {selectedPlaylist.tracks.length} tracks
+                      {selectedPlaylist.shared ? 'Shared with you' : `Created on ${selectedPlaylist.createdAt}`} · {selectedPlaylist.tracks.length} tracks
                     </p>
                     <div className="playlist-detail-banner__actions">
                       {selectedPlaylist.tracks.length > 0 && (
@@ -3672,14 +4210,27 @@ export default function SpiceApp() {
                           {Icons.play} Play
                         </button>
                       )}
+                      {!selectedPlaylist.shared && (
+                        <button
+                          className="btn btn--ghost"
+                          onClick={() => sharePlaylist(selectedPlaylist)}
+                          disabled={sharingPlaylistId === selectedPlaylist.id}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                        >
+                          {Icons.clipboard} {sharingPlaylistId === selectedPlaylist.id ? 'Preparing Link' : 'Share Playlist'}
+                        </button>
+                      )}
                       <button 
                         className="btn btn--danger" 
                         onClick={() => deletePlaylist(selectedPlaylist.id)}
                         style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(239, 68, 68, 0.2)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#f87171' }}
                       >
-                        {Icons.trash} Delete Playlist
+                        {Icons.trash} {selectedPlaylist.shared ? 'Leave Playlist' : 'Delete Playlist'}
                       </button>
                     </div>
+                    {shareStatus && (
+                      <p className="playlist-share-status">{shareStatus}</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -3688,10 +4239,14 @@ export default function SpiceApp() {
                 {selectedPlaylist.tracks.length === 0 ? (
                   <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--text-secondary)', background: 'var(--card-bg)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
                     <p style={{ fontSize: '1.2rem', marginBottom: '8px', color: '#fff' }}>This playlist is empty</p>
-                    <p style={{ fontSize: '0.9rem', marginBottom: '16px' }}>Search and add your favorite tracks</p>
-                    <button className="btn btn--primary" onClick={() => { setSelectedPlaylist(null); setCurrentPage('search'); }}>
-                      Search Tracks
-                    </button>
+                    <p style={{ fontSize: '0.9rem', marginBottom: '16px' }}>
+                      {selectedPlaylist.shared ? 'The owner has not added tracks yet.' : 'Search and add your favorite tracks'}
+                    </p>
+                    {!selectedPlaylist.shared && (
+                      <button className="btn btn--primary" onClick={() => { setSelectedPlaylist(null); setCurrentPage('search'); }}>
+                        Search Tracks
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="library-list">
@@ -3711,14 +4266,16 @@ export default function SpiceApp() {
                             </span>
                           </div>
 
-                          <button
-                            className="library-item__action"
-                            style={{ opacity: 1, color: '#ef4444', marginRight: '8px' }}
-                            onClick={() => removeTrackFromPlaylist(song.id, selectedPlaylist.id)}
-                            title="Remove from playlist"
-                          >
-                            {Icons.trash}
-                          </button>
+                          {!selectedPlaylist.shared && (
+                            <button
+                              className="library-item__action"
+                              style={{ opacity: 1, color: '#ef4444', marginRight: '8px' }}
+                              onClick={() => removeTrackFromPlaylist(song.id, selectedPlaylist.id)}
+                              title="Remove from playlist"
+                            >
+                              {Icons.trash}
+                            </button>
+                          )}
 
                           <button
                             className="library-item__action"
@@ -3740,8 +4297,8 @@ export default function SpiceApp() {
               {currentPage === 'home' && (
                 <>
                   {/* cover greetings header */}
-                  <section style={{ marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', padding: '28px', borderRadius: '16px', backdropFilter: 'blur(10px)' }} className="animate-in">
-                    <div>
+                  <section style={{ marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-color)', padding: '28px', borderRadius: '16px', backdropFilter: 'blur(10px)' }} className="home-greeting animate-in">
+                    <div className="home-greeting__copy">
                       <h1 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '2.25rem', fontWeight: 800, margin: '0 0 6px 0', background: activeProfile.gradient, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                         Welcome back, {activeProfile.displayName}!
                       </h1>
@@ -3749,7 +4306,7 @@ export default function SpiceApp() {
                         Discover, stream, and sync your favorite music on the ultimate closed-source player.
                       </p>
                     </div>
-                    <div style={{ width: '96px', height: '96px', borderRadius: '50%', background: activeProfile.avatarUrl ? 'none' : activeProfile.gradient, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', fontWeight: 900, color: '#fff', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', textShadow: activeProfile.avatarUrl ? 'none' : '0 2px 8px rgba(0,0,0,0.3)', flexShrink: 0, overflow: 'hidden', border: '3px solid rgba(255, 255, 255, 0.1)' }}>
+                    <div className="home-greeting__avatar" style={{ width: '96px', height: '96px', borderRadius: '50%', background: activeProfile.avatarUrl ? 'none' : activeProfile.gradient, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', fontWeight: 900, color: '#fff', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', textShadow: activeProfile.avatarUrl ? 'none' : '0 2px 8px rgba(0,0,0,0.3)', flexShrink: 0, overflow: 'hidden', border: '3px solid rgba(255, 255, 255, 0.1)' }}>
                       {activeProfile.avatarUrl ? (
                         <img src={activeProfile.avatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       ) : (
@@ -3774,7 +4331,9 @@ export default function SpiceApp() {
                                 <div className="card__play-overlay">{Icons.play}</div>
                               </div>
                               <div className="card__title truncate" style={{ marginTop: '8px', fontWeight: 600 }}>{pl.title}</div>
-                              <div className="card__subtitle truncate">{pl.tracks.length} tracks</div>
+                              <div className="card__subtitle truncate">
+                                {pl.tracks.length} tracks{pl.shared ? ' | Shared' : ''}
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -3835,9 +4394,9 @@ export default function SpiceApp() {
                       <h2 className="section__title">Quick Picks</h2>
                     </div>
                     {isLoadingHome ? (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '16px' }}>
+                      <div className="quick-grid quick-grid--skeleton">
                         {[...Array(6)].map((_, i) => (
-                          <div key={i} style={{ height: '80px', background: 'var(--card-bg)', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}></div>
+                          <div key={i} className="quick-card-skeleton"></div>
                         ))}
                       </div>
                     ) : (
@@ -3965,7 +4524,7 @@ export default function SpiceApp() {
                               </div>
                               
                               {/* Custom Playlist Selector */}
-                              {customPlaylists.length > 0 && (
+                              {editablePlaylists.length > 0 && (
                                 <select 
                                   onChange={(e) => {
                                     if (e.target.value) {
@@ -3977,7 +4536,7 @@ export default function SpiceApp() {
                                   style={{ background: 'var(--card-bg)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.8rem', padding: '6px 10px', cursor: 'pointer', outline: 'none', marginRight: '8px' }}
                                 >
                                   <option value="">+ Add Playlist</option>
-                                  {customPlaylists.map(pl => (
+                                  {editablePlaylists.map(pl => (
                                     <option key={pl.id} value={pl.id}>{pl.title}</option>
                                   ))}
                                 </select>
@@ -4063,7 +4622,9 @@ export default function SpiceApp() {
                             <div className="playlist-card__overlay"></div>
                             <div className="playlist-card__info">
                               <h3 className="playlist-card__title truncate">{pl.title}</h3>
-                              <p className="playlist-card__desc">{pl.tracks.length} songs</p>
+                              <p className="playlist-card__desc">
+                                {pl.tracks.length} songs{pl.shared ? ' | Shared' : ''}
+                              </p>
                             </div>
                           </div>
                         ))
@@ -4147,7 +4708,7 @@ export default function SpiceApp() {
                                   {song.artists.map(a => a.name).join(', ')}
                                 </span>
                               </div>
-                              {customPlaylists.length > 0 && (
+                              {editablePlaylists.length > 0 && (
                                 <select 
                                   onChange={(e) => {
                                     if (e.target.value) {
@@ -4160,7 +4721,7 @@ export default function SpiceApp() {
                                   style={{ background: 'var(--card-bg)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.8rem', padding: '6px 10px', cursor: 'pointer', outline: 'none', marginRight: '8px' }}
                                 >
                                   <option value="">+ Add Playlist</option>
-                                  {customPlaylists.map(pl => (
+                                  {editablePlaylists.map(pl => (
                                     <option key={pl.id} value={pl.id}>{pl.title}</option>
                                   ))}
                                 </select>
@@ -4980,6 +5541,136 @@ export default function SpiceApp() {
                     </div>
                   </div>
 
+                  {/* Remote Control Settings */}
+                  <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
+                    <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: '#fff', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>{Icons.monitor} Account Remote Control</h3>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 20px 0', lineHeight: 1.4 }}>
+                      Let signed-in devices on the same SPICE account control each other through the backend. This uses lightweight polling, so commands can take a couple seconds to land.
+                    </p>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 0.85fr) minmax(0, 1.15fr)', gap: '20px', alignItems: 'start' }}>
+                      <div style={{ border: '1px solid var(--border-color)', borderRadius: '12px', padding: '16px', background: '#070707' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#fff', fontSize: '0.85rem', fontWeight: 700, marginBottom: '14px' }}>
+                          <input
+                            type="checkbox"
+                            checked={remoteControlEnabled}
+                            onChange={(e) => {
+                              setRemoteControlEnabled(e.target.checked);
+                              localStorage.setItem('spice_remote_control_enabled', String(e.target.checked));
+                              setRemoteStatus(e.target.checked ? 'Remote control enabled on this device.' : 'Remote control disabled on this device.');
+                            }}
+                            style={{ accentColor: 'var(--accent-pink)' }}
+                          />
+                          Enable this device for remote control
+                        </label>
+
+                        <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>This Device Name</label>
+                        <input
+                          type="text"
+                          value={remoteDeviceName}
+                          onChange={(e) => {
+                            setRemoteDeviceName(e.target.value);
+                            localStorage.setItem('spice_remote_device_name', e.target.value);
+                          }}
+                          placeholder="Living room laptop"
+                          style={{ width: '100%', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', marginBottom: '12px' }}
+                        />
+
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.74rem', lineHeight: 1.4, margin: 0 }}>
+                          Device ID: {remoteDeviceId.slice(0, 8)}. Sign in on another device with the same account, keep SPICE open, then choose it here.
+                        </p>
+                      </div>
+
+                      <div style={{ border: '1px solid var(--border-color)', borderRadius: '12px', padding: '16px', background: '#070707' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                          <div>
+                            <div style={{ color: '#fff', fontWeight: 800, fontSize: '0.92rem' }}>Control Another Device</div>
+                            <p style={{ color: 'var(--text-secondary)', fontSize: '0.74rem', lineHeight: 1.4, margin: '4px 0 0 0' }}>
+                              {cloudToken ? `${remoteTargetDevices.length} other device(s) visible on this account.` : 'Sign in to SPICE to see account devices.'}
+                            </p>
+                          </div>
+                          <button
+                            className="btn btn--ghost"
+                            onClick={() => {
+                              void reportRemoteDeviceState();
+                              void loadRemoteDevices(true);
+                            }}
+                            disabled={!cloudToken || !remoteControlEnabled}
+                            style={{ padding: '8px 12px', fontSize: '0.78rem', whiteSpace: 'nowrap' }}
+                          >
+                            Refresh
+                          </button>
+                        </div>
+
+                        <select
+                          value={selectedRemoteDeviceId}
+                          onChange={(e) => setSelectedRemoteDeviceId(e.target.value)}
+                          disabled={!cloudToken || !remoteControlEnabled || remoteTargetDevices.length === 0}
+                          style={{ width: '100%', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', cursor: 'pointer', marginBottom: '14px' }}
+                        >
+                          <option value="">{remoteTargetDevices.length === 0 ? 'No other account devices yet' : 'Choose a device'}</option>
+                          {remoteTargetDevices.map((device) => (
+                            <option key={device.deviceId} value={device.deviceId}>
+                              {device.displayName} - {device.isPlaying ? 'Playing' : 'Idle'}
+                            </option>
+                          ))}
+                        </select>
+
+                        {selectedRemoteDevice && (
+                          <div style={{ display: 'grid', gap: '14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)', background: '#0a0a0a' }}>
+                              <img
+                                src={selectedRemoteDevice.currentTrack?.artworkUrl || '/icon.svg'}
+                                alt=""
+                                style={{ width: '48px', height: '48px', borderRadius: '10px', objectFit: 'cover', flexShrink: 0 }}
+                              />
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <div className="truncate" style={{ color: '#fff', fontWeight: 800, fontSize: '0.86rem' }}>
+                                  {selectedRemoteDevice.currentTrack?.title || 'No active track'}
+                                </div>
+                                <div className="truncate" style={{ color: 'var(--text-secondary)', fontSize: '0.74rem', marginTop: '2px' }}>
+                                  {selectedRemoteDevice.currentTrack?.artists?.map((artist) => artist.name).join(', ') || selectedRemoteDevice.displayName}
+                                </div>
+                                <div style={{ color: 'var(--text-muted)', fontSize: '0.68rem', marginTop: '4px' }}>
+                                  Last seen {selectedRemoteDevice.lastSeenSeconds ?? 0}s ago
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                              <button className="btn btn--ghost" onClick={() => sendRemoteCommand('previous')} style={{ padding: '8px 12px' }}>{Icons.prev} Previous</button>
+                              <button className="btn btn--primary" onClick={() => sendRemoteCommand(selectedRemoteDevice.isPlaying ? 'pause' : 'play')} style={{ padding: '8px 14px' }}>
+                                {selectedRemoteDevice.isPlaying ? Icons.pause : Icons.play} {selectedRemoteDevice.isPlaying ? 'Pause' : 'Play'}
+                              </button>
+                              <button className="btn btn--ghost" onClick={() => sendRemoteCommand('next')} style={{ padding: '8px 12px' }}>{Icons.next} Next</button>
+                              <button className="btn btn--ghost" onClick={() => sendRemoteCommand('seek', { progress: Math.max(0, selectedRemoteDevice.progress - 15) })} style={{ padding: '8px 12px' }}>-15s</button>
+                              <button className="btn btn--ghost" onClick={() => sendRemoteCommand('seek', { progress: Math.min(selectedRemoteDevice.duration || selectedRemoteDevice.progress + 15, selectedRemoteDevice.progress + 15) })} style={{ padding: '8px 12px' }}>+15s</button>
+                            </div>
+
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+                              Remote Volume
+                              <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                defaultValue={selectedRemoteDevice.volume}
+                                onMouseUp={(e) => sendRemoteCommand('volume', { volume: Number((e.target as HTMLInputElement).value) })}
+                                onTouchEnd={(e) => sendRemoteCommand('volume', { volume: Number((e.target as HTMLInputElement).value) })}
+                                style={{ flex: 1, accentColor: 'var(--accent-pink)' }}
+                              />
+                            </label>
+                          </div>
+                        )}
+
+                        {remoteStatus && (
+                          <p style={{ color: remoteStatus.includes('failed') || remoteStatus.includes('Sign in') ? '#f87171' : 'var(--text-secondary)', fontSize: '0.74rem', lineHeight: 1.4, margin: '12px 0 0 0' }}>
+                            {remoteStatus}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Cache & Safety Controls */}
                   <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
                     <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: '#fff', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>{Icons.shield} Caches & System Integrity</h3>
@@ -5024,7 +5715,7 @@ export default function SpiceApp() {
                         {Icons.tool} System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        Spice Media Core v1.0.22 (Phase 18 Account-backed Last.fm Links)
+                        Spice Media Core v1.0.26 (Phase 22 Mobile Polish)
                       </span>
                     </div>
 
@@ -5307,6 +5998,67 @@ export default function SpiceApp() {
 
         </div>
       </main>
+
+      {invitePreview && (
+        <div className="dialog-overlay" onClick={() => setInvitePreview(null)}>
+          <div className="dialog-box dialog-box--wide" onClick={(e) => e.stopPropagation()}>
+            <div className="playlist-invite-dialog__header">
+              <div className="playlist-invite-dialog__icon">{Icons.playlist}</div>
+              <div>
+                <h2>Shared playlist invite</h2>
+                <p>{invitePreview.playlist.tracks.length} tracks available from this shared playlist.</p>
+              </div>
+            </div>
+
+            <div className="playlist-invite-dialog__preview">
+              <div className="playlist-invite-dialog__cover" style={{ background: invitePreview.playlist.gradient }}>
+                {invitePreview.playlist.tracks[0]?.artworkUrl ? (
+                  <img src={invitePreview.playlist.tracks[0].artworkUrl} alt="" />
+                ) : (
+                  Icons.musicFolder
+                )}
+              </div>
+              <div>
+                <h3>{invitePreview.playlist.title}</h3>
+                <p>{invitePreview.playlist.description || 'A shared SPICE playlist.'}</p>
+                {invitePreview.expiresAt && (
+                  <span>Invite expires {new Date(invitePreview.expiresAt).toLocaleDateString()}</span>
+                )}
+              </div>
+            </div>
+
+            {invitePreview.playlist.tracks.length > 0 && (
+              <div className="playlist-invite-dialog__tracks">
+                {invitePreview.playlist.tracks.slice(0, 3).map((track) => (
+                  <div key={`${track.sourceId ?? 'youtube_music'}:${track.id}`}>
+                    <span>{track.title}</span>
+                    <small>{track.artists.map((artist) => artist.name).join(', ') || 'Unknown artist'}</small>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {inviteStatus && (
+              <p className="playlist-invite-dialog__status">{inviteStatus}</p>
+            )}
+
+            <div className="dialog-box__actions">
+              <button type="button" className="btn btn--ghost" style={{ padding: '8px 16px' }} onClick={() => setInvitePreview(null)}>
+                Dismiss
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                style={{ padding: '8px 16px' }}
+                onClick={cloudToken ? acceptSharedPlaylistInvite : () => { setCurrentPage('account'); setInviteStatus('Sign in to SPICE, then accept this playlist invite.'); }}
+                disabled={acceptingInvite}
+              >
+                {acceptingInvite ? 'Accepting' : cloudToken ? 'Accept Playlist' : 'Sign In First'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ═══ Create Custom Playlist Dialog ═══ */}
       {showCreateDialog && (
@@ -6249,7 +7001,7 @@ export default function SpiceApp() {
           <div style={{ opacity: 0.3, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span>Spice Premium Audio Resolution Engine</span>
             <span>•</span>
-            <span>PWA v1.0.22</span>
+            <span>PWA v1.0.26</span>
           </div>
 
         </div>
@@ -6640,7 +7392,7 @@ export default function SpiceApp() {
       {[
         { id: 'home', label: 'Home', icon: Icons.home },
         { id: 'search', label: 'Search', icon: Icons.search },
-        { id: 'likes', label: 'Library', icon: Icons.heart },
+        { id: 'library', label: 'Library', icon: Icons.library },
         { id: 'settings', label: 'Settings', icon: Icons.settings }
       ].map((tab) => {
         const isActive = currentPage === tab.id && !selectedPlaylist;

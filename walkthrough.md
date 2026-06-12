@@ -1,5 +1,31 @@
 # SPICE Walkthrough
 
+## v1.0.26
+
+- Polish the phone layout with a compact home greeting card, cleaner content scrolling, tighter carousel cards, and safer bottom spacing.
+- Rework mobile Quick Picks into readable full-width rows and replace flat loading blocks with structured shimmer skeleton cards.
+- Refine the mobile now-playing bar and bottom navigation into rounded, touch-friendly controls that keep the active content visible.
+
+## v1.0.25
+
+- Rework `spice-app.xyz` from a single SPICE Music ad into a root service home screen for the wider SPICE ecosystem.
+- Keep `music.spice-app.xyz` as the active Music service entry while adding planned launcher cards for Rooms, Recap, and Cloud.
+- Update the apex landing route map to explain the root home screen, the live music subdomain, and the future `*.spice-app.xyz` service structure.
+
+## v1.0.24
+
+- Improve phone layouts with safer viewport sizing, fixed mobile Library navigation, tighter cards/lists, stacked settings forms, bottom safe-area spacing, and bounded mini/expanded players.
+- Add account-backed remote control tables for signed-in device state and queued playback commands.
+- Add `/api/remote/devices` and `/api/remote/commands` so devices on the same SPICE account can discover each other and send play/pause/next/previous/seek/volume commands.
+- Add a Settings remote-control panel for naming this device, enabling/disabling remote access, selecting another account device, and sending transport/volume controls.
+
+## v1.0.23
+
+- Add account-backed shared playlist invites with database tables for invite links and accepted playlist memberships.
+- Add playlist invite APIs for creating owner-only share links, previewing invites, accepting shared playlists, and leaving shared playlists.
+- Update cloud playlist sync so owned playlists continue to save normally while accepted shared playlists are pulled into the library as read-only items and protected from overwrite.
+- Add UI support for sharing owned playlists, accepting invite links, showing shared badges, and hiding edit/remove controls on shared playlists.
+
 ## v1.0.22
 
 - Persist signed-in Last.fm links to the backend account through the existing `oauth_links` table, storing the Last.fm username and an encrypted session key for restore after browser storage loss.

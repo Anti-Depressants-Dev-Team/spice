@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid, integer, bigint, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, uuid, integer, bigint, boolean, primaryKey } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -53,6 +53,69 @@ export const playlistItems = pgTable(
   },
   (t) => [primaryKey({ columns: [t.playlistId, t.position] })],
 );
+
+export const playlistInvites = pgTable('playlist_invites', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  playlistId: uuid('playlist_id')
+    .notNull()
+    .references(() => playlists.id, { onDelete: 'cascade' }),
+  ownerUserId: uuid('owner_user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  token: text('token').notNull().unique(),
+  role: text('role').notNull().default('listener'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+});
+
+export const playlistMembers = pgTable(
+  'playlist_members',
+  {
+    playlistId: uuid('playlist_id')
+      .notNull()
+      .references(() => playlists.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: text('role').notNull().default('listener'),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.playlistId, t.userId] })],
+);
+
+export const remoteDevices = pgTable(
+  'remote_devices',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    deviceId: text('device_id').notNull(),
+    displayName: text('display_name').notNull().default('SPICE Device'),
+    currentTrackJson: text('current_track_json'),
+    queueJson: text('queue_json').notNull().default('[]'),
+    queueIndex: integer('queue_index').notNull().default(0),
+    isPlaying: boolean('is_playing').notNull().default(false),
+    progressMs: integer('progress_ms').notNull().default(0),
+    durationMs: integer('duration_ms').notNull().default(0),
+    volume: integer('volume').notNull().default(70),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.deviceId] })],
+);
+
+export const remoteCommands = pgTable('remote_commands', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  targetDeviceId: text('target_device_id').notNull(),
+  sourceDeviceId: text('source_device_id').notNull(),
+  command: text('command').notNull(),
+  payloadJson: text('payload_json').notNull().default('{}'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  consumedAt: timestamp('consumed_at', { withTimezone: true }),
+});
 
 export const likes = pgTable(
   'likes',

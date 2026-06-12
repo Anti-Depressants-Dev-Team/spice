@@ -8,6 +8,20 @@
       "when": 1780317918595,
       "tag": "0000_flimsy_celestials",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780934477797,
+      "tag": "0001_boring_colossus",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780949584281,
+      "tag": "0002_nosy_odin",
+      "breakpoints": true
     }
   ]
 }
