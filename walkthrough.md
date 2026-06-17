@@ -1,5 +1,12 @@
 # SPICE Walkthrough
 
+## v1.0.37
+
+- Split `/changelog` into service-specific release histories for SPICE Home, Music, Anime, Connect, and Accounts.
+- Add account-dependent changelog loading so normal users keep the public service history while admin accounts unlock Admin Ops entries.
+- Add `/api/changelog` and focused tests for user/admin changelog payload filtering.
+- Add a sticky SPICE Music topbar with global search beside the provider chip and profile/account button.
+
 ## v1.0.36
 
 - Add account-level roles with `user` and `admin` support, admin bootstrap via `SPICE_ADMIN_EMAILS`, and role-aware auth/session responses.

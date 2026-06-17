@@ -21,6 +21,7 @@
 }
 
 .hero,
+.serviceBrowser,
 .timeline {
   position: relative;
   z-index: 1;
@@ -91,6 +92,11 @@
 
 .kicker,
 .latestCard span,
+.accountStrip span,
+.serviceButton span,
+.serviceButtonActive span,
+.lockedService span,
+.timelineHeading span,
 .entryHeader span {
   color: #d8b4fe;
   font-size: 0.74rem;
@@ -162,10 +168,156 @@
   line-height: 1.55;
 }
 
+.serviceBrowser {
+  display: grid;
+  gap: 16px;
+  padding: 8px 0 24px;
+}
+
+.accountStrip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid rgba(216, 180, 254, 0.18);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(168, 85, 247, 0.14), transparent 56%),
+    rgba(255, 255, 255, 0.052);
+}
+
+.accountStrip strong {
+  display: block;
+  margin-top: 8px;
+  color: #fff;
+  font-family: "Outfit", "Inter", sans-serif;
+  font-size: 1.28rem;
+}
+
+.accountStrip p {
+  margin: 8px 0 0;
+  color: #b9b9c6;
+  line-height: 1.5;
+}
+
+.userSignal,
+.adminSignal {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.userSignal {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #c4c4cf;
+}
+
+.adminSignal {
+  border: 1px solid rgba(250, 204, 21, 0.24);
+  background: rgba(250, 204, 21, 0.1);
+  color: #fde68a;
+}
+
+.serviceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.serviceButton,
+.serviceButtonActive,
+.lockedService {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.052);
+  color: #f8fafc;
+  text-align: left;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.serviceButton,
+.serviceButtonActive {
+  cursor: pointer;
+}
+
+.serviceButton:hover,
+.serviceButtonActive {
+  border-color: rgba(216, 180, 254, 0.36);
+  background:
+    radial-gradient(circle at 18% 0%, rgba(168, 85, 247, 0.18), transparent 56%),
+    rgba(255, 255, 255, 0.07);
+  transform: translateY(-2px);
+}
+
+.serviceButton strong,
+.serviceButtonActive strong,
+.lockedService strong {
+  color: #fff;
+  font-family: "Outfit", "Inter", sans-serif;
+  font-size: 1.25rem;
+}
+
+.serviceButton p,
+.serviceButtonActive p,
+.lockedService p {
+  flex: 1;
+  margin: 0;
+  color: #a1a1aa;
+  line-height: 1.5;
+}
+
+.serviceButton small,
+.serviceButtonActive small {
+  color: #e9d5ff;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.lockedService {
+  border-style: dashed;
+  opacity: 0.72;
+}
+
 .timeline {
   display: grid;
   gap: 18px;
   padding: 10px 0 54px;
+}
+
+.timelineHeading {
+  padding: 4px 0 2px;
+}
+
+.timelineHeading h2 {
+  margin: 8px 0 0;
+  color: #fff;
+  font-family: "Outfit", "Inter", sans-serif;
+  font-size: clamp(2rem, 5vw, 3.8rem);
+  line-height: 1;
+  letter-spacing: -0.06em;
+}
+
+.timelineHeading p {
+  max-width: 680px;
+  margin: 12px 0 0;
+  color: #a1a1aa;
+  line-height: 1.55;
 }
 
 .entry,
@@ -270,6 +422,7 @@
 
 @media (max-width: 720px) {
   .hero,
+  .serviceBrowser,
   .timeline {
     width: min(100% - 28px, 1120px);
   }
@@ -294,10 +447,23 @@
   }
 
   .latestCard,
+  .accountStrip,
+  .serviceButton,
+  .serviceButtonActive,
+  .lockedService,
   .entry,
   .entryLatest,
   .emptyState {
     border-radius: 22px;
     padding: 18px;
+  }
+
+  .accountStrip {
+    grid-template-columns: 1fr;
+  }
+
+  .userSignal,
+  .adminSignal {
+    justify-self: start;
   }
 }

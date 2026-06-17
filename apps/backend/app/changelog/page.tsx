@@ -1,14 +1,9 @@
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
+import ChangelogView from './changelog-view';
+import { getChangelogPayload } from './changelog-data';
 import styles from './changelog.module.css';
-
-interface ChangelogEntry {
-  version: string;
-  notes: string[];
-}
 
 export const dynamic = 'force-static';
 
@@ -18,9 +13,7 @@ export const metadata: Metadata = {
 };
 
 export default async function ChangelogPage() {
-  const markdown = await readWalkthrough();
-  const entries = parseChangelog(markdown);
-  const latest = entries[0];
+  const initialPayload = await getChangelogPayload('user');
 
   return (
     <main className={styles.shell}>
@@ -44,84 +37,8 @@ export default async function ChangelogPage() {
           </div>
         </nav>
 
-        <div className={styles.heroGrid}>
-          <div>
-            <div className={styles.kicker}>Release history</div>
-            <h1>Everything we ship, in one clean place.</h1>
-            <p className={styles.lede}>
-              This page is generated from the same walkthrough release notes we update with every version,
-              so `spice-app.xyz/changelog` stays current whenever SPICE ships.
-            </p>
-          </div>
-
-          <aside className={styles.latestCard} aria-label="Latest SPICE release">
-            <span>Latest release</span>
-            <strong>{latest?.version || 'No releases yet'}</strong>
-            <p>{latest?.notes[0] || 'Release notes will appear here after the next update.'}</p>
-          </aside>
-        </div>
-      </section>
-
-      <section className={styles.timeline} aria-label="SPICE changelog entries">
-        {entries.length > 0 ? (
-          entries.map((entry, index) => (
-            <article key={entry.version} className={index === 0 ? styles.entryLatest : styles.entry}>
-              <div className={styles.entryMarker} aria-hidden="true" />
-              <div className={styles.entryHeader}>
-                <span>{index === 0 ? 'Current' : 'Release'}</span>
-                <h2>{entry.version}</h2>
-              </div>
-
-              <ul>
-                {entry.notes.map((note) => (
-                  <li key={note}>{renderInlineMarkdown(note)}</li>
-                ))}
-              </ul>
-            </article>
-          ))
-        ) : (
-          <article className={styles.emptyState}>
-            <h2>No changelog entries found</h2>
-            <p>Update `walkthrough.md` with release notes and this page will render them automatically.</p>
-          </article>
-        )}
+        <ChangelogView initialPayload={initialPayload} />
       </section>
     </main>
   );
-}
-
-async function readWalkthrough() {
-  return readFile(path.join(/* turbopackIgnore: true */ process.cwd(), '..', '..', 'walkthrough.md'), 'utf8');
-}
-
-function parseChangelog(markdown: string): ChangelogEntry[] {
-  const entries: ChangelogEntry[] = [];
-  let current: ChangelogEntry | null = null;
-
-  for (const line of markdown.split(/\r?\n/)) {
-    const heading = line.match(/^##\s+(v[\w.-]+)/);
-    if (heading) {
-      if (current) entries.push(current);
-      current = { version: heading[1], notes: [] };
-      continue;
-    }
-
-    const note = line.match(/^-\s+(.+)/);
-    if (note && current) {
-      current.notes.push(note[1]);
-    }
-  }
-
-  if (current) entries.push(current);
-  return entries;
-}
-
-function renderInlineMarkdown(text: string) {
-  return text.split(/(`[^`]+`)/g).map((part, index) => {
-    if (part.startsWith('`') && part.endsWith('`')) {
-      return <code key={`${part}-${index}`}>{part.slice(1, -1)}</code>;
-    }
-
-    return part;
-  });
 }

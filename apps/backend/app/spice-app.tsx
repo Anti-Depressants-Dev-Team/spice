@@ -3396,6 +3396,18 @@ export default function SpiceApp() {
     queueSearch(searchQuery, provider);
   };
 
+  const handleTopbarSearchSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    setSelectedPlaylist(null);
+    setCurrentPage('search');
+    queueSearch(searchQuery, searchProvider);
+  };
+
+  const openAccountFromTopbar = () => {
+    setSelectedPlaylist(null);
+    setCurrentPage('account');
+  };
+
   useEffect(() => {
     const profile = buildPrivateTasteProfile({
       history,
@@ -4754,7 +4766,52 @@ export default function SpiceApp() {
       {/* ═══ Main Content Area ═══ */}
       <main className="main" id="main">
         <div className="main__content">
-          
+          <header className="app-topbar" aria-label="SPICE topbar">
+            <div className="app-topbar__context">
+              <span>{currentPage === 'search' ? 'Search mode' : 'SPICE Music'}</span>
+              <strong>{currentPage.charAt(0).toUpperCase() + currentPage.slice(1)}</strong>
+            </div>
+
+            <form className="app-topbar__search" onSubmit={handleTopbarSearchSubmit} role="search">
+              {Icons.search}
+              <input
+                type="search"
+                placeholder={`Search ${SEARCH_PROVIDER_LABELS[searchProvider]}...`}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                autoComplete="off"
+                aria-label="Search SPICE"
+              />
+              <button type="submit" disabled={!searchQuery.trim()}>
+                Search
+              </button>
+            </form>
+
+            <div className="app-topbar__actions">
+              <span className="app-topbar__provider">
+                {SEARCH_PROVIDER_LABELS[searchProvider]}
+              </span>
+              <button
+                className="app-topbar__profile"
+                type="button"
+                onClick={openAccountFromTopbar}
+                aria-label={`Open profile for ${activeProfile.displayName}`}
+              >
+                <span className="app-topbar__avatar" style={{ background: activeProfile.avatarUrl ? 'transparent' : activeProfile.gradient }}>
+                  {activeProfile.avatarUrl ? (
+                    <img src={activeProfile.avatarUrl} alt="" />
+                  ) : (
+                    activeProfile.displayName.charAt(0).toUpperCase()
+                  )}
+                </span>
+                <span className="app-topbar__profile-copy">
+                  <strong>{activeProfile.displayName}</strong>
+                  <small>{cloudUser?.accountRole ? `${cloudUser.accountRole} account` : 'Local profile'}</small>
+                </span>
+              </button>
+            </div>
+          </header>
+
           {error && (
             <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '12px 20px', borderRadius: '8px', marginBottom: '24px', color: '#f87171', display: 'flex', alignItems: 'center' }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>{Icons.alertTriangle} {error}</span>
