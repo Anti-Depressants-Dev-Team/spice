@@ -407,6 +407,7 @@ type ArtworkShape = 'rounded' | 'soft' | 'circle';
 type MotionLevel = 'full' | 'calm' | 'off';
 type InterfaceScale = 'compact' | 'comfortable' | 'spacious';
 type PlayerBarDensity = 'standard' | 'slim';
+type ReceiverSelectVariant = 'bar' | 'expanded' | 'mini';
 type AccountRole = 'user' | 'admin' | string;
 
 const SEARCH_PROVIDER_LABELS: Record<SearchProvider, string> = {
@@ -1015,6 +1016,7 @@ export default function SpiceApp() {
     return '';
   });
   const [remoteStatus, setRemoteStatus] = useState<string | null>(null);
+  const [receiverMenuOpen, setReceiverMenuOpen] = useState<ReceiverSelectVariant | null>(null);
   const [playerPlacement, setPlayerPlacement] = useState<'bottom' | 'top'>('bottom');
   const [playerViewMode, setPlayerViewMode] = useState<'bar' | 'expanded' | 'mini'>('bar');
   const [playerBarDensity, setPlayerBarDensity] = useState<PlayerBarDensity>('standard');
@@ -1077,6 +1079,7 @@ export default function SpiceApp() {
   const [terminalAutoScroll, setTerminalAutoScroll] = useState(true);
   const [logsCopied, setLogsCopied] = useState(false);
   const terminalEndRef = useRef<HTMLDivElement | null>(null);
+  const launchIntentHandledRef = useRef(false);
 
   const logDebug = useCallback((category: string, message: string) => {
     const time = new Date().toLocaleTimeString();
@@ -3425,6 +3428,54 @@ export default function SpiceApp() {
     setCurrentPage('account');
   };
 
+  useEffect(() => {
+    if (!isMounted || launchIntentHandledRef.current || typeof window === 'undefined') return;
+
+    const params = new URLSearchParams(window.location.search);
+    const pageIntent = params.get('page');
+    const authIntent = params.get('auth');
+    const searchIntent = params.get('q') || params.get('search');
+    const providerIntent = params.get('provider');
+    const provider = isSearchProvider(providerIntent) ? providerIntent : searchProvider;
+    let consumedIntent = false;
+
+    if (authIntent === 'register' || authIntent === 'login') {
+      setAuthMode(authIntent === 'register' ? 'register' : 'login');
+      setSelectedPlaylist(null);
+      setCurrentPage('account');
+      consumedIntent = true;
+    } else if (pageIntent === 'account') {
+      setSelectedPlaylist(null);
+      setCurrentPage('account');
+      consumedIntent = true;
+    }
+
+    if (searchIntent?.trim()) {
+      const trimmedSearch = searchIntent.trim();
+      setSearchQuery(trimmedSearch);
+      setSelectedPlaylist(null);
+      setCurrentPage('search');
+      runTopbarSearch(trimmedSearch, provider);
+      consumedIntent = true;
+    } else if (pageIntent === 'search') {
+      setSelectedPlaylist(null);
+      setCurrentPage('search');
+      consumedIntent = true;
+    }
+
+    if (!consumedIntent) return;
+
+    launchIntentHandledRef.current = true;
+    for (const key of ['page', 'auth', 'q', 'search', 'provider']) {
+      params.delete(key);
+    }
+
+    const nextUrl = params.toString()
+      ? `${window.location.pathname}?${params.toString()}`
+      : window.location.pathname;
+    window.history.replaceState(null, '', nextUrl);
+  }, [isMounted, searchProvider]);
+
   const updateSidebarHiddenPreference = (hidden: boolean) => {
     setSidebarHidden(hidden);
     localStorage.setItem('spice_sidebar_hidden', String(hidden));
@@ -3907,32 +3958,109 @@ export default function SpiceApp() {
     setVolume(safeVolume);
   };
 
-  const renderSpiceConnectReceiverSelect = (variant: 'bar' | 'expanded' | 'mini') => (
-    <div className={`spice-connect-receiver spice-connect-receiver--${variant} ${isControllingRemoteReceiver ? 'is-remote' : ''}`}>
-      <span className="spice-connect-receiver__icon">{Icons.monitor}</span>
-      <label className="sr-only" htmlFor={`spice-connect-receiver-${variant}`}>Spice Connect Receiver</label>
-      <select
-        id={`spice-connect-receiver-${variant}`}
-        value={selectedRemoteDeviceId}
-        onChange={(e) => selectSpiceConnectReceiver(e.target.value)}
-        onFocus={() => {
-          if (cloudToken && remoteControlEnabled) {
-            void reportRemoteDeviceState();
-            void loadRemoteDevices();
+  const refreshSpiceConnectReceiverList = () => {
+    if (!cloudToken || !remoteControlEnabled) return;
+    void reportRemoteDeviceState();
+    void loadRemoteDevices();
+  };
+
+  const receiverStatusLabel = (device: RemoteDevice | null) => {
+    if (!device) return 'Local playback';
+    if (device.lastSeenSeconds === undefined) return 'Remote ready';
+    if (device.lastSeenSeconds <= 5) return device.isPlaying ? 'Live now' : 'Online now';
+    return `Last seen ${device.lastSeenSeconds}s ago`;
+  };
+
+  const renderSpiceConnectReceiverOption = (
+    value: string,
+    label: string,
+    detail: string,
+    selected: boolean,
+  ) => (
+    <button
+      key={value || 'local-device'}
+      type="button"
+      role="option"
+      aria-selected={selected}
+      className={`spice-connect-receiver__option ${selected ? 'is-selected' : ''}`}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => {
+        selectSpiceConnectReceiver(value);
+        setReceiverMenuOpen(null);
+      }}
+    >
+      <span className="spice-connect-receiver__option-icon">{Icons.monitor}</span>
+      <span className="spice-connect-receiver__option-copy">
+        <strong>{label}</strong>
+        <small>{detail}</small>
+      </span>
+      <span className="spice-connect-receiver__option-marker" aria-hidden="true" />
+    </button>
+  );
+
+  const renderSpiceConnectReceiverSelect = (variant: ReceiverSelectVariant) => {
+    const menuId = `spice-connect-receiver-menu-${variant}`;
+    const isMenuOpen = receiverMenuOpen === variant;
+    const receiverDetail = receiverSelectDisabled
+      ? 'Sign in to choose devices'
+      : receiverStatusLabel(selectedRemoteDevice);
+
+    return (
+      <div
+        className={`spice-connect-receiver spice-connect-receiver--${variant} ${isControllingRemoteReceiver ? 'is-remote' : ''} ${isMenuOpen ? 'is-open' : ''} ${receiverSelectDisabled ? 'is-disabled' : ''}`}
+        onBlur={(event) => {
+          const nextTarget = event.relatedTarget as Node | null;
+          if (!nextTarget || !event.currentTarget.contains(nextTarget)) {
+            setReceiverMenuOpen(null);
           }
         }}
-        disabled={receiverSelectDisabled}
-        title={receiverSelectDisabled ? 'Sign in and enable Spice Connect to choose another receiver' : `Receiver: ${receiverLabel}`}
       >
-        <option value="">This device</option>
-        {remoteTargetDevices.map((device) => (
-          <option key={device.deviceId} value={device.deviceId}>
-            {device.displayName}{device.lastSeenSeconds !== undefined ? ` (${device.lastSeenSeconds}s)` : ''}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
+        <button
+          type="button"
+          className="spice-connect-receiver__button"
+          onClick={() => {
+            if (receiverSelectDisabled) return;
+            refreshSpiceConnectReceiverList();
+            setReceiverMenuOpen((openVariant) => (openVariant === variant ? null : variant));
+          }}
+          onFocus={refreshSpiceConnectReceiverList}
+          disabled={receiverSelectDisabled}
+          aria-haspopup="listbox"
+          aria-expanded={isMenuOpen}
+          aria-controls={menuId}
+          title={receiverSelectDisabled ? 'Sign in and enable Spice Connect to choose another receiver' : `Receiver: ${receiverLabel}`}
+        >
+          <span className="spice-connect-receiver__icon">{Icons.monitor}</span>
+          <span className="spice-connect-receiver__copy">
+            <strong>{receiverLabel}</strong>
+            <small>{receiverDetail}</small>
+          </span>
+          <span className="spice-connect-receiver__chevron" aria-hidden="true">{Icons.chevronRight}</span>
+        </button>
+
+        {isMenuOpen && (
+          <div
+            id={menuId}
+            className="spice-connect-receiver__menu"
+            role="listbox"
+            aria-label="Choose Spice Connect receiver"
+          >
+            {renderSpiceConnectReceiverOption('', 'This device', 'Play and control locally', !selectedRemoteDeviceId)}
+            {remoteTargetDevices.length > 0 ? (
+              remoteTargetDevices.map((device) => renderSpiceConnectReceiverOption(
+                device.deviceId,
+                device.displayName,
+                receiverStatusLabel(device),
+                selectedRemoteDeviceId === device.deviceId,
+              ))
+            ) : (
+              <p className="spice-connect-receiver__empty">No other devices online.</p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const getLikedTrackClickHandler = (track: Track) => () => {
     startTrackOnActiveReceiver(track);
@@ -6727,7 +6855,7 @@ export default function SpiceApp() {
                         {Icons.tool} System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        Spice Media Core v1.0.39 (Phase 35 Search Tray)
+                        Spice Media Core v1.0.42 (Phase 38 Home Topbar)
                       </span>
                     </div>
 
@@ -8005,7 +8133,7 @@ export default function SpiceApp() {
           <div style={{ opacity: 0.3, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span>Spice Premium Audio Resolution Engine</span>
             <span>•</span>
-            <span>PWA v1.0.39</span>
+            <span>PWA v1.0.42</span>
           </div>
 
         </div>
