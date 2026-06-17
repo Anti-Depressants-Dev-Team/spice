@@ -1,5 +1,23 @@
 # SPICE Walkthrough
 
+## v1.0.42
+
+- Add the SPICE Music topbar pattern to the public Home screen at `spice-app.xyz` with integrated search, provider selection, and profile/account controls.
+- Wire Home search submissions into `music.spice-app.xyz` launch intents so the Music app opens Search and runs the query with the selected provider.
+- Wire Home account prompts into the existing Music account manager, including register-mode handoff and admin-dashboard access for verified admin accounts.
+
+## v1.0.41
+
+- Replace the native Spice Connect receiver selector in the Music player with a custom dark popover so the dropdown no longer falls back to the browser's blue menu styling.
+- Add clearer selected-device, local playback, remote status, and last-seen labels inside the player receiver picker.
+- Tune the receiver picker layout for the compact bar, expanded player, and mini-player variants.
+
+## v1.0.40
+
+- Add a root `AGENTS.md` with repo-wide agent basics, walkthrough/versioning requirements, and service-lane worktree rules.
+- Document the `Spice.Home`, `Spice.Music`, `Spice.Admin`, and `Spice.Anime` scope boundaries so future work stays in the matching host or feature lane.
+- Define the naming pattern for future `Spice.<Service> main`, numbered sections, and named minor branches such as `Spice.Music Algorithm`.
+
 ## v1.0.39
 
 - Remove the YouTube video player button from the compact, expanded, and mini player controls while keeping hidden embed fallback available for playback recovery.

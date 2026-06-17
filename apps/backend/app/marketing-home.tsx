@@ -1,4 +1,7 @@
 import styles from './marketing-home.module.css';
+import MarketingHomeTopbar from './marketing-home-topbar';
+
+const musicAccountSetupUrl = 'https://music.spice-app.xyz/?page=account&auth=register';
 
 const musicFeatures = [
   'Hybrid YouTube Music, video, and SoundCloud playback',
@@ -63,26 +66,7 @@ export default function MarketingHome() {
       <div className={styles.backdrop} aria-hidden="true" />
 
       <section className={styles.hero}>
-        <nav className={styles.nav} aria-label="SPICE home navigation">
-          <a className={styles.brand} href="https://music.spice-app.xyz" aria-label="Open SPICE Music">
-            <span className={styles.logoMark}>
-              <svg viewBox="0 0 48 48" role="img" aria-hidden="true">
-                <path d="M24 4 42 14.4v19.2L24 44 6 33.6V14.4L24 4Z" />
-                <path d="M17.5 30.5c4.7 3.3 12.3 1.6 14.2-3.2 1.3-3.4-.1-6.7-4.1-9.7L22 13.4v8.7l-3.1-2.2c-2.5-1.8-5.4-.1-5.4 2.9 0 1.3.7 2.6 1.9 3.4l4.4 3.1c1.4 1 3 .6 3.9-.7.8-1.2.5-2.8-.7-3.7l-3.8-2.7c-.3-.2-.4-.5-.2-.8.2-.3.6-.4.9-.2l6.2 4.4c1.7 1.2 2.2 2.7 1.5 4-.9 1.8-4.6 2.4-7.4.5l-4.2-2.9-3.2 4.4 4.7 3.3Z" />
-              </svg>
-            </span>
-            <span>SPICE</span>
-          </a>
-
-          <div className={styles.navLinks}>
-            <a href="#services">Services</a>
-            <a href="#route-map">Domains</a>
-            <a href="/changelog">Changelog</a>
-            <a className={styles.navCta} href="https://music.spice-app.xyz">
-              Launch Music
-            </a>
-          </div>
-        </nav>
+        <MarketingHomeTopbar />
 
         <div className={styles.heroGrid}>
           <div className={styles.copy}>
@@ -97,7 +81,7 @@ export default function MarketingHome() {
               <a className={styles.primaryAction} href="https://music.spice-app.xyz">
                 Enter SPICE Music
               </a>
-              <a className={styles.accountAction} href="https://music.spice-app.xyz">
+              <a className={styles.accountAction} href={musicAccountSetupUrl}>
                 Create Spice Account
               </a>
               <a className={styles.secondaryAction} href="#services">
@@ -117,7 +101,7 @@ export default function MarketingHome() {
                   the private dashboard later without changing the public home screen.
                 </p>
               </div>
-              <a href="https://music.spice-app.xyz">Start setup</a>
+              <a href={musicAccountSetupUrl}>Start setup</a>
             </aside>
 
             <ul className={styles.featureList}>
