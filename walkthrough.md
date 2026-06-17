@@ -1,5 +1,17 @@
 # SPICE Walkthrough
 
+## v1.0.39
+
+- Remove the YouTube video player button from the compact, expanded, and mini player controls while keeping hidden embed fallback available for playback recovery.
+- Add an unfolding topbar search tray with playable song results, local-cache status, and previous search query chips.
+- Keep topbar searches on the current page instead of forcing navigation to the full Search tab.
+
+## v1.0.38
+
+- Add a hideable SPICE Music sidebar with a floating restore control for desktop and tablet layouts.
+- Add Settings toggles for showing or hiding the Search and Profile tabs in the sidebar.
+- Keep topbar search and profile access available even when their sidebar tabs are disabled.
+
 ## v1.0.37
 
 - Split `/changelog` into service-specific release histories for SPICE Home, Music, Anime, Connect, and Accounts.

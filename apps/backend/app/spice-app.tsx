@@ -11,10 +11,12 @@ import {
   getCachedSearch,
   getLatestCachedSearch,
   getPlaybackState,
+  getRecentCachedSearches,
   mergeTrackSnapshots,
   rememberSearchResults,
   rememberTrackSnapshots,
   savePlaybackState,
+  type SearchCacheEntry,
 } from './spice-storage';
 import {
   buildPrivateTasteProfile,
@@ -394,6 +396,7 @@ interface Track {
   previewOnly?: boolean;
 }
 
+type AppPage = 'home' | 'search' | 'library' | 'account' | 'settings';
 type SearchProvider = 'hybrid' | 'youtube_music' | 'youtube_videos' | 'soundcloud';
 type StreamProtocol = 'proxy' | 'web' | 'embed';
 type ProfileListenType = 'playing_now' | 'scrobble';
@@ -628,9 +631,6 @@ const isInterfaceScale = (value: string | null): value is InterfaceScale =>
 const isPlayerBarDensity = (value: string | null): value is PlayerBarDensity =>
   value === 'standard' || value === 'slim';
 
-const canShowVideoForTrack = (track: Track) =>
-  track.id !== 'placeholder' && isYouTubeTrack(track);
-
 const playableSearchTracks = (tracks: Track[]) =>
   tracks.filter((track) => !track.previewOnly);
 
@@ -855,7 +855,7 @@ const initialDefaultProfile: UserProfile = {
 };
 
 export default function SpiceApp() {
-  const [currentPage, setCurrentPage] = useState<'home' | 'search' | 'library' | 'account' | 'settings'>('home');
+  const [currentPage, setCurrentPage] = useState<AppPage>('home');
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
 
   // Settings Configuration states
@@ -866,6 +866,9 @@ export default function SpiceApp() {
   const [interfaceScale, setInterfaceScale] = useState<InterfaceScale>('comfortable');
   const [audioQuality, setAudioQuality] = useState<'standard' | 'high' | 'low'>('standard');
   const [streamProtocol, setStreamProtocol] = useState<StreamProtocol>('proxy');
+  const [sidebarHidden, setSidebarHidden] = useState(false);
+  const [sidebarSearchEnabled, setSidebarSearchEnabled] = useState(true);
+  const [sidebarProfileEnabled, setSidebarProfileEnabled] = useState(true);
   const [profileSyncEnabled, setProfileSyncEnabled] = useState(false);
   const [lastFmSessionKey, setLastFmSessionKey] = useState('');
   const [lastFmAccountLinked, setLastFmAccountLinked] = useState(false);
@@ -1058,6 +1061,8 @@ export default function SpiceApp() {
   const [searchResults, setSearchResults] = useState<Track[]>([]);
   const [searchResultsSource, setSearchResultsSource] = useState<'network' | 'cache' | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [topbarSearchTrayOpen, setTopbarSearchTrayOpen] = useState(false);
+  const [recentSearchEntries, setRecentSearchEntries] = useState<SearchCacheEntry[]>([]);
   const [error, setError] = useState<string>();
 
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
@@ -1426,6 +1431,19 @@ export default function SpiceApp() {
       const savedSearchProvider = localStorage.getItem('spice_search_provider');
       if (isSearchProvider(savedSearchProvider)) {
         setSearchProvider(savedSearchProvider);
+      }
+      setRecentSearchEntries(getRecentCachedSearches());
+
+      setSidebarHidden(localStorage.getItem('spice_sidebar_hidden') === 'true');
+
+      const savedSidebarSearch = localStorage.getItem('spice_sidebar_search_enabled');
+      if (savedSidebarSearch !== null) {
+        setSidebarSearchEnabled(savedSidebarSearch !== 'false');
+      }
+
+      const savedSidebarProfile = localStorage.getItem('spice_sidebar_profile_enabled');
+      if (savedSidebarProfile !== null) {
+        setSidebarProfileEnabled(savedSidebarProfile !== 'false');
       }
 
       const savedLocalDb = localStorage.getItem('spice_local_db_fallback');
@@ -2590,41 +2608,6 @@ export default function SpiceApp() {
     };
   }, [currentTrack.id, currentTrack.title, currentTrack.artists, currentTrack.durationMs]);
 
-  const openVideoPlayer = () => {
-    if (!canShowVideoForTrack(currentTrack)) return;
-
-    const wasPlaying = isPlaying;
-    setShowVideoPlayer(true);
-    setShowBarLyrics(false);
-    setShowQueueDrawer(false);
-    setStreamProtocol('embed');
-    streamProtocolRef.current = 'embed';
-    setStreamUrl('youtube-embed-active');
-    setIsLoadingStream(false);
-
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-
-    if (ytPlayerRef.current) {
-      if (typeof ytPlayerRef.current.stopVideo === 'function') {
-        ytPlayerRef.current.stopVideo();
-      }
-      if (wasPlaying || !streamUrl) {
-        ytPlayerRef.current.loadVideoById(currentTrack.id);
-        ytPlayerRef.current.playVideo();
-        setIsPlaying(true);
-      } else if (typeof ytPlayerRef.current.cueVideoById === 'function') {
-        ytPlayerRef.current.cueVideoById(currentTrack.id);
-        setIsPlaying(false);
-      } else {
-        ytPlayerRef.current.loadVideoById(currentTrack.id);
-        ytPlayerRef.current.pauseVideo();
-        setIsPlaying(false);
-      }
-    }
-  };
-
   // Play a track
   const playTrack = async (track: Track, newQueue?: Track[], startSearchIndex?: number) => {
     if (errorSkipTimeoutRef.current) {
@@ -3361,6 +3344,7 @@ export default function SpiceApp() {
     if (cachedSearch) {
       setSearchResults(playableSearchTracks(cachedSearch.tracks as Track[]));
       setSearchResultsSource('cache');
+      setRecentSearchEntries(getRecentCachedSearches());
     }
 
     setIsSearching(true);
@@ -3369,6 +3353,7 @@ export default function SpiceApp() {
         const tracks = await fetchSearchProviderResults(query, provider);
         if (requestId !== searchRequestRef.current) return;
         rememberSearchResults(query, tracks, provider);
+        setRecentSearchEntries(getRecentCachedSearches());
         setSearchResults(tracks);
         setSearchResultsSource('network');
         setError(undefined);
@@ -3396,16 +3381,69 @@ export default function SpiceApp() {
     queueSearch(searchQuery, provider);
   };
 
+  const runTopbarSearch = (query: string, provider = searchProvider) => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      setTopbarSearchTrayOpen(false);
+      return;
+    }
+
+    setSelectedPlaylist(null);
+    setTopbarSearchTrayOpen(true);
+    setRecentSearchEntries(getRecentCachedSearches());
+
+    if (provider !== searchProvider) {
+      setSearchProvider(provider);
+      localStorage.setItem('spice_search_provider', provider);
+    }
+
+    queueSearch(trimmedQuery, provider);
+  };
+
   const handleTopbarSearchSubmit = (e: FormEvent) => {
     e.preventDefault();
-    setSelectedPlaylist(null);
-    setCurrentPage('search');
-    queueSearch(searchQuery, searchProvider);
+    runTopbarSearch(searchQuery, searchProvider);
+  };
+
+  const handleTopbarSearchInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const recent = getRecentCachedSearches();
+    setSearchQuery(e.target.value);
+    setRecentSearchEntries(recent);
+    if (!topbarSearchTrayOpen && (e.target.value.trim() || recent.length > 0)) {
+      setTopbarSearchTrayOpen(true);
+    }
+  };
+
+  const runRecentTopbarSearch = (entry: SearchCacheEntry) => {
+    const cachedProvider = entry.sourceId ?? null;
+    const provider = isSearchProvider(cachedProvider) ? cachedProvider : searchProvider;
+    runTopbarSearch(entry.query, provider);
   };
 
   const openAccountFromTopbar = () => {
     setSelectedPlaylist(null);
     setCurrentPage('account');
+  };
+
+  const updateSidebarHiddenPreference = (hidden: boolean) => {
+    setSidebarHidden(hidden);
+    localStorage.setItem('spice_sidebar_hidden', String(hidden));
+  };
+
+  const updateSidebarSearchPreference = (enabled: boolean) => {
+    setSidebarSearchEnabled(enabled);
+    localStorage.setItem('spice_sidebar_search_enabled', String(enabled));
+    if (!enabled && currentPage === 'search' && !selectedPlaylist) {
+      setCurrentPage('home');
+    }
+  };
+
+  const updateSidebarProfilePreference = (enabled: boolean) => {
+    setSidebarProfileEnabled(enabled);
+    localStorage.setItem('spice_sidebar_profile_enabled', String(enabled));
+    if (!enabled && currentPage === 'account' && !selectedPlaylist) {
+      setCurrentPage('home');
+    }
   };
 
   useEffect(() => {
@@ -4553,8 +4591,17 @@ export default function SpiceApp() {
     return base;
   };
 
+  const normalizedTopbarQuery = searchQuery.trim().toLocaleLowerCase();
+  const topbarRecentSuggestions = recentSearchEntries
+    .filter((entry) => entry.query.trim().toLocaleLowerCase() !== normalizedTopbarQuery)
+    .slice(0, 6);
+  const topbarTrayResults = searchResults.slice(0, 6);
+  const shouldShowTopbarSearchTray =
+    topbarSearchTrayOpen
+    && (Boolean(searchQuery.trim()) || topbarRecentSuggestions.length > 0 || topbarTrayResults.length > 0 || isSearching);
+
   return (
-    <div className="app">
+    <div className={`app ${sidebarHidden ? 'app--sidebar-hidden' : ''}`}>
       <style dangerouslySetInnerHTML={{ __html: getAccentStyles() }} />
       {/* ── Security Passcode Lock Overlay ── */}
       {isLocked && (
@@ -4679,18 +4726,48 @@ export default function SpiceApp() {
         />
       </div>
 
+      {sidebarHidden && (
+        <button
+          type="button"
+          className="sidebar-restore-btn"
+          onClick={() => updateSidebarHiddenPreference(false)}
+          aria-label="Show sidebar"
+          title="Show sidebar"
+        >
+          {Icons.chevronRight}
+          <span>Sidebar</span>
+        </button>
+      )}
+
       {/* ═══ Sidebar Panel ═══ */}
+      {!sidebarHidden && (
       <aside className="sidebar">
-        <div className="sidebar__logo" onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); }}>
-          <div 
-            className="sidebar__logo-icon" 
-            style={{ background: activeProfile.gradient }}
+        <div className="sidebar__logo">
+          <button
+            type="button"
+            className="sidebar__brand"
+            onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); }}
+            aria-label="Go to SPICE home"
           >
-            <span style={{ fontSize: '1rem', fontWeight: 900, color: '#fff' }}>S</span>
-          </div>
-          <span className="sidebar__logo-text">
-            Spice
-          </span>
+            <div
+              className="sidebar__logo-icon"
+              style={{ background: activeProfile.gradient }}
+            >
+              <span style={{ fontSize: '1rem', fontWeight: 900, color: '#fff' }}>S</span>
+            </div>
+            <span className="sidebar__logo-text">
+              Spice
+            </span>
+          </button>
+          <button
+            type="button"
+            className="sidebar__hide-btn"
+            onClick={() => updateSidebarHiddenPreference(true)}
+            aria-label="Hide sidebar"
+            title="Hide sidebar"
+          >
+            {Icons.chevronLeft}
+          </button>
         </div>
 
         <nav className="sidebar__nav">
@@ -4701,13 +4778,15 @@ export default function SpiceApp() {
             {Icons.home}
             <span className="sidebar__nav-label">Home</span>
           </button>
-          <button
-            className={`sidebar__nav-item ${currentPage === 'search' && !selectedPlaylist ? 'active' : ''}`}
-            onClick={() => { setCurrentPage('search'); setSelectedPlaylist(null); }}
-          >
-            {Icons.search}
-            <span className="sidebar__nav-label">Search</span>
-          </button>
+          {sidebarSearchEnabled && (
+            <button
+              className={`sidebar__nav-item ${currentPage === 'search' && !selectedPlaylist ? 'active' : ''}`}
+              onClick={() => { setCurrentPage('search'); setSelectedPlaylist(null); }}
+            >
+              {Icons.search}
+              <span className="sidebar__nav-label">Search</span>
+            </button>
+          )}
           <button
             className={`sidebar__nav-item ${currentPage === 'library' && !selectedPlaylist ? 'active' : ''}`}
             onClick={() => { setCurrentPage('library'); setSelectedPlaylist(null); }}
@@ -4715,13 +4794,15 @@ export default function SpiceApp() {
             {Icons.library}
             <span className="sidebar__nav-label">Library</span>
           </button>
-          <button
-            className={`sidebar__nav-item ${currentPage === 'account' && !selectedPlaylist ? 'active' : ''}`}
-            onClick={() => { setCurrentPage('account'); setSelectedPlaylist(null); }}
-          >
-            {Icons.account}
-            <span className="sidebar__nav-label">Account</span>
-          </button>
+          {sidebarProfileEnabled && (
+            <button
+              className={`sidebar__nav-item ${currentPage === 'account' && !selectedPlaylist ? 'active' : ''}`}
+              onClick={() => { setCurrentPage('account'); setSelectedPlaylist(null); }}
+            >
+              {Icons.account}
+              <span className="sidebar__nav-label">Profile</span>
+            </button>
+          )}
           <button
             className={`sidebar__nav-item ${currentPage === 'settings' && !selectedPlaylist ? 'active' : ''}`}
             onClick={() => { setCurrentPage('settings'); setSelectedPlaylist(null); }}
@@ -4762,6 +4843,7 @@ export default function SpiceApp() {
           )}
         </div>
       </aside>
+      )}
 
       {/* ═══ Main Content Area ═══ */}
       <main className="main" id="main">
@@ -4772,20 +4854,111 @@ export default function SpiceApp() {
               <strong>{currentPage.charAt(0).toUpperCase() + currentPage.slice(1)}</strong>
             </div>
 
-            <form className="app-topbar__search" onSubmit={handleTopbarSearchSubmit} role="search">
-              {Icons.search}
-              <input
-                type="search"
-                placeholder={`Search ${SEARCH_PROVIDER_LABELS[searchProvider]}...`}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                autoComplete="off"
-                aria-label="Search SPICE"
-              />
-              <button type="submit" disabled={!searchQuery.trim()}>
-                Search
-              </button>
-            </form>
+            <div className="app-topbar__search-shell">
+              <form className="app-topbar__search" onSubmit={handleTopbarSearchSubmit} role="search">
+                {Icons.search}
+                <input
+                  type="search"
+                  placeholder={`Search ${SEARCH_PROVIDER_LABELS[searchProvider]}...`}
+                  value={searchQuery}
+                  onChange={handleTopbarSearchInput}
+                  onFocus={() => {
+                    const recent = getRecentCachedSearches();
+                    setRecentSearchEntries(recent);
+                    if (searchQuery.trim() || recent.length > 0 || searchResults.length > 0) {
+                      setTopbarSearchTrayOpen(true);
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      setTopbarSearchTrayOpen(false);
+                    }
+                  }}
+                  autoComplete="off"
+                  aria-label="Search SPICE"
+                />
+                <button type="submit" disabled={!searchQuery.trim()}>
+                  Search
+                </button>
+              </form>
+
+              {shouldShowTopbarSearchTray && (
+                <div className="app-topbar__search-tray" role="region" aria-label="Topbar search results">
+                  <div className="app-topbar__search-tray-header">
+                    <div>
+                      <span>Quick Search</span>
+                      <strong>{searchQuery.trim() ? searchQuery.trim() : 'Recent searches'}</strong>
+                    </div>
+                    <button
+                      type="button"
+                      className="app-topbar__tray-close"
+                      onClick={() => setTopbarSearchTrayOpen(false)}
+                      aria-label="Close search tray"
+                    >
+                      {Icons.close}
+                    </button>
+                  </div>
+
+                  {topbarRecentSuggestions.length > 0 && (
+                    <div className="app-topbar__recent-searches">
+                      <span>Previous queries</span>
+                      <div>
+                        {topbarRecentSuggestions.map((entry) => (
+                          <button
+                            key={`${entry.sourceId ?? 'unknown'}:${entry.query}`}
+                            type="button"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => runRecentTopbarSearch(entry)}
+                            title={`Search ${entry.query}`}
+                          >
+                            {entry.query}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="app-topbar__tray-results">
+                    <div className="app-topbar__tray-section-title">
+                      <span>{isSearching ? 'Searching...' : topbarTrayResults.length > 0 ? 'Songs' : 'No songs yet'}</span>
+                      {searchResultsSource === 'cache' && <small>saved locally</small>}
+                    </div>
+
+                    {topbarTrayResults.length > 0 ? (
+                      <div className="app-topbar__result-list">
+                        {topbarTrayResults.map((song) => (
+                          <button
+                            key={`${song.sourceId || 'music'}:${song.id}`}
+                            type="button"
+                            className="app-topbar__result-item"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              startTrackOnActiveReceiver(song, searchResults);
+                              setTopbarSearchTrayOpen(false);
+                            }}
+                          >
+                            <img src={song.artworkUrl || '/icon.svg'} alt="" />
+                            <span>
+                              <strong>{song.title}</strong>
+                              <small>
+                                {song.artists.map((artist) => artist.name).join(', ')}
+                                <em>{trackSourceLabel(song)}</em>
+                              </small>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="app-topbar__tray-empty">
+                        {searchQuery.trim()
+                          ? 'Submit the search to fill this tray with playable songs.'
+                          : 'Pick a previous query or type a new search.'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             <div className="app-topbar__actions">
               <span className="app-topbar__provider">
@@ -6119,6 +6292,61 @@ export default function SpiceApp() {
                     </div>
                   </div>
 
+                  {/* Sidebar Controls */}
+                  <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
+                    <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: '#fff', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>{Icons.library} Sidebar Controls</h3>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 20px 0', lineHeight: 1.4 }}>
+                      Collapse the SPICE Music sidebar or trim optional sidebar tabs. Topbar search and the profile button stay available.
+                    </p>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '14px' }}>
+                      <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '14px', background: '#070707', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={!sidebarHidden}
+                          onChange={(e) => updateSidebarHiddenPreference(!e.target.checked)}
+                          style={{ accentColor: 'var(--accent-pink)', marginTop: '3px' }}
+                        />
+                        <span>
+                          <span style={{ display: 'block', color: '#fff', fontWeight: 800, fontSize: '0.9rem' }}>Show sidebar</span>
+                          <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '0.74rem', lineHeight: 1.4, marginTop: '4px' }}>
+                            Hide it for a wider player and content area. Use the floating Sidebar button to bring it back.
+                          </span>
+                        </span>
+                      </label>
+
+                      <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '14px', background: '#070707', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={sidebarSearchEnabled}
+                          onChange={(e) => updateSidebarSearchPreference(e.target.checked)}
+                          style={{ accentColor: 'var(--accent-pink)', marginTop: '3px' }}
+                        />
+                        <span>
+                          <span style={{ display: 'block', color: '#fff', fontWeight: 800, fontSize: '0.9rem' }}>Search tab</span>
+                          <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '0.74rem', lineHeight: 1.4, marginTop: '4px' }}>
+                            Show Search in the sidebar. Global topbar search remains enabled.
+                          </span>
+                        </span>
+                      </label>
+
+                      <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '14px', background: '#070707', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={sidebarProfileEnabled}
+                          onChange={(e) => updateSidebarProfilePreference(e.target.checked)}
+                          style={{ accentColor: 'var(--accent-pink)', marginTop: '3px' }}
+                        />
+                        <span>
+                          <span style={{ display: 'block', color: '#fff', fontWeight: 800, fontSize: '0.9rem' }}>Profile tab</span>
+                          <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '0.74rem', lineHeight: 1.4, marginTop: '4px' }}>
+                            Show Profile in the sidebar. The topbar avatar still opens your account page.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+
                   {/* Audio Settings */}
                   <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
                     <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: '#fff', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>{Icons.headphones} Audio & Streaming Preferences</h3>
@@ -6499,7 +6727,7 @@ export default function SpiceApp() {
                         {Icons.tool} System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        Spice Media Core v1.0.36 (Phase 32 Account Roles)
+                        Spice Media Core v1.0.39 (Phase 35 Search Tray)
                       </span>
                     </div>
 
@@ -7247,16 +7475,6 @@ export default function SpiceApp() {
           {renderSpiceConnectReceiverSelect('bar')}
 
           <button 
-            className={`now-playing__btn ${showVideoPlayer ? 'active' : ''}`}
-            onClick={openVideoPlayer}
-            disabled={isControllingRemoteReceiver || !canShowVideoForTrack(currentTrack)}
-            title={isControllingRemoteReceiver ? 'Video opens on this browser only. Switch receiver to this device first.' : (canShowVideoForTrack(currentTrack) ? 'Open YouTube Video Player' : 'Video is available for YouTube tracks')}
-            aria-label="Open YouTube Video Player"
-          >
-            {Icons.video}
-          </button>
-
-          <button 
             className={`now-playing__btn ${showBarLyrics ? 'active' : ''}`}
             onClick={() => {
               if (isControllingRemoteReceiver) return;
@@ -7562,26 +7780,6 @@ export default function SpiceApp() {
                           </span>
                         </button>
 
-                        <button
-                          onClick={openVideoPlayer}
-                          disabled={isControllingRemoteReceiver || !canShowVideoForTrack(currentTrack)}
-                          style={{
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '50%',
-                            background: showVideoPlayer ? 'var(--accent-pink)' : 'rgba(255,255,255,0.05)',
-                            border: '1px solid rgba(255,255,255,0.1)',
-                            color: '#fff',
-                            cursor: (!isControllingRemoteReceiver && canShowVideoForTrack(currentTrack)) ? 'pointer' : 'not-allowed',
-                            opacity: (!isControllingRemoteReceiver && canShowVideoForTrack(currentTrack)) ? 1 : 0.35,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                          title={isControllingRemoteReceiver ? 'Video opens on this browser only. Switch receiver to this device first.' : (canShowVideoForTrack(currentTrack) ? 'Open YouTube Video Player' : 'Video is available for YouTube tracks')}
-                        >
-                          {Icons.video}
-                        </button>
                       </div>
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '180px' }}>
@@ -7807,7 +8005,7 @@ export default function SpiceApp() {
           <div style={{ opacity: 0.3, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span>Spice Premium Audio Resolution Engine</span>
             <span>•</span>
-            <span>PWA v1.0.36</span>
+            <span>PWA v1.0.39</span>
           </div>
 
         </div>
@@ -7922,25 +8120,6 @@ export default function SpiceApp() {
                   title={likedTracks.has(playerTrack.id) ? 'Unlike' : 'Like'}
                 >
                   {likedTracks.has(playerTrack.id) ? Icons.heartFilled : Icons.heart}
-                </button>
-
-                <button
-                  onClick={openVideoPlayer}
-                  disabled={isControllingRemoteReceiver || !canShowVideoForTrack(currentTrack)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: showVideoPlayer ? 'var(--accent-pink)' : 'rgba(255,255,255,0.4)',
-                    cursor: (!isControllingRemoteReceiver && canShowVideoForTrack(currentTrack)) ? 'pointer' : 'not-allowed',
-                    opacity: (!isControllingRemoteReceiver && canShowVideoForTrack(currentTrack)) ? 1 : 0.35,
-                    outline: 'none',
-                    padding: '4px',
-                    fontSize: '0.95rem',
-                    transition: 'all 0.15s ease'
-                  }}
-                  title={isControllingRemoteReceiver ? 'Video opens on this browser only. Switch receiver to this device first.' : (canShowVideoForTrack(currentTrack) ? 'Open video' : 'Video is available for YouTube tracks')}
-                >
-                  {Icons.video}
                 </button>
 
                 <button

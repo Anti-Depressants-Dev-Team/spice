@@ -205,6 +205,24 @@ export function getLatestCachedSearch(): SearchCacheEntry | null {
     : null;
 }
 
+export function getRecentCachedSearches(limit = 6): SearchCacheEntry[] {
+  const seenQueries = new Set<string>();
+  const entries = readJson<SearchCacheEntry[]>(SEARCH_CACHE_KEY, [])
+    .sort((a, b) => b.savedAt - a.savedAt)
+    .filter((entry) => {
+      const normalized = normalizeQuery(entry.query);
+      if (!normalized || seenQueries.has(normalized)) return false;
+      seenQueries.add(normalized);
+      return true;
+    })
+    .slice(0, limit);
+
+  return entries.map((entry) => ({
+    ...entry,
+    tracks: entry.tracks.map(enrichTrackSnapshot),
+  }));
+}
+
 export function savePlaybackState(profileId: string, state: PlaybackSaveState) {
   if (!profileId || !isUsefulTrack(state.currentTrack)) return;
   rememberTrackSnapshots([state.currentTrack, ...state.queue]);
