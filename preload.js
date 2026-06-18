@@ -45,6 +45,10 @@ contextBridge.exposeInMainWorld("api", {
   playQueueIndex: (index) => ipcRenderer.send("play-queue-index", index),
   onServiceActive: (callback) =>
     ipcRenderer.on("service-active", (event, value) => callback(value)),
+  onActiveServiceChanged: (callback) =>
+    ipcRenderer.on("active-service-changed", (event, service) =>
+      callback(service),
+    ),
   onVolumeChanged: (callback) =>
     ipcRenderer.on("volume-changed", (event, value) => callback(value)),
   onVkPlayerVisibility: (callback) =>

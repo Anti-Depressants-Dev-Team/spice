@@ -196,7 +196,7 @@ function createWindow() {
     } else {
       // If 'home' or invalid, stay on home (index.html)
       console.log("Staying on Home Screen");
-      mainWindow.webContents.send("service-active", false);
+      sendActiveServiceState(false);
     }
   });
 
@@ -265,7 +265,8 @@ const VK_PLAYER_HEIGHT = 50;
 function updateViewBounds() {
   if (!view || !mainWindow) return;
   const bounds = mainWindow.getContentBounds();
-  const vkEnabled = store ? store.get("vkPlayerEnabled", false) : false;
+  const vkEnabled =
+    currentService === "yt" && (store ? store.get("vkPlayerEnabled", false) : false);
   const topOffset = TITLE_BAR_HEIGHT + (vkEnabled ? VK_PLAYER_HEIGHT : 0);
 
   const newBounds = {
@@ -280,6 +281,12 @@ function updateViewBounds() {
 
   // Tell renderer to show/hide the VK player bar
   mainWindow.webContents.send("vk-player-visibility", vkEnabled);
+}
+
+function sendActiveServiceState(active) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("service-active", active);
+  mainWindow.webContents.send("active-service-changed", active ? currentService : null);
 }
 
 const AD_SKIP_SCRIPT = `
@@ -332,6 +339,7 @@ function supportsInjectedPlayback(serviceKey) {
 function resetTrackedPlayback() {
   stopTrackPolling();
   lastTrack = null;
+  lastInlineLyricsKey = null;
   discordRpc.clearPresence();
   miniPlayerServer.updateState({
     track: null,
@@ -352,6 +360,179 @@ function sendVkTrackUpdate(trackInfo) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("vk-track-update", trackInfo);
   }
+}
+
+let lastInlineLyricsKey = null;
+
+function injectInlineLyrics(trackInfo) {
+  if (currentService !== "yt" || !trackInfo || !trackInfo.title || !trackInfo.artist) {
+    return;
+  }
+
+  const targetView = getActiveBackendView();
+  if (!targetView) return;
+
+  const trackKey = `${trackInfo.artist} - ${trackInfo.title}`;
+  if (trackKey === lastInlineLyricsKey) return;
+  lastInlineLyricsKey = trackKey;
+
+  const payload = JSON.stringify({
+    title: trackInfo.title,
+    artist: trackInfo.artist,
+    album: trackInfo.album || "",
+    duration: trackInfo.duration || 0,
+  });
+
+  targetView.webContents
+    .executeJavaScript(`
+      (async function() {
+        const track = ${payload};
+        const panelId = 'spice-inline-lyrics';
+        const styleId = 'spice-inline-lyrics-style';
+
+        if (!document.getElementById(styleId)) {
+          const style = document.createElement('style');
+          style.id = styleId;
+          style.textContent = [
+            '#' + panelId + ' {',
+            '  position: fixed;',
+            '  left: 50%;',
+            '  bottom: 92px;',
+            '  transform: translateX(-50%);',
+            '  z-index: 999999;',
+            '  max-width: min(760px, 72vw);',
+            '  pointer-events: none;',
+            '  text-align: center;',
+            '  font-family: Inter, Roboto, Arial, sans-serif;',
+            '  color: rgba(255,255,255,0.92);',
+            '  text-shadow: 0 2px 16px rgba(0,0,0,0.85), 0 0 18px rgba(168,85,247,0.35);',
+            '}',
+            '#' + panelId + ' .spice-line {',
+            '  display: inline-block;',
+            '  padding: 10px 18px;',
+            '  border-radius: 999px;',
+            '  background: rgba(10,10,12,0.62);',
+            '  border: 1px solid rgba(168,85,247,0.20);',
+            '  backdrop-filter: blur(18px);',
+            '  font-size: 20px;',
+            '  line-height: 1.25;',
+            '  font-weight: 650;',
+            '  letter-spacing: -0.02em;',
+            '  transition: opacity 180ms ease, transform 180ms ease;',
+            '}',
+            '#' + panelId + ' .spice-next {',
+            '  margin-top: 7px;',
+            '  font-size: 13px;',
+            '  color: rgba(255,255,255,0.42);',
+            '}'
+          ].join('');
+          document.head.appendChild(style);
+        }
+
+        let panel = document.getElementById(panelId);
+        if (!panel) {
+          panel = document.createElement('div');
+          panel.id = panelId;
+          panel.innerHTML = '<div class="spice-line"></div><div class="spice-next"></div>';
+          document.body.appendChild(panel);
+        }
+
+        const lineEl = panel.querySelector('.spice-line');
+        const nextEl = panel.querySelector('.spice-next');
+        panel.style.display = 'none';
+        lineEl.textContent = '';
+        nextEl.textContent = '';
+
+        function toSeconds(min, sec, frac) {
+          const ms = String(frac || '0').padEnd(3, '0').slice(0, 3);
+          return Number(min) * 60 + Number(sec) + Number(ms) / 1000;
+        }
+
+        function parseLrc(text) {
+          const pattern = /\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?\\]/g;
+          const lines = [];
+          String(text || '').split('\\n').forEach(function(raw) {
+            pattern.lastIndex = 0;
+            const matches = [];
+            let match;
+            while ((match = pattern.exec(raw)) !== null) {
+              matches.push(toSeconds(match[1], match[2], match[3]));
+            }
+            const lyric = raw.replace(pattern, '').replace(/<\\d{1,3}:\\d{2}(?:[.:]\\d{1,3})?>/g, '').trim();
+            if (!lyric) return;
+            matches.forEach(function(time) {
+              lines.push({ time: time, text: lyric });
+            });
+          });
+          return lines.sort(function(a, b) { return a.time - b.time; });
+        }
+
+        async function loadSyncedLyrics() {
+          const direct = new URLSearchParams({
+            track_name: track.title,
+            artist_name: track.artist,
+            album_name: track.album || ''
+          });
+
+          let response = await fetch('https://lrclib.net/api/get?' + direct.toString());
+          if (response.ok) {
+            const data = await response.json();
+            if (data && data.syncedLyrics) return data.syncedLyrics;
+          }
+
+          response = await fetch('https://lrclib.net/api/search?q=' + encodeURIComponent(track.title + ' ' + track.artist));
+          if (!response.ok) return null;
+          const results = await response.json();
+          const match = Array.isArray(results) ? results.find(function(item) { return item && item.syncedLyrics; }) : null;
+          return match ? match.syncedLyrics : null;
+        }
+
+        function activeIndex(lines, time) {
+          let index = -1;
+          for (let i = 0; i < lines.length; i += 1) {
+            if (time >= lines[i].time) index = i;
+            else break;
+          }
+          return index;
+        }
+
+        try {
+          const syncedLyrics = await loadSyncedLyrics();
+          const lines = parseLrc(syncedLyrics);
+          if (!lines.length) return;
+          window.spiceInlineLyrics = { trackKey: track.artist + ' - ' + track.title, lines: lines, active: -1 };
+          if (window.spiceInlineLyricsTimer) clearInterval(window.spiceInlineLyricsTimer);
+
+          window.spiceInlineLyricsTimer = setInterval(function() {
+            const state = window.spiceInlineLyrics;
+            const video = document.querySelector('video');
+            if (!state || !video || video.paused) {
+              if (panel) panel.style.opacity = video && video.paused ? '0.35' : '0';
+              return;
+            }
+
+            const index = activeIndex(state.lines, video.currentTime);
+            if (index < 0) {
+              panel.style.display = 'none';
+              return;
+            }
+
+            panel.style.display = 'block';
+            panel.style.opacity = '1';
+            if (index !== state.active) {
+              state.active = index;
+              lineEl.textContent = state.lines[index].text;
+              nextEl.textContent = state.lines[index + 1] ? state.lines[index + 1].text : '';
+            }
+          }, 250);
+        } catch (error) {
+          console.debug('[Spice Inline Lyrics] unavailable:', error && error.message);
+        }
+      })();
+    `)
+    .catch((err) => {
+      console.error("[Inline Lyrics] Failed to inject:", err.message);
+    });
 }
 
 function seekPlayback(time) {
@@ -579,7 +760,7 @@ function loadService(serviceKey) {
   updateViewBounds();
 
   // Notify renderer that a service is active (to show top bar)
-  mainWindow.webContents.send("service-active", true);
+  sendActiveServiceState(true);
 
   // Send VK player config once DOM is interactive
   view.webContents.once("dom-ready", () => {
@@ -641,7 +822,7 @@ function goHome() {
   currentService = null;
   // Clear Discord RPC
   discordRpc.clearPresence();
-  mainWindow.webContents.send("service-active", false);
+  sendActiveServiceState(false);
 }
 
 // ============== MAIN PROCESS TRACK POLLING ==============
@@ -935,6 +1116,8 @@ function startTrackPolling() {
           if (lyricsWindow) {
             lyricsWindow.webContents.send("lyrics-track-update", track);
           }
+
+          injectInlineLyrics(track);
         }
 
         // ALWAYS update Mini Player and Discord (for progress/time sync)
@@ -1812,7 +1995,7 @@ app.whenReady().then(async () => {
       // Ensure the view is attached (in case it was hidden by modal)
       mainWindow.setBrowserView(view);
       updateViewBounds();
-      mainWindow.webContents.send("service-active", true);
+      sendActiveServiceState(true);
 
       // Dispatch settings once DOM is interactive
       view.webContents.on("dom-ready", () => {

@@ -227,13 +227,13 @@
                 </div>
 
                 <!-- Deprecated Services -->
-                <div class="absolute right-6 bottom-6 text-left no-drag">
-                    <label class="block text-[10px] uppercase tracking-[0.22em] text-gray-700 mb-2">
-                        Deprecated
+                <div class="absolute right-4 bottom-4 text-left no-drag opacity-35 hover:opacity-100 transition-opacity duration-300">
+                    <label class="block text-[9px] uppercase tracking-[0.24em] text-gray-800 mb-1.5">
+                        Deprecated folder
                     </label>
-                    <select class="bg-white/[0.04] text-gray-400 border border-white/[0.08] rounded-full
-                                   px-3 py-2 text-xs outline-none cursor-pointer hover:text-gray-200
-                                   hover:border-purple-500/30 focus:border-purple-500/40 transition-all"
+                    <select class="bg-black/40 text-gray-600 border border-white/[0.04] rounded-full
+                                   px-2.5 py-1.5 text-[11px] outline-none cursor-pointer hover:text-gray-300
+                                   hover:border-purple-500/20 focus:border-purple-500/30 transition-all"
                             onChange=${function(e) {
                                 if (e.target.value) {
                                     onLoad(e.target.value);
@@ -408,7 +408,9 @@
         var showVolumePopup = props.showVolumePopup;
         var setShowVolumePopup = props.setShowVolumePopup;
         var topSearchVisible = props.topSearchVisible;
+        var activeService = props.activeService;
         var onOpenUrlModal = props.onOpenUrlModal;
+        var showServiceTools = activeService === 'yt';
 
         var volumeRef = useRef(null);
 
@@ -441,14 +443,14 @@
                 </div>
 
                 <!-- CENTER: Search Bar -->
-                ${topSearchVisible && html`
+                ${topSearchVisible && showServiceTools && html`
                     <div class="absolute left-1/2 w-[320px] no-drag transition-transform duration-300"
                          style=${{ transform: showVolumePopup ? 'translateX(calc(-50% - 150px))' : 'translateX(-50%)' }}>
                         <div class="relative">
                             <div class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 pointer-events-none">
                                 ${icon(IC.search, 14)}
                             </div>
-                            <input type="text" placeholder="Search YouTube Music…"
+                            <input type="text" placeholder="Search"
                                    id="spice-search-bar"
                                    class="w-full bg-white/[0.04] text-white border border-white/[0.06] rounded-full
                                           pl-9 pr-4 py-1.5 text-[13px] placeholder-gray-600
@@ -467,7 +469,7 @@
                 <!-- RIGHT: Feature + Window Buttons -->
                 <div class="flex items-center h-full ml-auto no-drag">
                     <!-- Volume -->
-                    <div ref=${volumeRef} class="flex items-center h-full">
+                    <div ref=${volumeRef} class=${(showServiceTools ? 'flex' : 'hidden') + ' items-center h-full'}>
                         <button class="nav-btn"
                                 onClick=${function(e) { e.stopPropagation(); setShowVolumePopup(!showVolumePopup); }}
                                 title="Volume">
@@ -523,11 +525,11 @@
                     </div>
 
                     <!-- Feature Buttons -->
-                    <button class="nav-btn" onClick=${function() { callApi('openLyrics'); }}
+                    <button class=${(showServiceTools ? 'nav-btn' : 'hidden')} onClick=${function() { callApi('openLyrics'); }}
                             title="Lyrics">${icon(IC.mic)}</button>
-                    <button class="nav-btn" onClick=${function() { callApi('openMiniPlayer'); }}
+                    <button class=${(showServiceTools ? 'nav-btn' : 'hidden')} onClick=${function() { callApi('openMiniPlayer'); }}
                             title="Mini Player">${icon(IC.pip)}</button>
-                    <button class="nav-btn" onClick=${function() { callApi('openQueue'); }}
+                    <button class=${(showServiceTools ? 'nav-btn' : 'hidden')} onClick=${function() { callApi('openQueue'); }}
                             title="Queue">${icon(IC.queue)}</button>
                     <button class="nav-btn" onClick=${function() { callApi('openSettings'); }}
                             title="Settings">${icon(IC.settings)}</button>
@@ -558,6 +560,7 @@
         };
         var _track = useState(trackInit);       var track = _track[0];       var setTrack = _track[1];
         var _sa    = useState(false);            var serviceActive = _sa[0];  var setServiceActive = _sa[1];
+        var _as    = useState(null);             var activeService = _as[0];   var setActiveService = _as[1];
         var _pv    = useState(false);            var playerVisible = _pv[0];  var setPlayerVisible = _pv[1];
         var _vol   = useState(100);              var volume = _vol[0];        var setVolume = _vol[1];
         var _boost = useState(false);            var boostEnabled = _boost[0]; var setBoostEnabled = _boost[1];
@@ -602,8 +605,17 @@
             // Service activation
             window.api.onServiceActive(function(active) {
                 setServiceActive(active);
-                if (!active) setPlayerVisible(false);
+                if (!active) {
+                    setActiveService(null);
+                    setPlayerVisible(false);
+                }
             });
+
+            if (window.api.onActiveServiceChanged) {
+                window.api.onActiveServiceChanged(function(service) {
+                    setActiveService(service || null);
+                });
+            }
 
             // VK Player visibility
             if (window.api.onVkPlayerVisibility) {
@@ -670,6 +682,7 @@
                             likeStatus:  !!state.likeStatus,
                         });
                         setServiceActive(true);
+                        setActiveService('yt');
                         setPlayerVisible(true);
                     }
                 } catch (e) { /* polling failed, ignore */ }
@@ -738,6 +751,7 @@
             callApi('loadService', service);
             if (!window.api) {
                 setServiceActive(true);
+                setActiveService(service);
                 setPlayerVisible(true);
             }
         }, []);
@@ -754,6 +768,7 @@
                     showVolumePopup=${showVolumePopup}
                     setShowVolumePopup=${setShowVolumePopup}
                     topSearchVisible=${topSearchVisible}
+                    activeService=${activeService}
                     onOpenUrlModal=${openUrlModal}
                 />
 
