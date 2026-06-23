@@ -1,5 +1,12 @@
 # SPICE Walkthrough
 
+## v1.0.52
+
+- [Spice.Admin main] Wire up the developer/admin dashboard at `/admin-dashboard` to allow managing account roles and subscription states.
+- [Spice.Admin main] Create backend admin API endpoints (`/api/admin/accounts`) to securely query all registered accounts and save inline role, tier, and status changes.
+- [Spice.Admin main] Add an interactive Account Governance panel on the client with dropdown selectors, loading states, success checks, and real-time database sync.
+- [Spice.Admin main] Bump the application version in the diagnostics panel inside `apps/backend/app/spice-app.tsx` to align with the release.
+
 ## v1.0.51
 
 - [Spice.Music main] Add playlist details customization: users can edit name, description, gradient accent banner presets (including a matching neon red gradient), and cover art image (by image URL or uploading local files converted to Base64).
