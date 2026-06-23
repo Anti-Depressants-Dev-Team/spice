@@ -1,5 +1,12 @@
 # SPICE Walkthrough
 
+## v1.0.45
+
+- Wire up the developer/admin dashboard at `/admin-dashboard` to allow managing account roles and subscription states.
+- Create backend admin API endpoints (`/api/admin/accounts`) to securely query all registered accounts and save inline role, tier, and status changes.
+- Add an interactive Account Governance panel on the client with dropdown selectors, loading states, success checks, and real-time database sync.
+- Bump the application version in the diagnostics panel inside `apps/backend/app/spice-app.tsx` to align with the release.
+
 ## v1.0.44
 
 - Link the Spice Movie screening panel to VIDSrc through validated TMDB movie IDs, host-compatible watch routes, and a sandboxed full-screen player shell.
