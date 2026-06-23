@@ -14,6 +14,7 @@ interface ClientPlaylistPayload {
   title?: string;
   description?: string;
   gradient?: string;
+  coverUrl?: string;
   tracks?: TrackSnapshotInput[];
   shared?: boolean;
 }
@@ -146,6 +147,7 @@ export async function POST(request: Request) {
         title: clientPl.title || 'Untitled Playlist',
         description: clientPl.description || '',
         gradient: clientPl.gradient || 'linear-gradient(135deg, #a855f7, #ec4899)',
+        coverUrl: clientPl.coverUrl || null,
         sortIndex: i,
       }).returning();
 

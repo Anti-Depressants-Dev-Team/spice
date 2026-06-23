@@ -56,6 +56,7 @@ export const playlists = pgTable('playlists', {
   title: text('title').notNull(),
   description: text('description'),
   gradient: text('gradient').notNull().default('linear-gradient(135deg, #a855f7, #ec4899)'),
+  coverUrl: text('cover_url'),
   sortIndex: integer('sort_index').notNull().default(0),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),

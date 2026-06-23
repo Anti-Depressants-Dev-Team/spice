@@ -1,5 +1,20 @@
 # SPICE Walkthrough
 
+## v1.0.51
+
+- [Spice.Music main] Add playlist details customization: users can edit name, description, gradient accent banner presets (including a matching neon red gradient), and cover art image (by image URL or uploading local files converted to Base64).
+- [Spice.Music main] Relocate the "Delete" button from the main actions bar into the customization modal, and replace the browser confirm dialog with a premium React overlay confirmation popup.
+- [Spice.Music main] Add the "Crimson Moon" dynamic theme to Application Settings, painting highlights, buttons, and glow effects in neon red.
+- [Spice.Music main] Connect the sidebar "S" logo background gradient to the active application theme dynamically instead of hardcoding the active profile's gradient.
+- [Spice.Music main] Extend the database schema with a `cover_url` column on the `playlists` table, support it in synchronization, and add a `PATCH` endpoint to support remote updates on shared collaborative playlists.
+
+## v1.0.50
+
+- [Spice.Music main] Update the volume slider styling with a thematic linear gradient that represents the filled volume level in purple (`var(--accent-pink)`), and make the volume icon and slider thumb use the purple accent theme on hover.
+- [Spice.Music main] Fix collaborator identity leakage across local profiles by storing and restoring the `cloudToken`, `cloudUser`, and `cloudUsername` fields dynamically on a per-profile basis when switching profiles.
+- [Spice.Music main] Decouple the topbar quick search input query state (`topbarSearchQuery`) from the search page input query state (`searchQuery`) so that typing in one search bar does not overwrite or sync text with the other.
+- [Spice.Music main] Add a "Shuffle Play" action button to the playlist actions bar, allowing users to start playing a playlist shuffled immediately.
+
 ## v1.0.49
 
 - [Spice.Music main] Fix collaborators panel remaining open when selecting a different playlist in SPICE Music by resetting `showMembersPanel` to false whenever `selectedPlaylist` changes.

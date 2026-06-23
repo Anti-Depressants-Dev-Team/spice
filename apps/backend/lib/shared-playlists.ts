@@ -93,6 +93,7 @@ export async function getPlaylistSnapshot(playlistId: string, options: SharedPla
     description: playlist.description || '',
     createdAt: playlist.updatedAt.toISOString(),
     gradient: playlist.gradient,
+    coverUrl: playlist.coverUrl || null,
     tracks,
     ownerId: playlist.userId,
     ownerUsername: ownerInfo.username,
