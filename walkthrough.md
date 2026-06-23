@@ -4,6 +4,10 @@
 
 - [Spice.Music main] Fix missing collaborators panel button on shared playlists for guest/logged-out users by checking only for playlist share status and a valid UUID, and fall back to rendering the member list from local cached metadata (`ownerDisplayName`, `members`) when `cloudToken` is not present.
 - [Spice.Music main] Fix cloud account session persistence when switching profiles by ensuring that `cloudToken`, `cloudUser`, and `cloudUsername` are explicitly carried over from local profiles during cloud synchronization.
+- [Spice.Admin main] Wire up the developer/admin dashboard at `/admin-dashboard` to allow managing account roles and subscription states.
+- [Spice.Admin main] Create backend admin API endpoints (`/api/admin/accounts`) to securely query all registered accounts and save inline role, tier, and status changes.
+- [Spice.Admin main] Add an interactive Account Governance panel on the client with dropdown selectors, loading states, success checks, and real-time database sync.
+- [Spice.Admin main] Bump the application version in the diagnostics panel inside `apps/backend/app/spice-app.tsx` to align with the release.
 
 ## v1.0.51
 
