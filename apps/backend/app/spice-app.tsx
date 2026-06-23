@@ -2134,6 +2134,10 @@ export default function SpiceApp() {
             joinedAt: serverProf.joinedAt,
             passcode: serverProf.passcode || undefined,
             avatarUrl: serverProf.avatarUrl || undefined,
+            // Explicitly preserve credentials in case they are missing from serverProf
+            cloudToken: mergedProfiles[existingIdx].cloudToken || null,
+            cloudUser: mergedProfiles[existingIdx].cloudUser || null,
+            cloudUsername: mergedProfiles[existingIdx].cloudUsername || null,
           };
         } else {
           mergedProfiles.push({
@@ -2161,7 +2165,11 @@ export default function SpiceApp() {
             likedTracks: mergedLikesArray,
             likedTrackDetails: mergedLikedDetails,
             customPlaylists: mergedPlaylists,
-            history: mergedHistory
+            history: mergedHistory,
+            // Ensure current active cloud account credentials are explicitly retained
+            cloudToken: p.cloudToken || token || cloudToken,
+            cloudUser: p.cloudUser || cloudUser,
+            cloudUsername: p.cloudUsername || cloudUsername,
           };
         }
         return p;
@@ -4119,7 +4127,22 @@ export default function SpiceApp() {
 
   // ── Shared Playlist Member Management ───────────────────────────
   const fetchPlaylistMembers = async (playlistId: string) => {
-    if (!cloudToken) return;
+    if (!cloudToken) {
+      if (selectedPlaylist && selectedPlaylist.id === playlistId) {
+        setMembersList({
+          owner: {
+            userId: selectedPlaylist.ownerId || 'unknown',
+            username: selectedPlaylist.ownerUsername || null,
+            displayName: selectedPlaylist.ownerDisplayName || 'Owner',
+            avatarUrl: null,
+            role: 'owner',
+          },
+          members: selectedPlaylist.members || [],
+          maxMembers: 4,
+        });
+      }
+      return;
+    }
     setMembersLoading(true);
     setMemberActionStatus(null);
     try {
@@ -5756,7 +5779,7 @@ export default function SpiceApp() {
                         : selectedPlaylist.shared ? 'New Invite Link' : 'Share Playlist'}
                     </button>
                   )}
-                  {cloudToken && selectedPlaylist.shared && isPlaylistUuid(selectedPlaylist.id) && (
+                  {selectedPlaylist.shared && isPlaylistUuid(selectedPlaylist.id) && (
                     <button
                       className="btn btn--ghost playlist-hero__action-btn"
                       onClick={() => {
@@ -7669,7 +7692,7 @@ export default function SpiceApp() {
                         {Icons.tool} System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        Spice Media Core v1.0.51 (Phase 42 Playlist Customization & Themes)
+                        Spice Media Core v1.0.52 (Phase 43 Collaborators & Profile Cloud Account Session Fixes)
                       </span>
                     </div>
 
