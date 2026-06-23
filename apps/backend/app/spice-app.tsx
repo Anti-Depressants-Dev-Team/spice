@@ -4592,7 +4592,20 @@ export default function SpiceApp() {
 
   // Profile switching, locking and passcode validations
   const switchProfile = (profileId: string, profileOverride?: UserProfile) => {
-    const target = profileOverride || profiles.find(p => p.id === profileId);
+    let latestProfiles = profiles;
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('spice_profiles_list');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.length > 0) {
+            latestProfiles = parsed;
+            setProfiles(parsed);
+          }
+        } catch {}
+      }
+    }
+    const target = profileOverride || latestProfiles.find(p => p.id === profileId);
     if (!target) return;
 
     setActiveProfileId(profileId);
