@@ -4592,7 +4592,20 @@ export default function SpiceApp() {
 
   // Profile switching, locking and passcode validations
   const switchProfile = (profileId: string, profileOverride?: UserProfile) => {
-    const target = profileOverride || profiles.find(p => p.id === profileId);
+    let latestProfiles = profiles;
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('spice_profiles_list');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.length > 0) {
+            latestProfiles = parsed;
+            setProfiles(parsed);
+          }
+        } catch {}
+      }
+    }
+    const target = profileOverride || latestProfiles.find(p => p.id === profileId);
     if (!target) return;
 
     setActiveProfileId(profileId);
@@ -7692,7 +7705,7 @@ export default function SpiceApp() {
                         {Icons.tool} System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        Spice Media Core v1.0.52 (Developer Dashboard)
+                        Spice Media Core v1.0.53 (Phase 43 Collaborators, Profile Session, & Developer Dashboard)
                       </span>
                     </div>
 

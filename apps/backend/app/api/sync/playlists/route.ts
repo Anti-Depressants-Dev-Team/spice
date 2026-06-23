@@ -140,16 +140,39 @@ export async function POST(request: Request) {
       const isUUID = typeof clientPl.id === 'string'
         && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientPl.id);
       
-      const [insertedPl] = await db.insert(playlists).values({
-        id: isUUID ? clientPl.id : undefined,
-        userId: session.userId,
-        profileId,
-        title: clientPl.title || 'Untitled Playlist',
-        description: clientPl.description || '',
-        gradient: clientPl.gradient || 'linear-gradient(135deg, #a855f7, #ec4899)',
-        coverUrl: clientPl.coverUrl || null,
-        sortIndex: i,
-      }).returning();
+      let existingPlaylist = null;
+      if (isUUID) {
+        existingPlaylist = await db.query.playlists.findFirst({
+          where: eq(playlists.id, clientPl.id!)
+        });
+      }
+
+      let insertedPl;
+      if (existingPlaylist) {
+        // Update the existing playlist details instead of inserting to avoid unique constraint violations
+        [insertedPl] = await db.update(playlists).set({
+          title: clientPl.title || 'Untitled Playlist',
+          description: clientPl.description || '',
+          gradient: clientPl.gradient || 'linear-gradient(135deg, #a855f7, #ec4899)',
+          coverUrl: clientPl.coverUrl || null,
+          sortIndex: i,
+          deletedAt: null, // Undelete if it was marked as deleted
+        }).where(eq(playlists.id, clientPl.id!)).returning();
+
+        // Clear existing tracks first before re-inserting to prevent duplicates
+        await db.delete(playlistItems).where(eq(playlistItems.playlistId, insertedPl.id));
+      } else {
+        [insertedPl] = await db.insert(playlists).values({
+          id: isUUID ? clientPl.id : undefined,
+          userId: session.userId,
+          profileId,
+          title: clientPl.title || 'Untitled Playlist',
+          description: clientPl.description || '',
+          gradient: clientPl.gradient || 'linear-gradient(135deg, #a855f7, #ec4899)',
+          coverUrl: clientPl.coverUrl || null,
+          sortIndex: i,
+        }).returning();
+      }
 
       if (Array.isArray(clientPl.tracks) && clientPl.tracks.length > 0) {
         // Chunk list insertion to avoid exceeding Drizzle/Postgres parameters bounds

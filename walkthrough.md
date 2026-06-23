@@ -1,5 +1,10 @@
 # SPICE Walkthrough
 
+## v1.0.53
+
+- [Spice.Music main] Fix duplicate key value unique constraint error on `playlists_pkey` during playlist synchronization by checking if the playlist UUID already exists in the database and performing an update instead of an insert.
+- [Spice.Music main] Fix profile switching auto-login session synchronization lag by loading the latest profile properties directly from `localStorage` within `switchProfile` to bypass React asynchronous state rendering updates.
+
 ## v1.0.52
 
 - [Spice.Music main] Fix missing collaborators panel button on shared playlists for guest/logged-out users by checking only for playlist share status and a valid UUID, and fall back to rendering the member list from local cached metadata (`ownerDisplayName`, `members`) when `cloudToken` is not present.
