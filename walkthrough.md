@@ -2,6 +2,8 @@
 
 ## v1.0.52
 
+- [Spice.Music main] Fix missing collaborators panel button on shared playlists for guest/logged-out users by checking only for playlist share status and a valid UUID, and fall back to rendering the member list from local cached metadata (`ownerDisplayName`, `members`) when `cloudToken` is not present.
+- [Spice.Music main] Fix cloud account session persistence when switching profiles by ensuring that `cloudToken`, `cloudUser`, and `cloudUsername` are explicitly carried over from local profiles during cloud synchronization.
 - [Spice.Admin main] Wire up the developer/admin dashboard at `/admin-dashboard` to allow managing account roles and subscription states.
 - [Spice.Admin main] Create backend admin API endpoints (`/api/admin/accounts`) to securely query all registered accounts and save inline role, tier, and status changes.
 - [Spice.Admin main] Add an interactive Account Governance panel on the client with dropdown selectors, loading states, success checks, and real-time database sync.
@@ -9,9 +11,9 @@
 
 ## v1.0.51
 
-- [Spice.Music main] Add playlist details customization: users can edit name, description, gradient accent banner presets (including a matching neon red gradient), and cover art image (by image URL or uploading local files converted to Base64).
+- [Spice.Music main] Add playlist details customization: users can edit name, description, gradient accent banner presets (including matching neon red and dark purple gradients), and cover art image (by image URL or uploading local files converted to Base64).
 - [Spice.Music main] Relocate the "Delete" button from the main actions bar into the customization modal, and replace the browser confirm dialog with a premium React overlay confirmation popup.
-- [Spice.Music main] Add the "Crimson Moon" dynamic theme to Application Settings, painting highlights, buttons, and glow effects in neon red.
+- [Spice.Music main] Add the "Crimson Moon" (neon red) and "Midnight Velvet" (dark purple) dynamic themes to Application Settings, painting highlights, buttons, and glow effects.
 - [Spice.Music main] Connect the sidebar "S" logo background gradient to the active application theme dynamically instead of hardcoding the active profile's gradient.
 - [Spice.Music main] Extend the database schema with a `cover_url` column on the `playlists` table, support it in synchronization, and add a `PATCH` endpoint to support remote updates on shared collaborative playlists.
 
