@@ -2,9 +2,9 @@
 
 ## v1.0.51
 
-- [Spice.Music main] Add playlist details customization: users can edit name, description, gradient accent banner presets (including a matching neon red gradient), and cover art image (by image URL or uploading local files converted to Base64).
+- [Spice.Music main] Add playlist details customization: users can edit name, description, gradient accent banner presets (including matching neon red and dark purple gradients), and cover art image (by image URL or uploading local files converted to Base64).
 - [Spice.Music main] Relocate the "Delete" button from the main actions bar into the customization modal, and replace the browser confirm dialog with a premium React overlay confirmation popup.
-- [Spice.Music main] Add the "Crimson Moon" dynamic theme to Application Settings, painting highlights, buttons, and glow effects in neon red.
+- [Spice.Music main] Add the "Crimson Moon" (neon red) and "Midnight Velvet" (dark purple) dynamic themes to Application Settings, painting highlights, buttons, and glow effects.
 - [Spice.Music main] Connect the sidebar "S" logo background gradient to the active application theme dynamically instead of hardcoding the active profile's gradient.
 - [Spice.Music main] Extend the database schema with a `cover_url` column on the `playlists` table, support it in synchronization, and add a `PATCH` endpoint to support remote updates on shared collaborative playlists.
 

@@ -408,7 +408,7 @@ type SearchProvider = 'hybrid' | 'youtube_music' | 'youtube_videos' | 'soundclou
 type StreamProtocol = 'proxy' | 'web' | 'embed';
 type ProfileListenType = 'playing_now' | 'scrobble';
 type ProfileSyncStatus = 'idle' | 'playing' | 'scrobbled' | 'error';
-type AccentTheme = 'pink' | 'blue' | 'orange' | 'green' | 'gold' | 'crimson';
+type AccentTheme = 'pink' | 'blue' | 'orange' | 'green' | 'gold' | 'crimson' | 'deeppurple';
 type VisualSurface = 'midnight' | 'glass' | 'solid' | 'aurora';
 type ArtworkShape = 'rounded' | 'soft' | 'circle';
 type MotionLevel = 'full' | 'calm' | 'off';
@@ -583,6 +583,7 @@ const PRESET_GRADIENTS = [
   'linear-gradient(135deg, #f59e0b, #d97706)',
   'linear-gradient(135deg, #6366f1, #4f46e5)',
   'linear-gradient(135deg, #ff003c, #990011)',
+  'linear-gradient(135deg, #4c1d95, #120024)',
 ];
 
 const PRESET_AVATARS = [
@@ -638,7 +639,7 @@ const isStreamProtocol = (value: string | null): value is StreamProtocol =>
   value === 'proxy' || value === 'web' || value === 'embed';
 
 const isAccentTheme = (value: string | null): value is AccentTheme =>
-  value === 'pink' || value === 'blue' || value === 'orange' || value === 'green' || value === 'gold' || value === 'crimson';
+  value === 'pink' || value === 'blue' || value === 'orange' || value === 'green' || value === 'gold' || value === 'crimson' || value === 'deeppurple';
 
 const isVisualSurface = (value: string | null): value is VisualSurface =>
   value === 'midnight' || value === 'glass' || value === 'solid' || value === 'aurora';
@@ -4981,6 +4982,19 @@ export default function SpiceApp() {
           }
         `;
         break;
+      case 'deeppurple':
+        base = `
+          :root {
+            --accent-pink: #7c3aed !important;
+            --accent-pink-rgb: 124, 58, 237 !important;
+            --accent-purple: #4c1d95 !important;
+            --accent-violet: #7c3aed !important;
+            --accent-cyan: #3b0764 !important;
+            --accent-gradient: linear-gradient(135deg, #4c1d95, #120024) !important;
+            --text-accent: #c084fc !important;
+          }
+        `;
+        break;
       default: // pink
         base = `
           :root {
@@ -7101,7 +7115,8 @@ export default function SpiceApp() {
                         { id: 'orange', name: 'Solar Fire (Orange)', color: '#f97316', gradient: 'linear-gradient(135deg, #f97316, #ef4444)' },
                         { id: 'green', name: 'Jade Emerald (Green)', color: '#10b981', gradient: 'linear-gradient(135deg, #10b981, #059669)' },
                         { id: 'gold', name: 'Imperial Gold (Gold)', color: '#f59e0b', gradient: 'linear-gradient(135deg, #f59e0b, #d97706)' },
-                        { id: 'crimson', name: 'Crimson Moon (Red)', color: '#ff003c', gradient: 'linear-gradient(135deg, #ff003c, #990011)' }
+                        { id: 'crimson', name: 'Crimson Moon (Red)', color: '#ff003c', gradient: 'linear-gradient(135deg, #ff003c, #990011)' },
+                        { id: 'deeppurple', name: 'Midnight Velvet (Dark Purple)', color: '#7c3aed', gradient: 'linear-gradient(135deg, #4c1d95, #120024)' }
                       ].map((t) => {
                         const isCurrent = accentTheme === t.id;
                         return (
