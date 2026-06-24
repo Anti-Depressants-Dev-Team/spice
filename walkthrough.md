@@ -1,5 +1,12 @@
 # SPICE Walkthrough
 
+## v1.0.56
+
+- [Spice.Music main] Add song share buttons across search results, playlists, liked songs, history, the topbar search tray, and all now-playing player surfaces.
+- [Spice.Music main] Add share-song links that open the selected track in SPICE Music through a `song` launch parameter.
+- [Spice.Music main] Add a share sheet with copy-link, source-open, and safe direct-audio download actions; provider streams remain share/source-only unless the track already exposes a direct audio file URL.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.56`.
+
 ## v1.0.55
 
 - [Spice.Music main] Replace native browser alerts and confirmations with themed in-app Spice notices and confirmation dialogs that use the active accent color variables.

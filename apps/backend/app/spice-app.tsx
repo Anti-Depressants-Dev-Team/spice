@@ -442,6 +442,11 @@ interface SpiceConfirmDialog {
   onConfirm: () => void;
 }
 
+interface SongShareDialog {
+  track: Track;
+  shareUrl: string;
+}
+
 const SEARCH_PROVIDER_LABELS: Record<SearchProvider, string> = {
   hybrid: 'Hybrid',
   youtube_music: 'YouTube Music',
@@ -838,6 +843,40 @@ const buildSongShareUrl = (track: Track) => {
   return url.toString();
 };
 
+const directAudioExtensionPattern = /\.(mp3|m4a|aac|wav|flac|ogg|opus)(?:$|[?#])/iu;
+
+const directAudioDownloadUrl = (track: Track) => {
+  const candidates = [track.permalinkUrl].filter(Boolean) as string[];
+
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate, typeof window !== 'undefined' ? window.location.origin : 'https://music.spice-app.xyz');
+      if (directAudioExtensionPattern.test(url.pathname)) return url.toString();
+    } catch {
+      // Skip malformed URLs.
+    }
+  }
+
+  return null;
+};
+
+const sanitizeDownloadName = (track: Track) => {
+  const base = `${profileArtistName(track)} - ${track.title}`
+    .replace(/[<>:"/\\|?*\x00-\x1F]/gu, '')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  return (base || 'spice-song').slice(0, 90);
+};
+
+const extensionFromAudioUrl = (url: string) => {
+  try {
+    const match = new URL(url).pathname.match(/\.([a-z0-9]+)$/iu);
+    return match?.[1]?.toLowerCase() || 'mp3';
+  } catch {
+    return 'mp3';
+  }
+};
+
 const scrobbleThresholdSeconds = (durationSeconds: number) => {
   if (!durationSeconds || !Number.isFinite(durationSeconds)) return 60;
   if (durationSeconds < 30) return Math.max(5, durationSeconds * 0.5);
@@ -1053,6 +1092,7 @@ export default function SpiceApp() {
   const [showQueueDrawer, setShowQueueDrawer] = useState(false);
   const [spiceNotice, setSpiceNotice] = useState<SpiceNotice | null>(null);
   const [spiceConfirm, setSpiceConfirm] = useState<SpiceConfirmDialog | null>(null);
+  const [songShareDialog, setSongShareDialog] = useState<SongShareDialog | null>(null);
   const spiceNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showSpiceNotice = useCallback((message: string, kind: SpiceNoticeKind = 'info') => {
@@ -1101,7 +1141,7 @@ export default function SpiceApp() {
     }
   }, []);
 
-  const shareSongLink = useCallback(async (track: Track, event?: React.MouseEvent<HTMLElement>) => {
+  const shareSongLink = useCallback((track: Track, event?: React.MouseEvent<HTMLElement>) => {
     event?.stopPropagation();
 
     if (!track || track.id === 'placeholder' || track.id === 'spice-connect-placeholder') {
@@ -1109,22 +1149,27 @@ export default function SpiceApp() {
       return;
     }
 
-    const shareUrl = buildSongShareUrl(track);
-    const copied = await copyTextToClipboard(shareUrl);
+    setSongShareDialog({ track, shareUrl: buildSongShareUrl(track) });
+  }, [showSpiceNotice]);
 
+  const copySongShareLink = useCallback(async () => {
+    if (!songShareDialog) return;
+    const copied = await copyTextToClipboard(songShareDialog.shareUrl);
     if (copied) {
-      showSpiceNotice(`Song link copied for "${track.title}".`, 'success');
+      showSpiceNotice(`Song link copied for "${songShareDialog.track.title}".`, 'success');
+      setSongShareDialog(null);
       return;
     }
 
     if (navigator.share) {
       try {
         await navigator.share({
-          title: track.title,
-          text: `${track.title} - ${profileArtistName(track)}`,
-          url: shareUrl,
+          title: songShareDialog.track.title,
+          text: `${songShareDialog.track.title} - ${profileArtistName(songShareDialog.track)}`,
+          url: songShareDialog.shareUrl,
         });
         showSpiceNotice('Song link opened in your share sheet.', 'success');
+        setSongShareDialog(null);
         return;
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') return;
@@ -1132,7 +1177,37 @@ export default function SpiceApp() {
     }
 
     showSpiceNotice('Could not copy the song link from this browser.', 'warning');
-  }, [copyTextToClipboard, showSpiceNotice]);
+  }, [copyTextToClipboard, showSpiceNotice, songShareDialog]);
+
+  const downloadSharedSong = useCallback(() => {
+    if (!songShareDialog) return;
+    const downloadUrl = directAudioDownloadUrl(songShareDialog.track);
+
+    if (!downloadUrl) {
+      showSpiceNotice('Download is only available for direct licensed audio files. This provider stream can be shared or opened at the source instead.', 'info');
+      return;
+    }
+
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = `${sanitizeDownloadName(songShareDialog.track)}.${extensionFromAudioUrl(downloadUrl)}`;
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showSpiceNotice(`Downloading "${songShareDialog.track.title}".`, 'success');
+    setSongShareDialog(null);
+  }, [showSpiceNotice, songShareDialog]);
+
+  const openSongSource = useCallback(() => {
+    if (!songShareDialog) return;
+    const sourceUrl = profileOriginUrl(songShareDialog.track);
+    if (!sourceUrl) {
+      showSpiceNotice('No source link is available for this song.', 'warning');
+      return;
+    }
+    window.open(sourceUrl, '_blank', 'noopener,noreferrer');
+  }, [showSpiceNotice, songShareDialog]);
 
   const renderSongShareButton = (
     track: Track,
@@ -3913,11 +3988,25 @@ export default function SpiceApp() {
     const pageIntent = params.get('page');
     const authIntent = params.get('auth');
     const searchIntent = params.get('q') || params.get('search');
+    const songIntent = params.get('song');
     const providerIntent = params.get('provider');
     const provider = isSearchProvider(providerIntent) ? providerIntent : searchProvider;
     let consumedIntent = false;
 
-    if (authIntent === 'register' || authIntent === 'login') {
+    if (songIntent) {
+      const sharedTrack = decodeSongShareToken(songIntent);
+      if (sharedTrack) {
+        rememberTrackSnapshots([sharedTrack]);
+        setSelectedPlaylist(null);
+        setCurrentPage('search');
+        setSearchQuery(`${sharedTrack.title} ${profileArtistName(sharedTrack)}`);
+        void playTrack(sharedTrack, [sharedTrack]);
+        showSpiceNotice(`Opening shared song: "${sharedTrack.title}".`, 'success');
+      } else {
+        showSpiceNotice('This shared song link could not be opened.', 'warning');
+      }
+      consumedIntent = true;
+    } else if (authIntent === 'register' || authIntent === 'login') {
       setAuthMode(authIntent === 'register' ? 'register' : 'login');
       setSelectedPlaylist(null);
       setCurrentPage('account');
@@ -3944,7 +4033,7 @@ export default function SpiceApp() {
     if (!consumedIntent) return;
 
     launchIntentHandledRef.current = true;
-    for (const key of ['page', 'auth', 'q', 'search', 'provider']) {
+    for (const key of ['page', 'auth', 'q', 'search', 'provider', 'song']) {
       params.delete(key);
     }
 
@@ -5749,6 +5838,58 @@ export default function SpiceApp() {
           </div>
         </div>
       )}
+      {/* ── Song Share Dialog ── */}
+      {songShareDialog && (
+        <div className="spice-dialog-backdrop" role="presentation" onClick={() => setSongShareDialog(null)}>
+          <div
+            className="spice-share-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="spice-share-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="spice-share-dialog__header">
+              <img
+                src={songShareDialog.track.artworkUrl || '/icon.svg'}
+                alt=""
+                className="spice-share-dialog__art"
+              />
+              <div className="spice-share-dialog__copy">
+                <span className="spice-share-dialog__eyebrow">Share song</span>
+                <h2 id="spice-share-title">{songShareDialog.track.title}</h2>
+                <p>{profileArtistName(songShareDialog.track)} | {trackSourceLabel(songShareDialog.track)}</p>
+              </div>
+              <button
+                type="button"
+                className="spice-share-dialog__close"
+                onClick={() => setSongShareDialog(null)}
+                aria-label="Close share options"
+              >
+                {Icons.close}
+              </button>
+            </div>
+            <div className="spice-share-dialog__link" title={songShareDialog.shareUrl}>
+              {songShareDialog.shareUrl}
+            </div>
+            <div className="spice-share-dialog__actions">
+              <button type="button" className="spice-share-dialog__button spice-share-dialog__button--primary" onClick={copySongShareLink}>
+                {Icons.clipboard} Copy Link
+              </button>
+              <button
+                type="button"
+                className={`spice-share-dialog__button ${directAudioDownloadUrl(songShareDialog.track) ? '' : 'is-muted'}`}
+                onClick={downloadSharedSong}
+                title={directAudioDownloadUrl(songShareDialog.track) ? 'Download audio file' : 'Direct audio download is not available for this provider stream'}
+              >
+                {Icons.download} Download
+              </button>
+              <button type="button" className="spice-share-dialog__button" onClick={openSongSource}>
+                {Icons.globe} Source
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ── Security Passcode Lock Overlay ── */}
       {isLocked && (
         <div className="passcode-overlay animate-in" style={{ position: 'fixed', inset: 0, background: '#000000', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(32px)' }}>
@@ -6072,25 +6213,30 @@ export default function SpiceApp() {
                     {topbarTrayResults.length > 0 ? (
                       <div className="app-topbar__result-list">
                         {topbarTrayResults.map((song) => (
-                          <button
+                          <div
                             key={`${song.sourceId || 'music'}:${song.id}`}
-                            type="button"
                             className="app-topbar__result-item"
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => {
-                              startTrackOnActiveReceiver(song, searchResults);
-                              setTopbarSearchTrayOpen(false);
-                            }}
                           >
-                            <img src={song.artworkUrl || '/icon.svg'} alt="" />
-                            <span>
-                              <strong>{song.title}</strong>
-                              <small>
-                                {song.artists.map((artist) => artist.name).join(', ')}
-                                <em>{trackSourceLabel(song)}</em>
-                              </small>
-                            </span>
-                          </button>
+                            <button
+                              type="button"
+                              className="app-topbar__result-main"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => {
+                                startTrackOnActiveReceiver(song, searchResults);
+                                setTopbarSearchTrayOpen(false);
+                              }}
+                            >
+                              <img src={song.artworkUrl || '/icon.svg'} alt="" />
+                              <span>
+                                <strong>{song.title}</strong>
+                                <small>
+                                  {song.artists.map((artist) => artist.name).join(', ')}
+                                  <em>{trackSourceLabel(song)}</em>
+                                </small>
+                              </span>
+                            </button>
+                            {renderSongShareButton(song, 'app-topbar__result-share')}
+                          </div>
                         ))}
                       </div>
                     ) : (
@@ -8160,7 +8306,7 @@ export default function SpiceApp() {
                         {Icons.tool} System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        Spice Media Core v1.0.55 (Phase 45 Themed Popups)
+                        Spice Media Core v1.0.56 (Phase 46 Song Share Links)
                       </span>
                     </div>
 
@@ -9060,6 +9206,8 @@ export default function SpiceApp() {
             </div>
           </div>
 
+          {renderSongShareButton(playerTrack, 'now-playing__btn now-playing__share')}
+
           <div className="now-playing__seek">
             <span>{formatTime(playerProgress)}</span>
             <div className="now-playing__seek-track" onClick={handleReceiverSeek}>
@@ -9384,6 +9532,16 @@ export default function SpiceApp() {
                           <span style={{ display: 'inline-flex', transform: 'scale(1.2)' }}>
                             {likedTracks.has(playerTrack.id) ? Icons.heartFilled : Icons.heart}
                           </span>
+                        </button>
+
+                        <button
+                          className="expanded-player__round-action"
+                          onClick={(event) => shareSongLink(playerTrack, event)}
+                          disabled={playerIsPlaceholder}
+                          title={`Share "${playerTrack.title}"`}
+                          aria-label={`Share ${playerTrack.title}`}
+                        >
+                          {Icons.share}
                         </button>
 
                       </div>
@@ -9726,6 +9884,16 @@ export default function SpiceApp() {
                     title={likedTracks.has(playerTrack.id) ? 'Unlike' : 'Like'}
                   >
                     {likedTracks.has(playerTrack.id) ? Icons.heartFilled : Icons.heart}
+                  </button>
+
+                  <button
+                    onClick={(event) => shareSongLink(playerTrack, event)}
+                    disabled={playerIsPlaceholder}
+                    className="mini-player__action-btn"
+                    title={`Share "${playerTrack.title}"`}
+                    aria-label={`Share ${playerTrack.title}`}
+                  >
+                    {Icons.share}
                   </button>
 
                   <button
