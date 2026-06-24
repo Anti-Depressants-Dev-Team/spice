@@ -788,13 +788,12 @@ const decodeBase64Url = (value: string) => {
 
 const encodeSongShareToken = (track: Track) => {
   // Use a compact array tuple to minimize Base64Url size.
-  // Format: [id, title, artistName, sourceId, artworkUrl]
+  // Format: [id, title, artistName, sourceId]
   const tuple = [
     track.id,
     track.title,
     track.artists.length > 0 ? track.artists[0].name : '',
-    track.sourceId || '',
-    track.artworkUrl || ''
+    track.sourceId || ''
   ];
   return encodeBase64Url(JSON.stringify(tuple));
 };
@@ -1242,7 +1241,14 @@ export default function SpiceApp() {
         : `/api/yt/track/${encodeURIComponent(track.id)}`;
 
       const res = await fetch(trackEndpoint);
-      if (!res.ok) throw new Error('Failed to fetch track info');
+      if (!res.ok) {
+        let errMsg = 'Failed to fetch track info';
+        try {
+          const errData = await res.json();
+          if (errData?.message) errMsg = errData.message;
+        } catch { /* ignore JSON parse error */ }
+        throw new Error(errMsg);
+      }
       const data = await res.json();
 
       const streams = data.streams ?? [];
@@ -1266,9 +1272,9 @@ export default function SpiceApp() {
       } else {
         showSpiceNotice('Stream not available for download.', 'danger');
       }
-    } catch (err) {
+    } catch (err: any) {
       logDebug('error', `Download stream failed: ${err}`);
-      showSpiceNotice('Failed to download stream.', 'danger');
+      showSpiceNotice(`Failed to download stream: ${err?.message || 'Unknown error'}`, 'danger');
     }
   }, [showSpiceNotice, songShareDialog, audioQuality]);
 
