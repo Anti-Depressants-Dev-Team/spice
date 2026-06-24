@@ -1,5 +1,11 @@
 # SPICE Walkthrough
 
+## v1.0.55
+
+- [Spice.Music main] Replace native browser alerts and confirmations with themed in-app Spice notices and confirmation dialogs that use the active accent color variables.
+- [Spice.Music main] Retheme playlist share/status notifications so they match the selected Spice accent theme instead of using fixed purple styling.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.55`.
+
 ## v1.0.54
 
 - [Spice.Music main] Fix multi-profile account isolation so each local profile restores its own SPICE account token, account snapshot, and collaborative username when switching profiles instead of falling back to or overwriting another profile's session.

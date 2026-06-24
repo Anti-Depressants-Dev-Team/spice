@@ -275,6 +275,15 @@ const Icons = {
       <rect x="8" y="2" width="8" height="4" rx="1" />
     </svg>
   ),
+  share: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <path d="M8.59 13.51 15.42 17.49" />
+      <path d="M15.41 6.51 8.59 10.49" />
+    </svg>
+  ),
   camera: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
       <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
@@ -416,6 +425,22 @@ type InterfaceScale = 'compact' | 'comfortable' | 'spacious';
 type PlayerBarDensity = 'standard' | 'slim';
 type ReceiverSelectVariant = 'bar' | 'expanded' | 'mini';
 type AccountRole = 'user' | 'admin' | string;
+type SpiceNoticeKind = 'success' | 'info' | 'warning' | 'danger';
+
+interface SpiceNotice {
+  id: number;
+  message: string;
+  kind: SpiceNoticeKind;
+}
+
+interface SpiceConfirmDialog {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  kind?: SpiceNoticeKind;
+  onConfirm: () => void;
+}
 
 const SEARCH_PROVIDER_LABELS: Record<SearchProvider, string> = {
   hybrid: 'Hybrid',
@@ -701,6 +726,118 @@ const profileOriginUrl = (track: Track) => {
   return undefined;
 };
 
+const safeSharedString = (value: unknown, fallback = '') =>
+  typeof value === 'string' && value.trim() ? value.trim() : fallback;
+
+const compactTrackForSongShare = (track: Track): Track => ({
+  id: track.id,
+  title: track.title,
+  artists: (track.artists || []).map((artist) => ({
+    id: safeSharedString(artist.id, artist.name || 'artist'),
+    name: safeSharedString(artist.name, 'Unknown Artist'),
+    ...(artist.artworkUrl ? { artworkUrl: artist.artworkUrl } : {}),
+  })),
+  ...(track.album ? {
+    album: {
+      id: track.album.id,
+      title: track.album.title,
+      artists: (track.album.artists || []).map((artist) => ({
+        id: safeSharedString(artist.id, artist.name || 'artist'),
+        name: safeSharedString(artist.name, 'Unknown Artist'),
+        ...(artist.artworkUrl ? { artworkUrl: artist.artworkUrl } : {}),
+      })),
+      ...(track.album.artworkUrl ? { artworkUrl: track.album.artworkUrl } : {}),
+      ...(track.album.year ? { year: track.album.year } : {}),
+    },
+  } : {}),
+  ...(track.durationMs ? { durationMs: track.durationMs } : {}),
+  ...(track.artworkUrl ? { artworkUrl: track.artworkUrl } : {}),
+  ...(track.sourceId ? { sourceId: track.sourceId } : {}),
+  ...(track.permalinkUrl ? { permalinkUrl: track.permalinkUrl } : {}),
+});
+
+const encodeBase64Url = (value: string) => {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '');
+};
+
+const decodeBase64Url = (value: string) => {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+};
+
+const encodeSongShareToken = (track: Track) =>
+  encodeBase64Url(JSON.stringify(compactTrackForSongShare(track)));
+
+const decodeSongShareToken = (token: string): Track | null => {
+  try {
+    const payload = JSON.parse(decodeBase64Url(token));
+    const id = safeSharedString(payload?.id);
+    if (!id) return null;
+
+    const artists = Array.isArray(payload?.artists)
+      ? payload.artists.map((artist: any) => ({
+        id: safeSharedString(artist?.id, artist?.name || 'artist'),
+        name: safeSharedString(artist?.name, 'Unknown Artist'),
+        ...(safeSharedString(artist?.artworkUrl) ? { artworkUrl: safeSharedString(artist.artworkUrl) } : {}),
+      }))
+      : [];
+
+    const albumArtists = Array.isArray(payload?.album?.artists)
+      ? payload.album.artists.map((artist: any) => ({
+        id: safeSharedString(artist?.id, artist?.name || 'artist'),
+        name: safeSharedString(artist?.name, 'Unknown Artist'),
+        ...(safeSharedString(artist?.artworkUrl) ? { artworkUrl: safeSharedString(artist.artworkUrl) } : {}),
+      }))
+      : [];
+
+    const durationMs = Number(payload?.durationMs);
+    const year = Number(payload?.album?.year);
+
+    return {
+      id,
+      title: safeSharedString(payload?.title, 'Shared song'),
+      artists: artists.length > 0 ? artists : [{ id: 'shared-artist', name: 'Unknown Artist' }],
+      ...(payload?.album ? {
+        album: {
+          id: safeSharedString(payload.album.id, 'shared-album'),
+          title: safeSharedString(payload.album.title, 'Shared album'),
+          artists: albumArtists.length > 0 ? albumArtists : artists,
+          ...(safeSharedString(payload.album.artworkUrl) ? { artworkUrl: safeSharedString(payload.album.artworkUrl) } : {}),
+          ...(Number.isFinite(year) ? { year } : {}),
+        },
+      } : {}),
+      ...(Number.isFinite(durationMs) && durationMs > 0 ? { durationMs } : {}),
+      ...(safeSharedString(payload?.artworkUrl) ? { artworkUrl: safeSharedString(payload.artworkUrl) } : {}),
+      ...(safeSharedString(payload?.sourceId) ? { sourceId: safeSharedString(payload.sourceId) } : {}),
+      ...(safeSharedString(payload?.permalinkUrl) ? { permalinkUrl: safeSharedString(payload.permalinkUrl) } : {}),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const buildSongShareUrl = (track: Track) => {
+  const url = new URL(window.location.href);
+  const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
+  if (!isLocalHost) {
+    url.protocol = 'https:';
+    url.host = 'music.spice-app.xyz';
+  }
+  url.pathname = '/';
+  url.hash = '';
+  url.search = '';
+  url.searchParams.set('song', encodeSongShareToken(track));
+  return url.toString();
+};
+
 const scrobbleThresholdSeconds = (durationSeconds: number) => {
   if (!durationSeconds || !Number.isFinite(durationSeconds)) return 60;
   if (durationSeconds < 30) return Math.max(5, durationSeconds * 0.5);
@@ -914,6 +1051,118 @@ export default function SpiceApp() {
   const [listenBrainzToken, setListenBrainzToken] = useState('');
   const [profileSyncStatus, setProfileSyncStatus] = useState<ProfileSyncStatus>('idle');
   const [showQueueDrawer, setShowQueueDrawer] = useState(false);
+  const [spiceNotice, setSpiceNotice] = useState<SpiceNotice | null>(null);
+  const [spiceConfirm, setSpiceConfirm] = useState<SpiceConfirmDialog | null>(null);
+  const spiceNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showSpiceNotice = useCallback((message: string, kind: SpiceNoticeKind = 'info') => {
+    if (spiceNoticeTimerRef.current) {
+      clearTimeout(spiceNoticeTimerRef.current);
+    }
+    setSpiceNotice({ id: Date.now(), message, kind });
+    spiceNoticeTimerRef.current = setTimeout(() => {
+      setSpiceNotice(null);
+      spiceNoticeTimerRef.current = null;
+    }, 4200);
+  }, []);
+
+  const dismissSpiceNotice = useCallback(() => {
+    if (spiceNoticeTimerRef.current) {
+      clearTimeout(spiceNoticeTimerRef.current);
+      spiceNoticeTimerRef.current = null;
+    }
+    setSpiceNotice(null);
+  }, []);
+
+  const copyTextToClipboard = useCallback(async (text: string) => {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        // Fall back to a temporary selection for browsers without clipboard permission.
+      }
+    }
+
+    try {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.setAttribute('readonly', 'true');
+      textArea.style.position = 'fixed';
+      textArea.style.top = '-1000px';
+      textArea.style.opacity = '0';
+      document.body.appendChild(textArea);
+      textArea.select();
+      const copied = document.execCommand('copy');
+      document.body.removeChild(textArea);
+      return copied;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const shareSongLink = useCallback(async (track: Track, event?: React.MouseEvent<HTMLElement>) => {
+    event?.stopPropagation();
+
+    if (!track || track.id === 'placeholder' || track.id === 'spice-connect-placeholder') {
+      showSpiceNotice('Choose a song before sharing.', 'warning');
+      return;
+    }
+
+    const shareUrl = buildSongShareUrl(track);
+    const copied = await copyTextToClipboard(shareUrl);
+
+    if (copied) {
+      showSpiceNotice(`Song link copied for "${track.title}".`, 'success');
+      return;
+    }
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: track.title,
+          text: `${track.title} - ${profileArtistName(track)}`,
+          url: shareUrl,
+        });
+        showSpiceNotice('Song link opened in your share sheet.', 'success');
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+      }
+    }
+
+    showSpiceNotice('Could not copy the song link from this browser.', 'warning');
+  }, [copyTextToClipboard, showSpiceNotice]);
+
+  const renderSongShareButton = (
+    track: Track,
+    className = 'library-item__action library-item__action--share',
+  ) => (
+    <button
+      type="button"
+      className={className}
+      onClick={(event) => shareSongLink(track, event)}
+      disabled={!track || track.id === 'placeholder' || track.id === 'spice-connect-placeholder'}
+      title={`Share "${track.title}"`}
+      aria-label={`Share ${track.title}`}
+    >
+      {Icons.share}
+    </button>
+  );
+
+  const requestSpiceConfirm = useCallback((dialog: SpiceConfirmDialog) => {
+    setSpiceConfirm(dialog);
+  }, []);
+
+  const cancelSpiceConfirm = useCallback(() => {
+    setSpiceConfirm(null);
+  }, []);
+
+  useEffect(() => () => {
+    if (spiceNoticeTimerRef.current) {
+      clearTimeout(spiceNoticeTimerRef.current);
+    }
+  }, []);
 
   // ── Multi-Profile Accounts Setup ──────────────────────────────────
   const [profiles, setProfiles] = useState<UserProfile[]>([initialDefaultProfile]);
@@ -3865,7 +4114,7 @@ export default function SpiceApp() {
     if (!file) return;
 
     if (file.size > 2 * 1024 * 1024) {
-      alert("Image is too large! Please choose an image smaller than 2MB.");
+      showSpiceNotice('Image is too large. Please choose an image smaller than 2MB.', 'warning');
       return;
     }
 
@@ -4683,10 +4932,18 @@ export default function SpiceApp() {
   };
 
   const clearHistory = () => {
-    if (!confirm('Clear all recently played tracks?')) return;
-    setHistory([]);
-    updateActiveProfileData({ history: [] });
-    autoSyncHistory([]);
+    requestSpiceConfirm({
+      title: 'Clear Recently Played?',
+      message: 'This removes the recent track list for the active profile.',
+      confirmLabel: 'Clear History',
+      kind: 'warning',
+      onConfirm: () => {
+        setHistory([]);
+        updateActiveProfileData({ history: [] });
+        autoSyncHistory([]);
+        showSpiceNotice('Recently played tracks cleared.', 'success');
+      },
+    });
   };
 
   const shufflePlaylistPlay = (tracks: Track[]) => {
@@ -4854,18 +5111,25 @@ export default function SpiceApp() {
 
   const deleteProfile = (profileId: string) => {
     if (profiles.length <= 1) {
-      alert('You must have at least one active profile.');
+      showSpiceNotice('You must have at least one active profile.', 'warning');
       return;
     }
-    if (!confirm('Are you sure you want to delete this profile and all its playlists/likes? This cannot be undone.')) return;
+    requestSpiceConfirm({
+      title: 'Delete Profile?',
+      message: 'This deletes the profile and all of its playlists and likes. This cannot be undone.',
+      confirmLabel: 'Delete Profile',
+      kind: 'danger',
+      onConfirm: () => {
+        const updated = profiles.filter(p => p.id !== profileId);
+        setProfiles(updated);
+        localStorage.setItem('spice_profiles_list', JSON.stringify(updated));
+        autoSyncProfiles(updated);
 
-    const updated = profiles.filter(p => p.id !== profileId);
-    setProfiles(updated);
-    localStorage.setItem('spice_profiles_list', JSON.stringify(updated));
-    autoSyncProfiles(updated);
-
-    // Switch to first profile
-    switchProfile(updated[0].id);
+        // Switch to first profile
+        switchProfile(updated[0].id);
+        showSpiceNotice('Profile deleted.', 'success');
+      },
+    });
   };
 
   const handlePasscodeKey = (num: string) => {
@@ -4897,7 +5161,7 @@ export default function SpiceApp() {
   const removePasscodeFromActive = () => {
     setEditPasscode('');
     updateActiveProfileData({ passcode: undefined });
-    alert('Passcode protection removed successfully.');
+    showSpiceNotice('Passcode protection removed successfully.', 'success');
   };
 
   const saveProfile = (e: FormEvent) => {
@@ -4906,7 +5170,7 @@ export default function SpiceApp() {
     // Passcode validation
     const passcodeVal = editPasscode.trim();
     if (passcodeVal && passcodeVal.length !== 4) {
-      alert('Passcode must be exactly 4 digits.');
+      showSpiceNotice('Passcode must be exactly 4 digits.', 'warning');
       return;
     }
 
@@ -5022,7 +5286,7 @@ export default function SpiceApp() {
       history
     };
     navigator.clipboard.writeText(JSON.stringify(backupData))
-      .then(() => alert('Spice JSON Backup copied to clipboard!'))
+      .then(() => showSpiceNotice('Spice JSON Backup copied to clipboard.', 'success'))
       .catch(err => console.error('Failed to copy JSON:', err));
   };
 
@@ -5070,12 +5334,12 @@ export default function SpiceApp() {
 
       setJsonBackupStatus('success');
       setJsonImportText('');
-      alert('Backup database parsed and merged successfully!');
+      showSpiceNotice('Backup database parsed and merged successfully.', 'success');
 
     } catch (e: any) {
       console.error(e);
       setJsonBackupStatus('error');
-      alert('Error parsing JSON backup: ' + e.message);
+      showSpiceNotice('Error parsing JSON backup: ' + e.message, 'danger');
     }
   };
 
@@ -5439,6 +5703,52 @@ export default function SpiceApp() {
   return (
     <div className={`app ${sidebarHidden ? 'app--sidebar-hidden' : ''}`}>
       <style dangerouslySetInnerHTML={{ __html: getAccentStyles() }} />
+      {spiceNotice && (
+        <div className={`spice-notice spice-notice--${spiceNotice.kind}`} role="status" aria-live="polite">
+          <span className="spice-notice__icon">
+            {spiceNotice.kind === 'success' ? Icons.checkCircle : spiceNotice.kind === 'info' ? Icons.musicNote : Icons.alertTriangle}
+          </span>
+          <span className="spice-notice__message">{spiceNotice.message}</span>
+          <button type="button" onClick={dismissSpiceNotice} aria-label="Dismiss notification" className="spice-notice__close">
+            {Icons.close}
+          </button>
+        </div>
+      )}
+      {spiceConfirm && (
+        <div className="spice-dialog-backdrop" role="presentation">
+          <div
+            className={`spice-dialog spice-dialog--${spiceConfirm.kind || 'info'}`}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="spice-dialog-title"
+            aria-describedby="spice-dialog-message"
+          >
+            <div className="spice-dialog__mark">
+              {spiceConfirm.kind === 'success' ? Icons.checkCircle : spiceConfirm.kind === 'info' ? Icons.musicNote : Icons.alertTriangle}
+            </div>
+            <div className="spice-dialog__body">
+              <h2 id="spice-dialog-title">{spiceConfirm.title}</h2>
+              <p id="spice-dialog-message">{spiceConfirm.message}</p>
+            </div>
+            <div className="spice-dialog__actions">
+              <button type="button" className="spice-dialog__button spice-dialog__button--ghost" onClick={cancelSpiceConfirm}>
+                {spiceConfirm.cancelLabel || 'Cancel'}
+              </button>
+              <button
+                type="button"
+                className="spice-dialog__button spice-dialog__button--primary"
+                onClick={() => {
+                  const onConfirm = spiceConfirm.onConfirm;
+                  setSpiceConfirm(null);
+                  onConfirm();
+                }}
+              >
+                {spiceConfirm.confirmLabel || 'Continue'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ── Security Passcode Lock Overlay ── */}
       {isLocked && (
         <div className="passcode-overlay animate-in" style={{ position: 'fixed', inset: 0, background: '#000000', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(32px)' }}>
@@ -5509,7 +5819,7 @@ export default function SpiceApp() {
                   if (unlocked) {
                     switchProfile(unlocked.id);
                   } else {
-                    alert('All profiles are locked. Please enter correct credentials.');
+                    showSpiceNotice('All profiles are locked. Please enter correct credentials.', 'warning');
                   }
                 }}
                 style={{ height: '56px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}
@@ -5936,9 +6246,13 @@ export default function SpiceApp() {
                     <button
                       className="btn playlist-hero__action-btn playlist-hero__action-btn--danger"
                       onClick={() => {
-                        if (confirm('Leave this shared playlist? It will be removed from your library.')) {
-                          deletePlaylist(selectedPlaylist.id);
-                        }
+                        requestSpiceConfirm({
+                          title: 'Leave Shared Playlist?',
+                          message: 'It will be removed from your library.',
+                          confirmLabel: 'Leave Playlist',
+                          kind: 'danger',
+                          onConfirm: () => deletePlaylist(selectedPlaylist.id),
+                        });
                       }}
                     >
                       {Icons.trash} Leave
@@ -6394,7 +6708,7 @@ export default function SpiceApp() {
                                     if (e.target.value) {
                                       addTrackToPlaylist(song, e.target.value);
                                       e.target.value = '';
-                                      alert(`Added track to playlist!`);
+                                      showSpiceNotice('Added track to playlist.', 'success');
                                     }
                                   }}
                                   style={{ background: 'var(--card-bg)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.8rem', padding: '6px 10px', cursor: 'pointer', outline: 'none', marginRight: '8px' }}
@@ -6695,7 +7009,7 @@ export default function SpiceApp() {
                                     if (e.target.value) {
                                       addTrackToPlaylist(song, e.target.value);
                                       e.target.value = '';
-                                      alert(`Added track to playlist!`);
+                                      showSpiceNotice('Added track to playlist.', 'success');
                                     }
                                   }}
                                   onClick={(e) => e.stopPropagation()}
@@ -7163,7 +7477,7 @@ export default function SpiceApp() {
                                 const file = e.target.files?.[0];
                                 if (file) {
                                   if (file.size > 2 * 1024 * 1024) {
-                                    alert('Image must be under 2MB.');
+                                    showSpiceNotice('Image must be under 2MB.', 'warning');
                                     return;
                                   }
                                   const reader = new FileReader();
@@ -7801,11 +8115,17 @@ export default function SpiceApp() {
                       <button
                         className="btn btn--ghost"
                         onClick={() => {
-                          if (confirm('Are you sure you want to clear your local database caches? All custom settings will revert to default.')) {
-                            localStorage.clear();
-                            alert('Local database caches cleared successfully! Reloading...');
-                            window.location.reload();
-                          }
+                          requestSpiceConfirm({
+                            title: 'Reset Local Database?',
+                            message: 'All custom settings will revert to default and the app will reload.',
+                            confirmLabel: 'Reset Registry',
+                            kind: 'danger',
+                            onConfirm: () => {
+                              localStorage.clear();
+                              showSpiceNotice('Local database caches cleared. Reloading...', 'success');
+                              window.setTimeout(() => window.location.reload(), 650);
+                            },
+                          });
                         }}
                         style={{ padding: '8px 16px', fontSize: '0.85rem', borderColor: '#f87171', color: '#f87171' }}
                       >
@@ -7814,11 +8134,17 @@ export default function SpiceApp() {
                       <button
                         className="btn btn--ghost"
                         onClick={() => {
-                          if (confirm('Clear entire active listening history logs?')) {
-                            setHistory([]);
-                            updateActiveProfileData({ history: [] });
-                            alert('Active history logs cleared.');
-                          }
+                          requestSpiceConfirm({
+                            title: 'Purge Playback History?',
+                            message: 'This clears the active profile listening history logs.',
+                            confirmLabel: 'Purge Logs',
+                            kind: 'warning',
+                            onConfirm: () => {
+                              setHistory([]);
+                              updateActiveProfileData({ history: [] });
+                              showSpiceNotice('Active history logs cleared.', 'success');
+                            },
+                          });
                         }}
                         style={{ padding: '8px 16px', fontSize: '0.85rem' }}
                       >
@@ -7834,7 +8160,7 @@ export default function SpiceApp() {
                         {Icons.tool} System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        Spice Media Core v1.0.54 (Phase 44 Profile Account Isolation)
+                        Spice Media Core v1.0.55 (Phase 45 Themed Popups)
                       </span>
                     </div>
 

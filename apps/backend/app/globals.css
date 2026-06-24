@@ -696,10 +696,13 @@ h4 { font-size: 1rem; }
   margin-bottom: 20px;
   padding: 10px 14px 10px 16px;
   border-radius: 12px;
-  background: rgba(168,85,247,0.12);
-  border: 1px solid rgba(168,85,247,0.28);
+  background:
+    linear-gradient(135deg, rgba(var(--accent-pink-rgb, 236, 72, 153), 0.18), rgba(255,255,255,0.045)),
+    var(--bg-glass);
+  border: 1px solid rgba(var(--accent-pink-rgb, 236, 72, 153), 0.34);
   font-size: 0.84rem;
   color: rgba(255,255,255,0.85);
+  box-shadow: 0 14px 34px rgba(0,0,0,0.28), 0 0 22px rgba(var(--accent-pink-rgb, 236, 72, 153), 0.14);
   animation: fadeIn 0.2s var(--ease-out-expo);
 }
 .playlist-status-toast span { flex: 1; }
@@ -717,6 +720,211 @@ h4 { font-size: 1rem; }
 }
 .playlist-status-toast__close:hover { color: #fff; background: rgba(255,255,255,0.14); }
 .playlist-status-toast__close svg { width: 13px; height: 13px; }
+
+.spice-notice {
+  position: fixed;
+  top: max(18px, env(safe-area-inset-top));
+  right: max(18px, env(safe-area-inset-right));
+  z-index: 1300;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: min(420px, calc(100vw - 32px));
+  padding: 14px 14px 14px 16px;
+  border-radius: 14px;
+  color: var(--text-primary);
+  background:
+    linear-gradient(135deg, rgba(var(--accent-pink-rgb, 236, 72, 153), 0.18), rgba(255,255,255,0.045)),
+    var(--bg-glass);
+  border: 1px solid rgba(var(--accent-pink-rgb, 236, 72, 153), 0.36);
+  box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 28px rgba(var(--accent-pink-rgb, 236, 72, 153), 0.22);
+  backdrop-filter: var(--spice-panel-filter, blur(20px));
+  -webkit-backdrop-filter: var(--spice-panel-filter, blur(20px));
+  animation: spiceNoticeIn 0.22s var(--ease-out-expo);
+}
+
+.spice-notice--danger,
+.spice-notice--warning {
+  border-color: rgba(var(--accent-pink-rgb, 236, 72, 153), 0.5);
+}
+
+.spice-notice__icon,
+.spice-dialog__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-pink);
+  filter: drop-shadow(0 0 10px rgba(var(--accent-pink-rgb, 236, 72, 153), 0.45));
+}
+
+.spice-notice__message {
+  min-width: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.spice-notice__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: rgba(255,255,255,0.72);
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.08);
+  transition: all var(--transition-fast);
+}
+
+.spice-notice__close:hover {
+  color: #fff;
+  background: rgba(var(--accent-pink-rgb, 236, 72, 153), 0.22);
+  border-color: rgba(var(--accent-pink-rgb, 236, 72, 153), 0.34);
+}
+
+.spice-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1250;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 36%, rgba(var(--accent-pink-rgb, 236, 72, 153), 0.16), transparent 38%),
+    rgba(0, 0, 0, 0.74);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  animation: fadeIn 0.18s var(--ease-out-expo);
+}
+
+.spice-dialog {
+  width: min(460px, 100%);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+  padding: 22px;
+  border-radius: 18px;
+  color: var(--text-primary);
+  background:
+    linear-gradient(135deg, rgba(var(--accent-pink-rgb, 236, 72, 153), 0.16), rgba(255,255,255,0.035)),
+    var(--bg-glass);
+  border: 1px solid rgba(var(--accent-pink-rgb, 236, 72, 153), 0.38);
+  box-shadow: 0 28px 90px rgba(0,0,0,0.62), 0 0 36px rgba(var(--accent-pink-rgb, 236, 72, 153), 0.2);
+  backdrop-filter: var(--spice-panel-filter, blur(20px));
+  -webkit-backdrop-filter: var(--spice-panel-filter, blur(20px));
+  animation: spiceDialogIn 0.22s var(--ease-out-expo);
+}
+
+.spice-dialog__mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(var(--accent-pink-rgb, 236, 72, 153), 0.14);
+  border: 1px solid rgba(var(--accent-pink-rgb, 236, 72, 153), 0.28);
+}
+
+.spice-dialog__body {
+  min-width: 0;
+}
+
+.spice-dialog__body h2 {
+  margin: 0 0 8px;
+  font-family: Outfit, sans-serif;
+  font-size: 1.12rem;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.spice-dialog__body p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.spice-dialog__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.spice-dialog__button {
+  min-height: 38px;
+  border-radius: 999px;
+  padding: 0 16px;
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  transition: transform var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.spice-dialog__button:hover {
+  transform: translateY(-1px);
+}
+
+.spice-dialog__button--ghost {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.spice-dialog__button--primary {
+  color: #fff;
+  background: var(--accent-gradient);
+  border: 1px solid rgba(var(--accent-pink-rgb, 236, 72, 153), 0.5);
+  box-shadow: 0 12px 28px rgba(var(--accent-pink-rgb, 236, 72, 153), 0.28);
+}
+
+@keyframes spiceNoticeIn {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -10px, 0) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes spiceDialogIn {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@media (max-width: 560px) {
+  .spice-notice {
+    top: auto;
+    right: 16px;
+    bottom: calc(var(--now-playing-height, 88px) + 16px);
+    left: 16px;
+    width: auto;
+  }
+
+  .spice-dialog {
+    grid-template-columns: 1fr;
+    padding: 20px;
+  }
+
+  .spice-dialog__actions {
+    flex-direction: column-reverse;
+  }
+
+  .spice-dialog__button {
+    width: 100%;
+  }
+}
 
 
 .sidebar__playlist-item svg {
