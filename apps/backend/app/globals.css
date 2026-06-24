@@ -721,6 +721,28 @@ h4 { font-size: 1rem; }
 .playlist-status-toast__close:hover { color: #fff; background: rgba(255,255,255,0.14); }
 .playlist-status-toast__close svg { width: 13px; height: 13px; }
 
+.spice-notices-container {
+  position: fixed;
+  top: max(18px, env(safe-area-inset-top));
+  right: max(18px, env(safe-area-inset-right));
+  z-index: 1300;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(420px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.spice-notices-container .spice-notice {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  width: 100%;
+  pointer-events: auto;
+}
+
 .spice-notice {
   position: fixed;
   top: max(18px, env(safe-area-inset-top));
@@ -1045,6 +1067,18 @@ h4 { font-size: 1rem; }
 }
 
 @media (max-width: 560px) {
+  .spice-notices-container {
+    top: auto;
+    right: 16px;
+    bottom: calc(var(--now-playing-height, 88px) + 16px);
+    left: 16px;
+    width: auto;
+    flex-direction: column-reverse;
+  }
+  .spice-notices-container .spice-notice {
+    width: 100%;
+  }
+
   .spice-notice {
     top: auto;
     right: 16px;

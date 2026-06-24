@@ -1090,28 +1090,32 @@ export default function SpiceApp() {
   const [listenBrainzToken, setListenBrainzToken] = useState('');
   const [profileSyncStatus, setProfileSyncStatus] = useState<ProfileSyncStatus>('idle');
   const [showQueueDrawer, setShowQueueDrawer] = useState(false);
-  const [spiceNotice, setSpiceNotice] = useState<SpiceNotice | null>(null);
+  const [spiceNotices, setSpiceNotices] = useState<SpiceNotice[]>([]);
   const [spiceConfirm, setSpiceConfirm] = useState<SpiceConfirmDialog | null>(null);
   const [songShareDialog, setSongShareDialog] = useState<SongShareDialog | null>(null);
-  const spiceNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeNoticeTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
-  const showSpiceNotice = useCallback((message: string, kind: SpiceNoticeKind = 'info') => {
-    if (spiceNoticeTimerRef.current) {
-      clearTimeout(spiceNoticeTimerRef.current);
+  const dismissSpiceNotice = useCallback((id: number) => {
+    const timer = activeNoticeTimersRef.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      activeNoticeTimersRef.current.delete(id);
     }
-    setSpiceNotice({ id: Date.now(), message, kind });
-    spiceNoticeTimerRef.current = setTimeout(() => {
-      setSpiceNotice(null);
-      spiceNoticeTimerRef.current = null;
-    }, 4200);
+    setSpiceNotices((prev) => prev.filter((notice) => notice.id !== id));
   }, []);
 
-  const dismissSpiceNotice = useCallback(() => {
-    if (spiceNoticeTimerRef.current) {
-      clearTimeout(spiceNoticeTimerRef.current);
-      spiceNoticeTimerRef.current = null;
-    }
-    setSpiceNotice(null);
+  const showSpiceNotice = useCallback((message: string, kind: SpiceNoticeKind = 'info') => {
+    const id = Date.now() + Math.random();
+    setSpiceNotices((prev) => {
+      const next = prev.length >= 2 ? prev.slice(1) : prev;
+      return [...next, { id, message, kind }];
+    });
+
+    const timer = setTimeout(() => {
+      setSpiceNotices((prev) => prev.filter((notice) => notice.id !== id));
+      activeNoticeTimersRef.current.delete(id);
+    }, 4200);
+    activeNoticeTimersRef.current.set(id, timer);
   }, []);
 
   const copyTextToClipboard = useCallback(async (text: string) => {
@@ -1234,9 +1238,8 @@ export default function SpiceApp() {
   }, []);
 
   useEffect(() => () => {
-    if (spiceNoticeTimerRef.current) {
-      clearTimeout(spiceNoticeTimerRef.current);
-    }
+    activeNoticeTimersRef.current.forEach((timer) => clearTimeout(timer));
+    activeNoticeTimersRef.current.clear();
   }, []);
 
   // ── Multi-Profile Accounts Setup ──────────────────────────────────
@@ -4276,7 +4279,7 @@ export default function SpiceApp() {
     setShowEditPlaylistDialog(false);
   };
 
-  const addTrackToPlaylist = async (track: Track, playlistId: string) => {
+  const addTrackToPlaylist = async (track: Track, playlistId: string): Promise<boolean> => {
     const target = customPlaylists.find(pl => pl.id === playlistId);
 
     // For shared playlists, add via API
@@ -4291,9 +4294,11 @@ export default function SpiceApp() {
         if (!response.ok) throw new Error(data.message || 'Failed to add track.');
 
         // Optimistically update the local playlist
+        let wasAdded = false;
         const updated = customPlaylists.map(pl => {
           if (pl.id === playlistId) {
             if (pl.tracks.some(t => t.id === track.id)) return pl;
+            wasAdded = true;
             return { ...pl, tracks: [...pl.tracks, { ...track, addedBy: cloudUsername ? { userId: '', username: cloudUsername, displayName: cloudUsername } : undefined }] };
           }
           return pl;
@@ -4302,21 +4307,24 @@ export default function SpiceApp() {
         if (selectedPlaylist && selectedPlaylist.id === playlistId) {
           setSelectedPlaylist(updated.find(p => p.id === playlistId) || null);
         }
+        return wasAdded;
       } catch (error) {
         setShareStatus(error instanceof Error ? error.message : 'Failed to add track to shared playlist.');
+        return false;
       }
-      return;
     }
 
     if (target?.shared) {
       setShareStatus('Sign in to add tracks to shared playlists.');
-      return;
+      return false;
     }
 
     rememberTrackSnapshots([track]);
+    let wasAdded = false;
     const updated = customPlaylists.map(pl => {
       if (pl.id === playlistId) {
         if (pl.tracks.some(t => t.id === track.id)) return pl;
+        wasAdded = true;
         return { ...pl, tracks: [...pl.tracks, track] };
       }
       return pl;
@@ -4326,6 +4334,7 @@ export default function SpiceApp() {
     if (selectedPlaylist && selectedPlaylist.id === playlistId) {
       setSelectedPlaylist(updated.find(p => p.id === playlistId) || null);
     }
+    return wasAdded;
   };
 
   const removeTrackFromPlaylist = async (trackId: string, playlistId: string, position?: number) => {
@@ -5792,15 +5801,19 @@ export default function SpiceApp() {
   return (
     <div className={`app ${sidebarHidden ? 'app--sidebar-hidden' : ''}`}>
       <style dangerouslySetInnerHTML={{ __html: getAccentStyles() }} />
-      {spiceNotice && (
-        <div className={`spice-notice spice-notice--${spiceNotice.kind}`} role="status" aria-live="polite">
-          <span className="spice-notice__icon">
-            {spiceNotice.kind === 'success' ? Icons.checkCircle : spiceNotice.kind === 'info' ? Icons.musicNote : Icons.alertTriangle}
-          </span>
-          <span className="spice-notice__message">{spiceNotice.message}</span>
-          <button type="button" onClick={dismissSpiceNotice} aria-label="Dismiss notification" className="spice-notice__close">
-            {Icons.close}
-          </button>
+      {spiceNotices.length > 0 && (
+        <div className="spice-notices-container">
+          {spiceNotices.map((notice) => (
+            <div key={notice.id} className={`spice-notice spice-notice--${notice.kind}`} role="status" aria-live="polite">
+              <span className="spice-notice__icon">
+                {notice.kind === 'success' ? Icons.checkCircle : notice.kind === 'info' ? Icons.musicNote : Icons.alertTriangle}
+              </span>
+              <span className="spice-notice__message">{notice.message}</span>
+              <button type="button" onClick={() => dismissSpiceNotice(notice.id)} aria-label="Dismiss notification" className="spice-notice__close">
+                {Icons.close}
+              </button>
+            </div>
+          ))}
         </div>
       )}
       {spiceConfirm && (
@@ -6850,11 +6863,15 @@ export default function SpiceApp() {
                               {/* Custom Playlist Selector */}
                               {allEditablePlaylists.length > 0 && (
                                 <select
-                                  onChange={(e) => {
+                                  onChange={async (e) => {
                                     if (e.target.value) {
-                                      addTrackToPlaylist(song, e.target.value);
+                                      const added = await addTrackToPlaylist(song, e.target.value);
                                       e.target.value = '';
-                                      showSpiceNotice('Added track to playlist.', 'success');
+                                      if (added) {
+                                        showSpiceNotice('Added track to playlist.', 'success');
+                                      } else {
+                                        showSpiceNotice('Song already in playlist.', 'info');
+                                      }
                                     }
                                   }}
                                   style={{ background: 'var(--card-bg)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.8rem', padding: '6px 10px', cursor: 'pointer', outline: 'none', marginRight: '8px' }}
@@ -7151,11 +7168,15 @@ export default function SpiceApp() {
                               </div>
                               {allEditablePlaylists.length > 0 && (
                                 <select
-                                  onChange={(e) => {
+                                  onChange={async (e) => {
                                     if (e.target.value) {
-                                      addTrackToPlaylist(song, e.target.value);
+                                      const added = await addTrackToPlaylist(song, e.target.value);
                                       e.target.value = '';
-                                      showSpiceNotice('Added track to playlist.', 'success');
+                                      if (added) {
+                                        showSpiceNotice('Added track to playlist.', 'success');
+                                      } else {
+                                        showSpiceNotice('Song already in playlist.', 'info');
+                                      }
                                     }
                                   }}
                                   onClick={(e) => e.stopPropagation()}
@@ -8306,7 +8327,7 @@ export default function SpiceApp() {
                         {Icons.tool} System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        Spice Media Core v1.0.56 (Phase 46 Song Share Links)
+                        Spice Media Core v1.0.58 (Duplicate Playlist Notification)
                       </span>
                     </div>
 

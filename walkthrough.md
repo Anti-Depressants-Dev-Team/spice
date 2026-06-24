@@ -1,5 +1,15 @@
 # SPICE Walkthrough
 
+## v1.0.58
+
+- [Spice.Music main] Display an informative "Song already in playlist." notice instead of a success notice when adding a song that is already present in the target playlist.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.58`.
+
+## v1.0.57
+- [Spice.Music main] Dismiss the oldest active notice automatically when a 3rd notice occurs to prevent UI clutter.
+- [Spice.Music main] Add mobile-responsive support so notices pile up from the bottom above the playback controls on mobile devices.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.57`.
+
 ## v1.0.56
 
 - [Spice.Music main] Add song share buttons across search results, playlists, liked songs, history, the topbar search tray, and all now-playing player surfaces.
