@@ -788,13 +788,22 @@ const decodeBase64Url = (value: string) => {
 
 const encodeSongShareToken = (track: Track) => {
   // Use a compact array tuple to minimize Base64Url size.
-  // Format: [id, title, artistName, sourceId]
+  // Format: [id, title, artistName, sourceId, artworkUrl]
+  // We omit artworkUrl for YouTube tracks to keep the URL as short as possible.
+  const sId = track.sourceId || 'youtube_music';
+  const isYouTube = sId === 'youtube_music' || sId === 'youtube_video';
+  const artwork = isYouTube ? '' : (track.artworkUrl || '');
+  
   const tuple = [
     track.id,
     track.title,
     track.artists.length > 0 ? track.artists[0].name : '',
-    track.sourceId || ''
+    track.sourceId || '',
+    artwork
   ];
+  while (tuple.length > 0 && tuple[tuple.length - 1] === '') {
+    tuple.pop();
+  }
   return encodeBase64Url(JSON.stringify(tuple));
 };
 
@@ -806,12 +815,20 @@ const decodeSongShareToken = (token: string): Track | null => {
     if (Array.isArray(payload)) {
       const [id, title, artistName, sourceId, artworkUrl] = payload;
       if (!id) return null;
+      
+      const sId = safeSharedString(sourceId, 'youtube_music');
+      const isYouTube = sId === 'youtube_music' || sId === 'youtube_video';
+      
+      const resolvedArtwork = artworkUrl 
+        ? safeSharedString(artworkUrl)
+        : (isYouTube ? `https://i.ytimg.com/vi/${id}/mqdefault.jpg` : undefined);
+
       return {
         id: safeSharedString(id),
         title: safeSharedString(title, 'Shared song'),
         artists: [{ id: 'shared-artist', name: safeSharedString(artistName, 'Unknown Artist') }],
-        sourceId: safeSharedString(sourceId, 'youtube_music'),
-        ...(artworkUrl ? { artworkUrl: safeSharedString(artworkUrl) } : {})
+        sourceId: sId,
+        ...(resolvedArtwork ? { artworkUrl: resolvedArtwork } : {})
       };
     }
 
@@ -1102,6 +1119,13 @@ export default function SpiceApp() {
   const [currentPage, setCurrentPage] = useState<AppPage>('home');
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
 
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+
+  const logDebug = useCallback((category: string, message: string) => {
+    const time = new Date().toLocaleTimeString();
+    setDebugLogs(prev => [...prev.slice(-99), `[${time}] [${category.toUpperCase()}] ${message}`]);
+  }, []);
+
   // Settings Configuration states
   const [accentTheme, setAccentTheme] = useState<AccentTheme>('pink');
   const [visualSurface, setVisualSurface] = useState<VisualSurface>('midnight');
@@ -1234,8 +1258,14 @@ export default function SpiceApp() {
     }
 
     showSpiceNotice(`Preparing download for "${track.title}"...`, 'info');
+
+    const isSoundCloud = isSoundCloudTrack(track);
+    let fallbackWindow: Window | null = null;
+    if (!isSoundCloud) {
+      fallbackWindow = window.open('about:blank', '_blank');
+    }
+
     try {
-      const isSoundCloud = isSoundCloudTrack(track);
       const trackEndpoint = isSoundCloud
         ? `/api/sc/track/${encodeURIComponent(soundCloudTrackId(track))}?quality=${audioQuality}`
         : `/api/yt/track/${encodeURIComponent(track.id)}`;
@@ -1256,6 +1286,10 @@ export default function SpiceApp() {
       const streamUrl = data.streamUrl || (streamObj ? streamObj.url : null);
 
       if (streamUrl) {
+        if (fallbackWindow) {
+          fallbackWindow.close();
+        }
+
         const downloadTitle = sanitizeDownloadName(track);
         
         // Convert relative URL to absolute URL to parse/append params
@@ -1270,11 +1304,17 @@ export default function SpiceApp() {
         showSpiceNotice(`Started downloading "${track.title}".`, 'success');
         setSongShareDialog(null);
       } else {
-        showSpiceNotice('Stream not available for download.', 'danger');
+        throw new Error('Stream not available for download.');
       }
     } catch (err: any) {
       logDebug('error', `Download stream failed: ${err}`);
-      showSpiceNotice(`Failed to download stream: ${err?.message || 'Unknown error'}`, 'danger');
+      if (fallbackWindow) {
+        fallbackWindow.location.href = `https://loader.to/api/card/?url=https://www.youtube.com/watch?v=${encodeURIComponent(track.id)}&f=mp3`;
+        showSpiceNotice(`Direct download failed. Opened external converter for "${track.title}".`, 'warning');
+        setSongShareDialog(null);
+      } else {
+        showSpiceNotice(`Failed to download stream: ${err?.message || 'Unknown error'}`, 'danger');
+      }
     }
   }, [showSpiceNotice, songShareDialog, audioQuality]);
 
@@ -1573,7 +1613,6 @@ export default function SpiceApp() {
   const [recentSearchEntries, setRecentSearchEntries] = useState<SearchCacheEntry[]>([]);
   const [error, setError] = useState<string>();
 
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [selfTestRunning, setSelfTestRunning] = useState(false);
   const [selfTestResults, setSelfTestResults] = useState<{
     api: 'passed' | 'failed' | null;
@@ -1586,11 +1625,6 @@ export default function SpiceApp() {
   const [logsCopied, setLogsCopied] = useState(false);
   const terminalEndRef = useRef<HTMLDivElement | null>(null);
   const launchIntentHandledRef = useRef(false);
-
-  const logDebug = useCallback((category: string, message: string) => {
-    const time = new Date().toLocaleTimeString();
-    setDebugLogs(prev => [...prev.slice(-99), `[${time}] [${category.toUpperCase()}] ${message}`]);
-  }, []);
 
   const applyLastFmSession = useCallback((sessionKey: string, linkedUser?: string, accountLinked?: boolean) => {
     const trimmedSessionKey = sessionKey.trim();
@@ -3141,6 +3175,92 @@ export default function SpiceApp() {
       void submitProfileListen('scrobble', scrobbleState.startedAt);
     }
   }, [profileSyncEnabled, cloudToken, lastFmSessionKey, lastFmAccountLinked, listenBrainzToken, isPlaying, progress, duration, currentTrackKey]);
+
+  // ── Discord Rich Presence Integration ──────────────────────────────
+  const lastDiscordUpdateRef = useRef<{
+    trackId: string;
+    isPlaying: boolean;
+    progress: number;
+    updatedAt: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const now = Date.now();
+    const last = lastDiscordUpdateRef.current;
+    
+    let shouldUpdate = false;
+    if (!last) {
+      shouldUpdate = true;
+    } else if (last.trackId !== currentTrack.id) {
+      shouldUpdate = true;
+    } else if (last.isPlaying !== isPlaying) {
+      shouldUpdate = true;
+    } else {
+      if (isPlaying) {
+        const expectedProgress = last.progress + (now - last.updatedAt) / 1000;
+        if (Math.abs(progress - expectedProgress) > 1.5) {
+          shouldUpdate = true;
+        }
+      } else {
+        if (Math.abs(progress - last.progress) > 1.0) {
+          shouldUpdate = true;
+        }
+      }
+      
+      if (now - last.updatedAt >= 4500) {
+        shouldUpdate = true;
+      }
+    }
+
+    if (shouldUpdate) {
+      lastDiscordUpdateRef.current = {
+        trackId: currentTrack.id,
+        isPlaying,
+        progress,
+        updatedAt: now,
+      };
+
+      const durationMs = currentTrack.durationMs || (duration > 0 ? Math.round(duration * 1000) : undefined);
+      const progressMs = Math.round(progress * 1000);
+
+      fetch('/api/discord/presence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          track: currentTrack.id === 'placeholder' ? null : {
+            id: currentTrack.id,
+            title: currentTrack.title,
+            artist: profileArtistName(currentTrack),
+            durationMs,
+            artworkUrl: currentTrack.artworkUrl,
+            permalinkUrl: (() => {
+              const u = new URL('https://music.spice-app.xyz/');
+              u.searchParams.set('song', encodeSongShareToken(currentTrack));
+              return u.toString();
+            })(),
+          },
+          isPlaying,
+          progressMs,
+        }),
+      }).catch((err) => {
+        console.error('[Discord RPC Client] Failed to update presence:', err);
+      });
+    }
+  }, [currentTrack, isPlaying, progress, duration]);
+
+  useEffect(() => {
+    return () => {
+      fetch('/api/discord/presence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          track: null,
+          isPlaying: false,
+          progressMs: 0,
+        }),
+      }).catch(() => {});
+    };
+  }, []);
 
   useEffect(() => {
     handleAudioEndedRef.current = handleAudioEnded;
@@ -6050,7 +6170,7 @@ export default function SpiceApp() {
       )}
       {/* ── Security Passcode Lock Overlay ── */}
       {isLocked && (
-        <div className="passcode-overlay animate-in" style={{ position: 'fixed', inset: 0, background: '#000000', zIndex: 1000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(32px)' }}>
+        <div className="passcode-overlay animate-in" style={{ position: 'fixed', inset: 0, background: '#000000', zIndex: 120000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(32px)' }}>
           <div style={{ textAlign: 'center', maxWidth: '320px', width: '100%', padding: '24px' }}>
             <div style={{ width: '120px', height: '120px', borderRadius: '50%', background: activeProfile.avatarUrl ? 'none' : activeProfile.gradient, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '3.5rem', fontWeight: 900, color: '#fff', margin: '0 auto 24px auto', boxShadow: '0 8px 32px rgba(0,0,0,0.5)', overflow: 'hidden', border: '3px solid var(--accent-pink)' }}>
               {activeProfile.avatarUrl ? (
@@ -8513,7 +8633,7 @@ export default function SpiceApp() {
                         {Icons.tool} System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        Spice Media Core v1.0.61 (Short Share Links)
+                        Spice Media Core v1.0.64 (Discord RPC)
                       </span>
                     </div>
 
@@ -8961,7 +9081,7 @@ export default function SpiceApp() {
 
       {/* ═══ Delete Confirmation Dialog ═══ */}
       {showDeleteConfirm && selectedPlaylist && (
-        <div className="dialog-overlay" onClick={() => setShowDeleteConfirm(false)} style={{ zIndex: 1100 }}>
+        <div className="dialog-overlay" onClick={() => setShowDeleteConfirm(false)} style={{ zIndex: 110000 }}>
           <div className="dialog-box" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '380px', textAlign: 'center' }}>
             <div style={{ color: '#f87171', marginBottom: '16px', transform: 'scale(1.5)', display: 'inline-block' }}>{Icons.alertTriangle}</div>
             <h2>Delete Playlist?</h2>
