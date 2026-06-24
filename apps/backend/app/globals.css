@@ -725,7 +725,7 @@ h4 { font-size: 1rem; }
   position: fixed;
   top: max(18px, env(safe-area-inset-top));
   right: max(18px, env(safe-area-inset-right));
-  z-index: 1300;
+  z-index: 115000;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -747,7 +747,7 @@ h4 { font-size: 1rem; }
   position: fixed;
   top: max(18px, env(safe-area-inset-top));
   right: max(18px, env(safe-area-inset-right));
-  z-index: 1300;
+  z-index: 115000;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
@@ -810,7 +810,7 @@ h4 { font-size: 1rem; }
 .spice-dialog-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1250;
+  z-index: 110000;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -1,5 +1,23 @@
 # SPICE Walkthrough
 
+## v1.0.64
+
+- [Spice.Music main] Added zero-dependency Discord Rich Presence (DRP) integration, allowing the SPICE player to show track details, artists, live elapsed/remaining ticking time progress, custom logo cover assets, and a button link back to the song.
+- [Spice.Music main] Added automatic Windows named-pipe and Linux/macOS Unix domain socket discovery scanner for communicating with the local Discord client from Next.js server runtime.
+- [Spice.Music main] Wired state tracking hooks in `spice-app.tsx` to handle heartbeat ticks, unmount cleanups, and instant notifications on track play, pause, and seek actions.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.64 (Discord RPC)`.
+
+## v1.0.63
+
+
+- [Spice.Music main] Fixed share dialog and other modals (confirmations, locks) appearing behind the expanded full-screen player by setting their z-index layer styles to stack correctly above it.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.63`.
+
+## v1.0.62
+
+- [Spice.Music main] Implemented a client-side download fallback that opens an external converter popup (loader.to) if the backend's direct MP3 audio stream resolution fails (e.g. because the hosting environment's IP is blocked by YouTube).
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.62`.
+
 ## v1.0.61
 
 - [Spice.Music main] Shortened generated song share links by encoding track data into a minimal array tuple instead of a verbose JSON object. Old share links remain fully supported via backward compatibility.
