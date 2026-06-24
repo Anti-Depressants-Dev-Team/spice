@@ -102,6 +102,10 @@ const STREAM_CLIENTS: Types.InnerTubeClient[] = [
   'ANDROID_VR',
   'IOS',
   'ANDROID',
+  'MWEB',
+  'WEB_EMBEDDED',
+  'YTMUSIC',
+  'TV_EMBEDDED',
 ];
 
 export async function getTrackDetails(id: string): Promise<SpiceTrackDetails> {
