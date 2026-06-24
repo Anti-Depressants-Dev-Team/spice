@@ -616,8 +616,8 @@ const isSoundCloudTrack = (track: Track) =>
 
 const isYouTubeTrack = (track: Track) =>
   track.sourceId === 'youtube_music'
-    || track.sourceId === 'youtube_video'
-    || (!track.sourceId && !isSoundCloudTrack(track));
+  || track.sourceId === 'youtube_video'
+  || (!track.sourceId && !isSoundCloudTrack(track));
 
 const soundCloudTrackId = (track: Track) =>
   track.id.startsWith('soundcloud:') ? track.id.slice('soundcloud:'.length) : track.id;
@@ -631,9 +631,9 @@ const trackSourceLabel = (track: Track) =>
 
 const isSearchProvider = (value: string | null): value is SearchProvider =>
   value === 'hybrid'
-    || value === 'youtube_music'
-    || value === 'youtube_videos'
-    || value === 'soundcloud';
+  || value === 'youtube_music'
+  || value === 'youtube_videos'
+  || value === 'soundcloud';
 
 const isStreamProtocol = (value: string | null): value is StreamProtocol =>
   value === 'proxy' || value === 'web' || value === 'embed';
@@ -888,6 +888,8 @@ const initialDefaultProfile: UserProfile = {
   history: []
 };
 
+const createUserProfileId = () => 'profile_' + Date.now();
+
 export default function SpiceApp() {
   const [currentPage, setCurrentPage] = useState<AppPage>('home');
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
@@ -954,7 +956,7 @@ export default function SpiceApp() {
     artists: [{ id: 'Spice', name: 'Spice Player' }],
     artworkUrl: '/icon.svg'
   });
-  
+
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoadingStream, setIsLoadingStream] = useState(false);
@@ -986,7 +988,7 @@ export default function SpiceApp() {
   const [isImportingPlaylist, setIsImportingPlaylist] = useState(false);
   const [playlistImportError, setPlaylistImportError] = useState<string | null>(null);
   const [playlistImportSuccess, setPlaylistImportSuccess] = useState<string | null>(null);
-  
+
   const [jsonImportText, setJsonImportText] = useState('');
   const [_jsonBackupStatus, setJsonBackupStatus] = useState<'success' | 'error' | null>(null);
 
@@ -1016,7 +1018,7 @@ export default function SpiceApp() {
           const list: UserProfile[] = JSON.parse(saved);
           const found = list.find(p => p.id === activeId);
           if (found && found.cloudUsername) return found.cloudUsername;
-        } catch {}
+        } catch { }
       }
     }
     return null;
@@ -1030,7 +1032,7 @@ export default function SpiceApp() {
           const list: UserProfile[] = JSON.parse(saved);
           const found = list.find(p => p.id === activeId);
           if (found && found.cloudUsername) return found.cloudUsername;
-        } catch {}
+        } catch { }
       }
     }
     return '';
@@ -1057,8 +1059,8 @@ export default function SpiceApp() {
         try {
           const list: UserProfile[] = JSON.parse(saved);
           const found = list.find(p => p.id === activeId);
-          if (found && found.cloudToken) return found.cloudToken;
-        } catch {}
+          if (found) return found.cloudToken || null;
+        } catch { }
       }
       return localStorage.getItem('spice_cloud_token');
     }
@@ -1072,8 +1074,8 @@ export default function SpiceApp() {
         try {
           const list: UserProfile[] = JSON.parse(saved);
           const found = list.find(p => p.id === activeId);
-          if (found && found.cloudUser) return found.cloudUser;
-        } catch {}
+          if (found) return found.cloudUser || null;
+        } catch { }
       }
       const savedUser = localStorage.getItem('spice_cloud_user');
       if (savedUser) {
@@ -1251,11 +1253,11 @@ export default function SpiceApp() {
   const runSelfTest = async () => {
     setSelfTestRunning(true);
     logDebug('diagnostics', 'Starting full-system diagnostics self-test...');
-    
+
     let apiStatus: 'passed' | 'failed' = 'failed';
     let dbStatus: 'passed' | 'failed' | 'disabled' = 'disabled';
     const startTime = Date.now();
-    
+
     try {
       logDebug('diagnostics', 'Pinging YouTube InnerTube search endpoint...');
       const apiPing = await fetch(`/api/yt/search?q=Top%20Hits&limit=1`);
@@ -1268,7 +1270,7 @@ export default function SpiceApp() {
     } catch {
       logDebug('diagnostics', 'InnerTube API ping failed to connect.');
     }
-    
+
     try {
       logDebug('diagnostics', 'Pinging server database sync endpoint...');
       const headers: HeadersInit = {};
@@ -1292,7 +1294,7 @@ export default function SpiceApp() {
     } catch {
       logDebug('diagnostics', 'Cloud Database connection failed.');
     }
-    
+
     let embedStatus: 'passed' | 'failed' = 'failed';
     try {
       logDebug('diagnostics', 'Verifying YouTube Iframe API player library status...');
@@ -1331,6 +1333,10 @@ export default function SpiceApp() {
   const streamProtocolRef = useRef(streamProtocol);
   const isShuffleRef = useRef(isShuffle);
   const activeProfileRef = useRef(activeProfile);
+  const activeProfileIdRef = useRef(activeProfileId);
+  const cloudTokenRef = useRef(cloudToken);
+  const cloudUserRef = useRef(cloudUser);
+  const cloudUsernameRef = useRef(cloudUsername);
   const progressRef = useRef(progress);
   const currentTrackRef = useRef(currentTrack);
   const isPlayingRef = useRef(isPlaying);
@@ -1351,10 +1357,17 @@ export default function SpiceApp() {
   const appliedRemoteCommandIdsRef = useRef<Set<string>>(new Set());
   const remoteStateSyncTimeoutRef = useRef<number | null>(null);
 
-  const handleAudioEndedRef = useRef<() => void>(() => {});
-  const handleAudioErrorRef = useRef<() => void>(() => {});
-  const playTrackRef = useRef<(track: Track, newQueue?: Track[], startSearchIndex?: number) => Promise<void>>(async () => {});
-  const handleNextRef = useRef<(overrideIndex?: any, startSearchIndex?: number) => void>(() => {});
+  const handleAudioEndedRef = useRef<() => void>(() => { });
+  const handleAudioErrorRef = useRef<() => void>(() => { });
+  const playTrackRef = useRef<(track: Track, newQueue?: Track[], startSearchIndex?: number) => Promise<void>>(async () => { });
+  const handleNextRef = useRef<(overrideIndex?: any, startSearchIndex?: number) => void>(() => { });
+
+  useEffect(() => {
+    activeProfileIdRef.current = activeProfileId;
+    cloudTokenRef.current = cloudToken;
+    cloudUserRef.current = cloudUser;
+    cloudUsernameRef.current = cloudUsername;
+  }, [activeProfileId, cloudToken, cloudUser, cloudUsername]);
 
   const autoSyncProfiles = (updatedProfiles: UserProfile[]) => {
     if (!cloudToken) return;
@@ -1373,10 +1386,23 @@ export default function SpiceApp() {
   };
 
   // ── Sync Active Profile back to Profiles DB Helper ──────────────
-  const updateActiveProfileData = (updates: Partial<UserProfile>) => {
+  const updateProfileData = (profileId: string, updates: Partial<UserProfile>) => {
     setProfiles(prev => {
-      const updated = prev.map(p => {
-        if (p.id === activeProfileId) {
+      let baseProfiles = prev;
+      if (typeof window !== 'undefined') {
+        const saved = localStorage.getItem('spice_profiles_list');
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              baseProfiles = parsed;
+            }
+          } catch { }
+        }
+      }
+
+      const updated = baseProfiles.map(p => {
+        if (p.id === profileId) {
           return { ...p, ...updates };
         }
         return p;
@@ -1385,6 +1411,10 @@ export default function SpiceApp() {
       autoSyncProfiles(updated);
       return updated;
     });
+  };
+
+  const updateActiveProfileData = (updates: Partial<UserProfile>) => {
+    updateProfileData(activeProfileId, updates);
   };
 
   const autoSyncHistory = (updatedHistory: Track[]) => {
@@ -1569,7 +1599,7 @@ export default function SpiceApp() {
 
       const savedProfiles = localStorage.getItem('spice_profiles_list');
       const savedActiveId = localStorage.getItem('spice_active_profile_id') || 'default';
-      
+
       let parsedProfiles = [initialDefaultProfile];
       if (savedProfiles) {
         try {
@@ -1800,7 +1830,7 @@ export default function SpiceApp() {
   // Load YouTube Iframe API on client mount
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    
+
     logDebug('system', 'Client environment secure. Initializing YouTube Embed script loader...');
     if (!document.getElementById('youtube-iframe-api-script')) {
       logDebug('system', 'Injecting script tag: https://www.youtube.com/iframe_api');
@@ -1840,7 +1870,7 @@ export default function SpiceApp() {
           if (durationTime > 0) {
             setDuration(durationTime);
           }
-        } catch {}
+        } catch { }
       }, 500);
     }
     return () => clearInterval(interval);
@@ -1937,12 +1967,17 @@ export default function SpiceApp() {
   };
 
   // ── Cloud Accounts Synchronization & Authentication ──────────────
-  const syncWithCloud = async (token: string | null = cloudToken) => {
+  const syncWithCloud = async (
+    token: string | null = cloudToken,
+    profileId: string = activeProfileId,
+    sessionOverride: Partial<Pick<UserProfile, 'cloudUser' | 'cloudUsername'>> = {},
+  ) => {
     if (!token) return;
     if (syncLockRef.current) {
       logDebug('database', 'Sync already in progress. Skipping duplicate sync request.');
       return;
     }
+    const syncProfileId = profileId;
     syncLockRef.current = true;
     setSyncingStatus('syncing');
     setDbError(null);
@@ -1983,10 +2018,20 @@ export default function SpiceApp() {
           const parsed = JSON.parse(savedProfilesStr);
           if (parsed && parsed.length > 0) localProfiles = parsed;
         }
-      } catch {}
+      } catch { }
 
-      const activeProf = localProfiles.find(p => p.id === activeProfileId) || localProfiles[0] || initialDefaultProfile;
-      
+      const activeProf = localProfiles.find(p => p.id === syncProfileId) || localProfiles[0] || initialDefaultProfile;
+      const syncStillMatchesActiveProfile = () => (
+        activeProfileIdRef.current === activeProf.id && cloudTokenRef.current === token
+      );
+      const canUseCurrentSession = syncStillMatchesActiveProfile();
+      const activeSessionUser = sessionOverride.cloudUser !== undefined
+        ? sessionOverride.cloudUser
+        : (activeProf.cloudUser ?? (canUseCurrentSession ? cloudUserRef.current : null));
+      const activeSessionUsername = sessionOverride.cloudUsername !== undefined
+        ? sessionOverride.cloudUsername
+        : (activeProf.cloudUsername ?? (canUseCurrentSession ? cloudUsernameRef.current : null));
+
       const localLikes = new Set<string>(activeProf.likedTracks || []);
       const localLikedDetails = activeProf.likedTrackDetails || {};
       const localHistory = activeProf.history || [];
@@ -2135,9 +2180,9 @@ export default function SpiceApp() {
             passcode: serverProf.passcode || undefined,
             avatarUrl: serverProf.avatarUrl || undefined,
             // Explicitly preserve credentials in case they are missing from serverProf
-            cloudToken: mergedProfiles[existingIdx].cloudToken || null,
-            cloudUser: mergedProfiles[existingIdx].cloudUser || null,
-            cloudUsername: mergedProfiles[existingIdx].cloudUsername || null,
+            cloudToken: mergedProfiles[existingIdx].cloudToken ?? null,
+            cloudUser: mergedProfiles[existingIdx].cloudUser ?? null,
+            cloudUsername: mergedProfiles[existingIdx].cloudUsername ?? null,
           };
         } else {
           mergedProfiles.push({
@@ -2166,29 +2211,65 @@ export default function SpiceApp() {
             likedTrackDetails: mergedLikedDetails,
             customPlaylists: mergedPlaylists,
             history: mergedHistory,
-            // Ensure current active cloud account credentials are explicitly retained
-            cloudToken: p.cloudToken || token || cloudToken,
-            cloudUser: p.cloudUser || cloudUser,
-            cloudUsername: p.cloudUsername || cloudUsername,
+            // Keep the authenticated account bound to this exact profile.
+            cloudToken: token,
+            cloudUser: activeSessionUser,
+            cloudUsername: activeSessionUsername,
           };
         }
         return p;
       });
+      let latestSavedProfiles: UserProfile[] = [];
+      const latestSavedProfilesStr = localStorage.getItem('spice_profiles_list');
+      if (latestSavedProfilesStr) {
+        try {
+          const parsed = JSON.parse(latestSavedProfilesStr);
+          if (Array.isArray(parsed)) {
+            latestSavedProfiles = parsed;
+          }
+        } catch { }
+      }
+      const profilesToPersist = finalProfiles.map((profile) => {
+        const latest = latestSavedProfiles.find(savedProfile => savedProfile.id === profile.id);
+        if (!latest) return profile;
 
-      // 8. Update client states
-      setLikedTracks(mergedLikes);
-      setLikedTrackDetails(mergedLikedDetails);
-      setHistory(mergedHistory);
-      setCustomPlaylists(mergedPlaylists);
+        if (profile.id === activeProf.id) {
+          if (latest.cloudToken === token) {
+            return {
+              ...profile,
+              cloudToken: token,
+              cloudUser: latest.cloudUser !== undefined ? latest.cloudUser : profile.cloudUser,
+              cloudUsername: latest.cloudUsername !== undefined ? latest.cloudUsername : profile.cloudUsername,
+            };
+          }
+          return profile;
+        }
+
+        return {
+          ...profile,
+          cloudToken: latest.cloudToken !== undefined ? latest.cloudToken : (profile.cloudToken ?? null),
+          cloudUser: latest.cloudUser !== undefined ? latest.cloudUser : (profile.cloudUser ?? null),
+          cloudUsername: latest.cloudUsername !== undefined ? latest.cloudUsername : (profile.cloudUsername ?? null),
+        };
+      });
+
       rememberTrackSnapshots([
         ...Object.values(mergedLikedDetails),
         ...mergedHistory,
         ...mergedPlaylists.flatMap((playlist) => playlist.tracks),
       ]);
-      setProfiles(finalProfiles);
-      localStorage.setItem('spice_profiles_list', JSON.stringify(finalProfiles));
+      setProfiles(profilesToPersist);
+      localStorage.setItem('spice_profiles_list', JSON.stringify(profilesToPersist));
 
-      if (activeProf) {
+      // 8. Update visible client state only if this sync still belongs to the selected profile.
+      if (activeProf && syncStillMatchesActiveProfile()) {
+        const persistedActiveProfile = profilesToPersist.find(profile => profile.id === activeProf.id);
+        const visibleSessionUser = persistedActiveProfile?.cloudUser ?? activeSessionUser ?? null;
+        const visibleSessionUsername = persistedActiveProfile?.cloudUsername ?? activeSessionUsername ?? null;
+        setLikedTracks(mergedLikes);
+        setLikedTrackDetails(mergedLikedDetails);
+        setHistory(mergedHistory);
+        setCustomPlaylists(mergedPlaylists);
         setActiveProfileId(activeProf.id);
         localStorage.setItem('spice_active_profile_id', activeProf.id);
         setEditName(activeProf.displayName);
@@ -2196,6 +2277,13 @@ export default function SpiceApp() {
         setEditGradient(activeProf.gradient);
         setEditPasscode(activeProf.passcode || '');
         setEditAvatarUrl(activeProf.avatarUrl || '');
+        setCloudToken(token);
+        setCloudUser(visibleSessionUser);
+        setCloudUsername(visibleSessionUsername);
+        setUsernameInput(visibleSessionUsername || '');
+        cloudTokenRef.current = token;
+        cloudUserRef.current = visibleSessionUser;
+        cloudUsernameRef.current = visibleSessionUsername;
       }
 
       // 9. Push Merged States to Cloud Database (each independently)
@@ -2204,7 +2292,7 @@ export default function SpiceApp() {
         { label: 'Likes', url: '/api/sync/likes', body: { likedTracks: mergedLikesArray, likedTrackDetails: mergedLikedDetails, profileId: activeProf.id } },
         { label: 'History', url: '/api/sync/history', body: { history: mergedHistory, profileId: activeProf.id } },
         { label: 'Playlists', url: '/api/sync/playlists', body: { playlists: ownedPlaylistsOnly(mergedPlaylists), profileId: activeProf.id } },
-        { label: 'Profiles', url: '/api/sync/profiles', body: { profiles: finalProfiles } },
+        { label: 'Profiles', url: '/api/sync/profiles', body: { profiles: profilesToPersist } },
       ];
 
       for (const ep of pushEndpoints) {
@@ -2230,7 +2318,7 @@ export default function SpiceApp() {
       }
 
       if (pushFailures === 0) {
-        logDebug('database', `[SYNC] Merged state with cloud database successfully. Merged: ${mergedLikesArray.length} likes, ${mergedHistory.length} history items, ${mergedPlaylists.length} playlists, ${finalProfiles.length} profiles.`);
+        logDebug('database', `[SYNC] Merged state with cloud database successfully. Merged: ${mergedLikesArray.length} likes, ${mergedHistory.length} history items, ${mergedPlaylists.length} playlists, ${profilesToPersist.length} profiles.`);
         setSyncingStatus('success');
       } else {
         logDebug('database', `[SYNC] Partial sync completed with ${pushFailures} push failure(s). Local state is up-to-date.`);
@@ -2251,6 +2339,7 @@ export default function SpiceApp() {
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const authProfileId = activeProfileIdRef.current;
     setAuthError(null);
     setAuthLoading(true);
     setDbError(null);
@@ -2280,18 +2369,24 @@ export default function SpiceApp() {
       localStorage.setItem('spice_cloud_user', JSON.stringify(data.user));
       setCloudToken(data.token);
       setCloudUser(data.user);
-      updateActiveProfileData({
+      setCloudUsername(null);
+      setUsernameInput('');
+      cloudTokenRef.current = data.token;
+      cloudUserRef.current = data.user;
+      cloudUsernameRef.current = null;
+      updateProfileData(authProfileId, {
         cloudToken: data.token,
         cloudUser: data.user,
+        cloudUsername: null,
       });
       setAuthEmail('');
       setAuthPassword('');
       logDebug('auth', `User "${data.user.email}" authenticated successfully via ${authMode}. Token generated.`);
-      
+
       // Auto sync after login
-      await syncWithCloud(data.token);
+      await syncWithCloud(data.token, authProfileId, { cloudUser: data.user, cloudUsername: null });
       await restoreLastFmAccountLink(data.token);
-      fetchUsername(data.token);
+      void fetchUsername(data.token, authProfileId);
     } catch (err: any) {
       console.error(err);
       logDebug('error', `Authentication attempt failed: ${err.message || err}`);
@@ -2302,13 +2397,17 @@ export default function SpiceApp() {
   };
 
   const handleLogout = () => {
+    const logoutProfileId = activeProfileIdRef.current;
     localStorage.removeItem('spice_cloud_token');
     localStorage.removeItem('spice_cloud_user');
     setCloudToken(null);
     setCloudUser(null);
     setCloudUsername(null);
     setUsernameInput('');
-    updateActiveProfileData({
+    cloudTokenRef.current = null;
+    cloudUserRef.current = null;
+    cloudUsernameRef.current = null;
+    updateProfileData(logoutProfileId, {
       cloudToken: null,
       cloudUser: null,
       cloudUsername: null,
@@ -2353,7 +2452,7 @@ export default function SpiceApp() {
   // Sync on load or profile switch
   useEffect(() => {
     if (cloudToken) {
-      syncWithCloud(cloudToken);
+      syncWithCloud(cloudToken, activeProfileId);
     }
   }, [cloudToken, activeProfileId]);
 
@@ -2368,7 +2467,7 @@ export default function SpiceApp() {
     const currentSongsPlayed = activeProfileRef.current?.songsPlayed ?? 0;
     const updatedSongsCount = currentSongsPlayed + 1;
     updateActiveProfileData({ songsPlayed: updatedSongsCount });
-    
+
     const currentRepeatMode = repeatModeRef.current;
     const currentStreamProtocol = streamProtocolRef.current;
     const currentQueue = queueRef.current;
@@ -2443,7 +2542,7 @@ export default function SpiceApp() {
     setIsPlaying(false);
     setIsLoadingStream(false);
     setError('Playback failed. Attempting self-healing skip to next queue item...');
-    
+
     const currentQueue = queueRef.current;
     if (currentQueue.length > 1) {
       logDebug('player', 'Playback error encountered. Scheduling self-healing skip in 1.5s...');
@@ -2505,8 +2604,8 @@ export default function SpiceApp() {
           providers: {
             lastfm: shouldSyncLastFm
               ? {
-                  sessionKey: lastfmSession || undefined,
-                }
+                sessionKey: lastfmSession || undefined,
+              }
               : undefined,
             listenbrainz: listenbrainzToken ? { token: listenbrainzToken } : undefined,
           },
@@ -2655,9 +2754,9 @@ export default function SpiceApp() {
   // Dynamic Lyrics Fetcher & Karaoke Auto-scroller Effects
   const activeLineIdx = lyricsData?.isSynced
     ? lyricsData.lines.findIndex((line, idx) => {
-        const nextLine = lyricsData.lines[idx + 1];
-        return progress >= line.time && (!nextLine || progress < nextLine.time);
-      })
+      const nextLine = lyricsData.lines[idx + 1];
+      return progress >= line.time && (!nextLine || progress < nextLine.time);
+    })
     : -1;
 
   useEffect(() => {
@@ -2701,10 +2800,10 @@ export default function SpiceApp() {
         logDebug('lyrics', `API Response successfully parsed for "${data.title || currentTrack.title}". Timed lyrics: ${data.isSynced ? 'YES' : 'NO'}`);
         // Duration fallback chain: track metadata → API response → YouTube embed player → default
         const ytEmbedDuration = ytPlayerRef.current?.getDuration?.() || 0;
-        const totalSec = currentTrack.durationMs 
-          ? currentTrack.durationMs / 1000 
+        const totalSec = currentTrack.durationMs
+          ? currentTrack.durationMs / 1000
           : (data.durationMs ? data.durationMs / 1000 : (ytEmbedDuration > 0 ? ytEmbedDuration : 180));
-        
+
         const parsedLines = data.isSynced
           ? parseLRC(data.syncedLyrics, totalSec)
           : parsePlainLyrics(data.plainLyrics);
@@ -2724,7 +2823,7 @@ export default function SpiceApp() {
       } catch (err) {
         logDebug('lyrics', `Error during lyrics resolution: ${err instanceof Error ? err.message : String(err)}`);
         if (!active) return;
-        
+
         setLyricsData(null);
       } finally {
         if (active) {
@@ -2794,7 +2893,7 @@ export default function SpiceApp() {
       const isYouTube = isYouTubeTrack(track);
       const activeStreamProtocol = streamProtocolRef.current;
       logDebug('player', `Initiating ${trackSourceLabel(track)} format resolution for track "${track.title}" (ID: ${track.id})`);
-      
+
       if ((activeStreamProtocol === 'embed' || showVideoPlayer) && isYouTube) {
         logDebug('stream', `YouTube Embedded Player active. Loading iframe player for track ID: ${track.id}`);
         const shouldStartNow = requestId === playbackRequestRef.current && shouldAutoPlayRef.current;
@@ -2839,7 +2938,7 @@ export default function SpiceApp() {
       const resTrack = await fetch(trackEndpoint);
       if (requestId !== playbackRequestRef.current) return;
       if (!resTrack.ok) throw new Error('Could not resolve audio streams for this track.');
-      
+
       const payload = await resTrack.json();
       if (requestId !== playbackRequestRef.current) return;
       const streams = payload.streams ?? [];
@@ -2869,13 +2968,13 @@ export default function SpiceApp() {
       if (requestId !== playbackRequestRef.current) return;
       console.error(err);
       logDebug('error', `Track streaming failed: ${err.message || err}`);
-      
+
       if (isYouTubeTrack(track) && streamProtocolRef.current !== 'embed') {
         logDebug('diagnostics', `Direct stream resolution failed. Initiating self-healing fallback to YouTube Embedded Player...`);
         const shouldStartNow = shouldAutoPlayRef.current;
         setStreamProtocol('embed');
         streamProtocolRef.current = 'embed';
-        
+
         logDebug('stream', `YouTube Embedded Player active. Loading iframe player for track ID: ${track.id}`);
         setStreamUrl('youtube-embed-active');
         streamUrlRef.current = 'youtube-embed-active';
@@ -2905,7 +3004,7 @@ export default function SpiceApp() {
         }
         return;
       }
-      
+
       // Auto-advance skip to next song if it's already in embed mode and still failing
       const currentQueue = queueRef.current;
       if (currentQueue.length > 1) {
@@ -3054,12 +3153,12 @@ export default function SpiceApp() {
       }
       return;
     }
-    
+
     const currentQueue = queueRef.current;
     if (currentQueue.length === 0) return;
-    
-    const currentIndex = (overrideIndex !== undefined && typeof overrideIndex === 'number') 
-      ? overrideIndex 
+
+    const currentIndex = (overrideIndex !== undefined && typeof overrideIndex === 'number')
+      ? overrideIndex
       : queueIndexRef.current;
     let prevIdx = currentIndex;
     if (isShuffleRef.current) {
@@ -3079,12 +3178,12 @@ export default function SpiceApp() {
   const handleNext = (overrideIndex?: any, startSearchIndex?: number) => {
     const currentQueue = queueRef.current;
     if (currentQueue.length === 0) return;
-    
-    const currentIndex = (overrideIndex !== undefined && typeof overrideIndex === 'number') 
-      ? overrideIndex 
+
+    const currentIndex = (overrideIndex !== undefined && typeof overrideIndex === 'number')
+      ? overrideIndex
       : queueIndexRef.current;
     const searchStart = startSearchIndex !== undefined ? startSearchIndex : currentIndex;
-    
+
     let nextIdx = currentIndex;
     if (isShuffleRef.current) {
       if (currentQueue.length > 1) {
@@ -3210,11 +3309,11 @@ export default function SpiceApp() {
 
       const devices = Array.isArray(data.devices)
         ? data.devices.map((device: RemoteDevice) => ({
-            ...device,
-            currentTrack: device.currentTrack ? enrichTrackSnapshot(device.currentTrack) : null,
-            queue: Array.isArray(device.queue) ? device.queue.map(enrichTrackSnapshot) : [],
-            lastSeenSeconds: Math.max(0, Math.round((Date.now() - new Date(device.updatedAt).getTime()) / 1000)),
-          }))
+          ...device,
+          currentTrack: device.currentTrack ? enrichTrackSnapshot(device.currentTrack) : null,
+          queue: Array.isArray(device.queue) ? device.queue.map(enrichTrackSnapshot) : [],
+          lastSeenSeconds: Math.max(0, Math.round((Date.now() - new Date(device.updatedAt).getTime()) / 1000)),
+        }))
         : [];
       setRemoteDevices(devices);
 
@@ -4006,7 +4105,7 @@ export default function SpiceApp() {
         try {
           await navigator.clipboard.writeText(inviteUrl);
           copied = true;
-        } catch {}
+        } catch { }
       }
 
       setShareStatus(copied ? 'Invite link copied to clipboard.' : `Invite link ready: ${inviteUrl}`);
@@ -4079,7 +4178,7 @@ export default function SpiceApp() {
   const allEditablePlaylists = customPlaylists.filter((playlist) => !playlist.shared || playlist.shareRole === 'editor' || playlist.shareRole === 'owner');
 
   // ── Username Management ──────────────────────────────────────────
-  const fetchUsername = useCallback(async (token: string | null = cloudToken) => {
+  const fetchUsername = useCallback(async (token: string | null = cloudToken, profileId: string = activeProfileId) => {
     if (!token) return;
     try {
       const response = await fetch('/api/account/username', {
@@ -4087,21 +4186,26 @@ export default function SpiceApp() {
       });
       const data = await response.json().catch(() => ({}));
       if (response.ok && data.username) {
-        setCloudUsername(data.username);
-        setUsernameInput(data.username);
-        updateActiveProfileData({ cloudUsername: data.username });
+        updateProfileData(profileId, { cloudUsername: data.username });
+        if (activeProfileIdRef.current === profileId && cloudTokenRef.current === token) {
+          setCloudUsername(data.username);
+          setUsernameInput(data.username);
+          cloudUsernameRef.current = data.username;
+        }
       }
     } catch { /* silent */ }
-  }, [cloudToken]);
+  }, [cloudToken, activeProfileId]);
 
   useEffect(() => {
     if (cloudToken) {
-      void fetchUsername(cloudToken);
+      void fetchUsername(cloudToken, activeProfileId);
     }
-  }, [cloudToken, fetchUsername]);
+  }, [cloudToken, activeProfileId, fetchUsername]);
 
   const saveUsername = async () => {
     if (!cloudToken || !usernameInput.trim()) return;
+    const usernameProfileId = activeProfileIdRef.current;
+    const usernameToken = cloudToken;
     setUsernameSaving(true);
     setUsernameError(null);
     setUsernameSuccess(false);
@@ -4113,10 +4217,13 @@ export default function SpiceApp() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Failed to save username.');
-      setCloudUsername(data.username);
-      setUsernameInput(data.username);
+      updateProfileData(usernameProfileId, { cloudUsername: data.username });
+      if (activeProfileIdRef.current === usernameProfileId && cloudTokenRef.current === usernameToken) {
+        setCloudUsername(data.username);
+        setUsernameInput(data.username);
+        cloudUsernameRef.current = data.username;
+      }
       setUsernameSuccess(true);
-      updateActiveProfileData({ cloudUsername: data.username });
       setTimeout(() => setUsernameSuccess(false), 3000);
     } catch (error) {
       setUsernameError(error instanceof Error ? error.message : 'Failed to save username.');
@@ -4227,7 +4334,7 @@ export default function SpiceApp() {
   useEffect(() => {
     if (!selectedPlaylist?.shared || !isPlaylistUuid(selectedPlaylist.id)) return;
     void refreshSharedPlaylist(selectedPlaylist);
-  // Only re-run when we switch to a different shared playlist
+    // Only re-run when we switch to a different shared playlist
   }, [selectedPlaylist?.id]);
 
   useEffect(() => {
@@ -4291,7 +4398,7 @@ export default function SpiceApp() {
         if (inviteResponse.ok && inviteData.inviteUrl) {
           let copied = false;
           if (navigator.clipboard?.writeText) {
-            try { await navigator.clipboard.writeText(inviteData.inviteUrl); copied = true; } catch {}
+            try { await navigator.clipboard.writeText(inviteData.inviteUrl); copied = true; } catch { }
           }
           setShareStatus(copied
             ? `"${resolvedPlaylist.title}" created! Invite link copied to clipboard.`
@@ -4321,10 +4428,10 @@ export default function SpiceApp() {
     : currentTrack;
   const playerQueue = isControllingRemoteReceiver
     ? (
-        selectedRemoteDevice?.queue && selectedRemoteDevice.queue.length > 0
-          ? selectedRemoteDevice.queue
-          : (selectedRemoteDevice?.currentTrack ? [selectedRemoteDevice.currentTrack] : [])
-      )
+      selectedRemoteDevice?.queue && selectedRemoteDevice.queue.length > 0
+        ? selectedRemoteDevice.queue
+        : (selectedRemoteDevice?.currentTrack ? [selectedRemoteDevice.currentTrack] : [])
+    )
     : queue;
   const playerQueueIndex = isControllingRemoteReceiver ? (selectedRemoteDevice?.queueIndex || 0) : queueIndex;
   const playerIsPlaying = isControllingRemoteReceiver ? Boolean(selectedRemoteDevice?.isPlaying) : isPlaying;
@@ -4371,11 +4478,11 @@ export default function SpiceApp() {
     setRemoteDevices((devices) => devices.map((device) => (
       device.deviceId === selectedRemoteDeviceId
         ? {
-            ...device,
-            ...updates,
-            updatedAt: new Date().toISOString(),
-            lastSeenSeconds: 0,
-          }
+          ...device,
+          ...updates,
+          updatedAt: new Date().toISOString(),
+          lastSeenSeconds: 0,
+        }
         : device
     )));
   };
@@ -4602,9 +4709,27 @@ export default function SpiceApp() {
             latestProfiles = parsed;
             setProfiles(parsed);
           }
-        } catch {}
+        } catch { }
       }
     }
+
+    const currentProfileId = activeProfileIdRef.current;
+    let capturedCurrentSession = false;
+    latestProfiles = latestProfiles.map((profile) => {
+      if (profile.id !== currentProfileId) return profile;
+      capturedCurrentSession = true;
+      return {
+        ...profile,
+        cloudToken: cloudTokenRef.current,
+        cloudUser: cloudUserRef.current,
+        cloudUsername: cloudUsernameRef.current,
+      };
+    });
+    if (capturedCurrentSession) {
+      setProfiles(latestProfiles);
+      localStorage.setItem('spice_profiles_list', JSON.stringify(latestProfiles));
+    }
+
     const target = profileOverride || latestProfiles.find(p => p.id === profileId);
     if (!target) return;
 
@@ -4618,6 +4743,10 @@ export default function SpiceApp() {
     setCloudUser(nextUser);
     setCloudUsername(nextUsername);
     setUsernameInput(nextUsername || '');
+    activeProfileIdRef.current = profileId;
+    cloudTokenRef.current = nextToken;
+    cloudUserRef.current = nextUser;
+    cloudUsernameRef.current = nextUsername;
 
     if (nextToken) {
       localStorage.setItem('spice_cloud_token', nextToken);
@@ -4690,7 +4819,7 @@ export default function SpiceApp() {
     e.preventDefault();
     if (!newProfileName.trim()) return;
 
-    const newId = 'profile_' + Date.now();
+    const newId = createUserProfileId();
     const sanitizedUrl = sanitizePfpUrl(newProfileAvatarUrl);
     const newProf: UserProfile = {
       id: newId,
@@ -4773,7 +4902,7 @@ export default function SpiceApp() {
 
   const saveProfile = (e: FormEvent) => {
     e.preventDefault();
-    
+
     // Passcode validation
     const passcodeVal = editPasscode.trim();
     if (passcodeVal && passcodeVal.length !== 4) {
@@ -5329,8 +5458,8 @@ export default function SpiceApp() {
             {/* Indicator dots */}
             <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginBottom: '40px' }}>
               {[...Array(4)].map((_, i) => (
-                <div 
-                  key={i} 
+                <div
+                  key={i}
                   style={{ width: '16px', height: '16px', borderRadius: '50%', background: passcodeInput.length > i ? 'var(--accent-pink)' : '#222', border: '1px solid #444', transition: 'all 0.15s ease', boxShadow: passcodeInput.length > i ? '0 0 12px var(--accent-pink)' : 'none' }}
                 />
               ))}
@@ -5345,8 +5474,8 @@ export default function SpiceApp() {
             {/* Custom Premium Virtual Keypad */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
               {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(num => (
-                <button 
-                  key={num} 
+                <button
+                  key={num}
                   type="button"
                   onClick={() => handlePasscodeKey(num)}
                   style={{ height: '56px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: '#fff', fontSize: '1.25rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.15s ease' }}
@@ -5356,14 +5485,14 @@ export default function SpiceApp() {
                   {num}
                 </button>
               ))}
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={clearPasscode}
                 style={{ height: '56px', borderRadius: '12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}
               >
                 Clear
               </button>
-              <button 
+              <button
                 type="button"
                 onClick={() => handlePasscodeKey('0')}
                 style={{ height: '56px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: '#fff', fontSize: '1.25rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.15s' }}
@@ -5372,7 +5501,7 @@ export default function SpiceApp() {
               >
                 0
               </button>
-              <button 
+              <button
                 type="button"
                 onClick={() => {
                   // Switch to default profile or other profiles if they aren't locked
@@ -5409,7 +5538,7 @@ export default function SpiceApp() {
       )}
 
       {/* Stealth YouTube Embed Container — Invisible but functional for audio fallback */}
-      <div 
+      <div
         className={`floating-yt-panel ${showVideoPlayer ? 'is-visible' : ''}`}
         aria-hidden={!showVideoPlayer}
       >
@@ -5427,8 +5556,8 @@ export default function SpiceApp() {
             </button>
           </div>
         )}
-        <div 
-          id="spice-yt-iframe-container" 
+        <div
+          id="spice-yt-iframe-container"
           className="floating-yt-panel__frame"
         />
       </div>
@@ -5448,107 +5577,107 @@ export default function SpiceApp() {
 
       {/* ═══ Sidebar Panel ═══ */}
       {!sidebarHidden && (
-      <aside className="sidebar">
-        <div className="sidebar__logo">
-          <button
-            type="button"
-            className="sidebar__brand"
-            onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); }}
-            aria-label="Go to SPICE home"
-          >
-            <div
-              className="sidebar__logo-icon"
-            >
-              <span style={{ fontSize: '1rem', fontWeight: 900, color: '#fff' }}>S</span>
-            </div>
-            <span className="sidebar__logo-text">
-              Spice
-            </span>
-          </button>
-          <button
-            type="button"
-            className="sidebar__hide-btn"
-            onClick={() => updateSidebarHiddenPreference(true)}
-            aria-label="Hide sidebar"
-            title="Hide sidebar"
-          >
-            {Icons.chevronLeft}
-          </button>
-        </div>
-
-        <nav className="sidebar__nav">
-          <button
-            className={`sidebar__nav-item ${currentPage === 'home' && !selectedPlaylist ? 'active' : ''}`}
-            onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); }}
-          >
-            {Icons.home}
-            <span className="sidebar__nav-label">Home</span>
-          </button>
-          {sidebarSearchEnabled && (
+        <aside className="sidebar">
+          <div className="sidebar__logo">
             <button
-              className={`sidebar__nav-item ${currentPage === 'search' && !selectedPlaylist ? 'active' : ''}`}
-              onClick={() => { setCurrentPage('search'); setSelectedPlaylist(null); }}
+              type="button"
+              className="sidebar__brand"
+              onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); }}
+              aria-label="Go to SPICE home"
             >
-              {Icons.search}
-              <span className="sidebar__nav-label">Search</span>
-            </button>
-          )}
-          <button
-            className={`sidebar__nav-item ${currentPage === 'library' && !selectedPlaylist ? 'active' : ''}`}
-            onClick={() => { setCurrentPage('library'); setSelectedPlaylist(null); }}
-          >
-            {Icons.library}
-            <span className="sidebar__nav-label">Library</span>
-          </button>
-          {sidebarProfileEnabled && (
-            <button
-              className={`sidebar__nav-item ${currentPage === 'account' && !selectedPlaylist ? 'active' : ''}`}
-              onClick={() => { setCurrentPage('account'); setSelectedPlaylist(null); }}
-            >
-              {Icons.account}
-              <span className="sidebar__nav-label">Profile</span>
-            </button>
-          )}
-          <button
-            className={`sidebar__nav-item ${currentPage === 'settings' && !selectedPlaylist ? 'active' : ''}`}
-            onClick={() => { setCurrentPage('settings'); setSelectedPlaylist(null); }}
-          >
-            {Icons.settings}
-            <span className="sidebar__nav-label">Settings</span>
-          </button>
-        </nav>
-
-        <div className="sidebar__divider"></div>
-        <div className="sidebar__header-row">
-          <div className="sidebar__section-title">Playlists</div>
-          <button className="sidebar__add-btn" onClick={() => setShowCreateDialog(true)} title="Create Playlist" aria-label="Create Playlist">
-            {Icons.plus}
-          </button>
-        </div>
-
-        <div className="sidebar__playlists">
-          {!isMounted || customPlaylists.length === 0 ? (
-            <div className="sidebar__empty">No playlists yet</div>
-          ) : (
-            customPlaylists.map(pl => (
-              <button
-                key={pl.id}
-                className={`sidebar__playlist-item ${selectedPlaylist?.id === pl.id ? 'active' : ''}`}
-                onClick={() => {
-                  setSelectedPlaylist(pl);
-                  setCurrentPage('library');
-                }}
+              <div
+                className="sidebar__logo-icon"
               >
-                {Icons.playlist}
-                <span className="sidebar__playlist-title">
-                  <span className="truncate">{pl.title}</span>
-                  {pl.shared && <span className="playlist-shared-pill">Shared</span>}
-                </span>
+                <span style={{ fontSize: '1rem', fontWeight: 900, color: '#fff' }}>S</span>
+              </div>
+              <span className="sidebar__logo-text">
+                Spice
+              </span>
+            </button>
+            <button
+              type="button"
+              className="sidebar__hide-btn"
+              onClick={() => updateSidebarHiddenPreference(true)}
+              aria-label="Hide sidebar"
+              title="Hide sidebar"
+            >
+              {Icons.chevronLeft}
+            </button>
+          </div>
+
+          <nav className="sidebar__nav">
+            <button
+              className={`sidebar__nav-item ${currentPage === 'home' && !selectedPlaylist ? 'active' : ''}`}
+              onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); }}
+            >
+              {Icons.home}
+              <span className="sidebar__nav-label">Home</span>
+            </button>
+            {sidebarSearchEnabled && (
+              <button
+                className={`sidebar__nav-item ${currentPage === 'search' && !selectedPlaylist ? 'active' : ''}`}
+                onClick={() => { setCurrentPage('search'); setSelectedPlaylist(null); }}
+              >
+                {Icons.search}
+                <span className="sidebar__nav-label">Search</span>
               </button>
-            ))
-          )}
-        </div>
-      </aside>
+            )}
+            <button
+              className={`sidebar__nav-item ${currentPage === 'library' && !selectedPlaylist ? 'active' : ''}`}
+              onClick={() => { setCurrentPage('library'); setSelectedPlaylist(null); }}
+            >
+              {Icons.library}
+              <span className="sidebar__nav-label">Library</span>
+            </button>
+            {sidebarProfileEnabled && (
+              <button
+                className={`sidebar__nav-item ${currentPage === 'account' && !selectedPlaylist ? 'active' : ''}`}
+                onClick={() => { setCurrentPage('account'); setSelectedPlaylist(null); }}
+              >
+                {Icons.account}
+                <span className="sidebar__nav-label">Profile</span>
+              </button>
+            )}
+            <button
+              className={`sidebar__nav-item ${currentPage === 'settings' && !selectedPlaylist ? 'active' : ''}`}
+              onClick={() => { setCurrentPage('settings'); setSelectedPlaylist(null); }}
+            >
+              {Icons.settings}
+              <span className="sidebar__nav-label">Settings</span>
+            </button>
+          </nav>
+
+          <div className="sidebar__divider"></div>
+          <div className="sidebar__header-row">
+            <div className="sidebar__section-title">Playlists</div>
+            <button className="sidebar__add-btn" onClick={() => setShowCreateDialog(true)} title="Create Playlist" aria-label="Create Playlist">
+              {Icons.plus}
+            </button>
+          </div>
+
+          <div className="sidebar__playlists">
+            {!isMounted || customPlaylists.length === 0 ? (
+              <div className="sidebar__empty">No playlists yet</div>
+            ) : (
+              customPlaylists.map(pl => (
+                <button
+                  key={pl.id}
+                  className={`sidebar__playlist-item ${selectedPlaylist?.id === pl.id ? 'active' : ''}`}
+                  onClick={() => {
+                    setSelectedPlaylist(pl);
+                    setCurrentPage('library');
+                  }}
+                >
+                  {Icons.playlist}
+                  <span className="sidebar__playlist-title">
+                    <span className="truncate">{pl.title}</span>
+                    {pl.shared && <span className="playlist-shared-pill">Shared</span>}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </aside>
       )}
 
       {/* ═══ Main Content Area ═══ */}
@@ -5711,7 +5840,7 @@ export default function SpiceApp() {
               {/* Hero banner */}
               <div className="playlist-hero" style={{ '--pl-gradient': selectedPlaylist.gradient } as React.CSSProperties}>
                 <div className="playlist-hero__bg" />
-                
+
                 {isPlaylistOwner && (
                   <button
                     className="playlist-hero__edit-btn"
@@ -6207,7 +6336,7 @@ export default function SpiceApp() {
               {currentPage === 'search' && (
                 <>
                   <h1 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '2rem', fontWeight: 800, marginBottom: '24px' }}>Search</h1>
-                  
+
                   <div className="search-container">
                     <div className="search-bar">
                       {Icons.search}
@@ -6257,10 +6386,10 @@ export default function SpiceApp() {
                                   <span className="track-source-badge">{trackSourceLabel(song)}</span>
                                 </span>
                               </div>
-                              
+
                               {/* Custom Playlist Selector */}
                               {allEditablePlaylists.length > 0 && (
-                                <select 
+                                <select
                                   onChange={(e) => {
                                     if (e.target.value) {
                                       addTrackToPlaylist(song, e.target.value);
@@ -6561,7 +6690,7 @@ export default function SpiceApp() {
                                 </span>
                               </div>
                               {allEditablePlaylists.length > 0 && (
-                                <select 
+                                <select
                                   onChange={(e) => {
                                     if (e.target.value) {
                                       addTrackToPlaylist(song, e.target.value);
@@ -6604,7 +6733,7 @@ export default function SpiceApp() {
 
                   {/* Profile view */}
                   <div className="profile-card animate-in" style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '32px', display: 'flex', alignItems: 'center', gap: '24px' }}>
-                    <div 
+                    <div
                       style={{ width: '120px', height: '120px', borderRadius: '50%', background: activeProfile.avatarUrl ? 'none' : activeProfile.gradient, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '3.5rem', fontWeight: 900, color: '#fff', textShadow: activeProfile.avatarUrl ? 'none' : '0 4px 12px rgba(0,0,0,0.3)', flexShrink: 0, overflow: 'hidden', border: '4px solid rgba(255, 255, 255, 0.12)', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}
                     >
                       {activeProfile.avatarUrl ? (
@@ -6653,8 +6782,8 @@ export default function SpiceApp() {
                     {profiles.map(p => {
                       const isActive = p.id === activeProfileId;
                       return (
-                        <div 
-                          key={p.id} 
+                        <div
+                          key={p.id}
                           onClick={() => switchProfile(p.id)}
                           style={{ position: 'relative', background: 'var(--card-bg)', border: isActive ? '2px solid var(--accent-pink)' : '1px solid var(--border-color)', padding: '16px', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px', minWidth: '180px', transition: 'all 0.15s ease' }}
                         >
@@ -6673,8 +6802,8 @@ export default function SpiceApp() {
                             <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{p.songsPlayed} streams</span>
                           </div>
                           {profiles.length > 1 && (
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); deleteProfile(p.id); }} 
+                            <button
+                              onClick={(e) => { e.stopPropagation(); deleteProfile(p.id); }}
                               style={{ marginLeft: 'auto', color: '#f87171', padding: '4px', opacity: 0.6 }}
                               title="Delete Profile"
                             >
@@ -6697,7 +6826,7 @@ export default function SpiceApp() {
                     {Icons.globe} Cloud Sync & Server Accounts
                     {cloudUser && <span style={{ fontSize: '0.75rem', background: 'rgba(52, 211, 153, 0.1)', color: '#34d399', padding: '2px 8px', borderRadius: '12px', border: '1px solid rgba(52, 211, 153, 0.2)' }}>Connected</span>}
                   </h3>
-                  
+
                   <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '32px' }}>
                     {cloudUser ? (
                       <div>
@@ -6732,15 +6861,15 @@ export default function SpiceApp() {
                         )}
 
                         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                          <button 
-                            className="btn btn--primary" 
-                            onClick={() => syncWithCloud()} 
+                          <button
+                            className="btn btn--primary"
+                            onClick={() => syncWithCloud()}
                             disabled={syncingStatus === 'syncing'}
                             style={{ padding: '10px 20px', fontSize: '0.85rem' }}
                           >
                             {syncingStatus === 'syncing' ? 'Syncing...' : 'Sync Data Now'}
                           </button>
-                          
+
                           {syncingStatus === 'success' && (
                             <span style={{ color: '#34d399', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
                               {Icons.checkCircle} Synchronized successfully with the database!
@@ -6807,7 +6936,7 @@ export default function SpiceApp() {
                     ) : (
                       <div>
                         <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 20px 0', lineHeight: 1.5 }}>
-                          Connect your Spice account to synchronize your custom playlists, liked tracks, and listening history with a secure backend database. 
+                          Connect your Spice account to synchronize your custom playlists, liked tracks, and listening history with a secure backend database.
                         </p>
 
                         {!dbError && (
@@ -6828,16 +6957,16 @@ export default function SpiceApp() {
                         )}
 
                         <form onSubmit={handleAuthSubmit} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', maxWidth: '500px', marginBottom: '16px' }}>
-                          <input 
-                            type="email" 
+                          <input
+                            type="email"
                             placeholder="Email address"
                             value={authEmail}
                             onChange={(e) => setAuthEmail(e.target.value)}
                             style={{ gridColumn: 'span 2', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', fontSize: '0.85rem' }}
                             required
                           />
-                          <input 
-                            type="password" 
+                          <input
+                            type="password"
                             placeholder="Password (min 6 chars)"
                             value={authPassword}
                             onChange={(e) => setAuthPassword(e.target.value)}
@@ -6845,18 +6974,18 @@ export default function SpiceApp() {
                             required
                           />
 
-                          <button 
-                            type="submit" 
-                            className="btn btn--primary" 
+                          <button
+                            type="submit"
+                            className="btn btn--primary"
                             disabled={authLoading}
                             style={{ padding: '10px', fontSize: '0.85rem' }}
                           >
                             {authLoading ? 'Please wait...' : authMode === 'login' ? 'Sign In' : 'Register Account'}
                           </button>
 
-                          <button 
-                            type="button" 
-                            className="btn btn--ghost" 
+                          <button
+                            type="button"
+                            className="btn btn--ghost"
                             onClick={() => {
                               setAuthMode(authMode === 'login' ? 'register' : 'login');
                               setAuthError(null);
@@ -6873,15 +7002,15 @@ export default function SpiceApp() {
                   {/* Playlist Transfer dashboard */}
                   <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '40px 0 16px 0', fontFamily: 'Outfit, sans-serif' }}>Playlist Transfer Dashboard</h3>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '32px' }}>
-                    
+
                     {/* YouTube/YouTube Music Import */}
                     <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '20px' }}>
                       <h4 style={{ margin: '0 0 8px 0', color: '#fff' }}>YouTube / YT Music Importer</h4>
                       <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', margin: '0 0 16px 0', lineHeight: 1.4 }}>
                         Transfer any public YouTube or YouTube Music playlist directly. Spice will query tracks and import them dynamically.
                       </p>
-                      
-                      <input 
+
+                      <input
                         type="text"
                         placeholder="https://music.youtube.com/playlist?list=PL..."
                         value={ytPlaylistLink}
@@ -6896,8 +7025,8 @@ export default function SpiceApp() {
                         <div style={{ color: '#34d399', fontSize: '0.75rem', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>{Icons.checkCircle} {playlistImportSuccess}</div>
                       )}
 
-                      <button 
-                        className="btn btn--primary" 
+                      <button
+                        className="btn btn--primary"
                         onClick={importYouTubePlaylist}
                         disabled={isImportingPlaylist}
                         style={{ width: '100%', padding: '8px 16px', fontSize: '0.85rem' }}
@@ -6930,7 +7059,7 @@ export default function SpiceApp() {
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', margin: '0 0 12px 0' }}>
                       Paste a JSON database payload below and select Merge to restore your playlists, favorite tracks, and playback history.
                     </p>
-                    <textarea 
+                    <textarea
                       placeholder="Paste backup JSON code..."
                       value={jsonImportText}
                       onChange={(e) => setJsonImportText(e.target.value)}
@@ -6946,13 +7075,13 @@ export default function SpiceApp() {
                   {isEditingProfile ? (
                     <form onSubmit={saveProfile} style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', padding: '24px', borderRadius: '16px' }}>
                       <h4 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '20px', color: '#fff' }}>Edit profile: {activeProfile.displayName}</h4>
-                      
+
                       <div style={{ marginBottom: '16px' }}>
                         <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Display Name</label>
-                        <input 
-                          type="text" 
-                          value={editName} 
-                          onChange={(e) => setEditName(e.target.value)} 
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
                           placeholder="DisplayName..."
                           style={{ width: '100%', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none' }}
                           required
@@ -6961,11 +7090,11 @@ export default function SpiceApp() {
 
                       <div style={{ marginBottom: '16px' }}>
                         <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Passcode Protection (4 digits - optional)</label>
-                        <input 
-                          type="password" 
+                        <input
+                          type="password"
                           maxLength={4}
-                          value={editPasscode} 
-                          onChange={(e) => setEditPasscode(e.target.value.replace(/\D/g, ''))} 
+                          value={editPasscode}
+                          onChange={(e) => setEditPasscode(e.target.value.replace(/\D/g, ''))}
                           placeholder="e.g. 1234"
                           style={{ width: '100%', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', letterSpacing: '0.2em' }}
                         />
@@ -6978,9 +7107,9 @@ export default function SpiceApp() {
 
                       <div style={{ marginBottom: '20px' }}>
                         <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Short Biography</label>
-                        <textarea 
-                          value={editBio} 
-                          onChange={(e) => setEditBio(e.target.value)} 
+                        <textarea
+                          value={editBio}
+                          onChange={(e) => setEditBio(e.target.value)}
                           placeholder="About you..."
                           style={{ width: '100%', height: '80px', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', resize: 'none' }}
                         />
@@ -7003,22 +7132,22 @@ export default function SpiceApp() {
                       <div style={{ marginBottom: '24px' }}>
                         <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Profile Picture (PFP)</label>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
-                          <input 
-                            type="text" 
-                            value={editAvatarUrl} 
-                            onChange={(e) => setEditAvatarUrl(e.target.value)} 
+                          <input
+                            type="text"
+                            value={editAvatarUrl}
+                            onChange={(e) => setEditAvatarUrl(e.target.value)}
                             placeholder="Paste custom image URL or select below..."
                             style={{ flex: 1, padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none' }}
                           />
                           <label
-                            style={{ 
-                              padding: '10px 14px', 
-                              background: 'rgba(236, 72, 153, 0.15)', 
-                              border: '1px solid rgba(236, 72, 153, 0.3)', 
-                              borderRadius: '8px', 
-                              color: 'var(--accent-pink)', 
-                              cursor: 'pointer', 
-                              fontSize: '0.8rem', 
+                            style={{
+                              padding: '10px 14px',
+                              background: 'rgba(236, 72, 153, 0.15)',
+                              border: '1px solid rgba(236, 72, 153, 0.3)',
+                              borderRadius: '8px',
+                              color: 'var(--accent-pink)',
+                              cursor: 'pointer',
+                              fontSize: '0.8rem',
                               fontWeight: 600,
                               whiteSpace: 'nowrap',
                               transition: 'all 0.15s ease'
@@ -7054,14 +7183,14 @@ export default function SpiceApp() {
                             <button
                               type="button"
                               onClick={() => setEditAvatarUrl('')}
-                              style={{ 
-                                padding: '10px 14px', 
-                                background: 'rgba(239, 68, 68, 0.15)', 
-                                border: '1px solid rgba(239, 68, 68, 0.3)', 
-                                borderRadius: '8px', 
-                                color: '#ef4444', 
-                                cursor: 'pointer', 
-                                fontSize: '0.8rem', 
+                              style={{
+                                padding: '10px 14px',
+                                background: 'rgba(239, 68, 68, 0.15)',
+                                border: '1px solid rgba(239, 68, 68, 0.3)',
+                                borderRadius: '8px',
+                                color: '#ef4444',
+                                cursor: 'pointer',
+                                fontSize: '0.8rem',
                                 fontWeight: 600,
                                 whiteSpace: 'nowrap',
                                 transition: 'all 0.15s ease'
@@ -7088,13 +7217,13 @@ export default function SpiceApp() {
                                 key={idx}
                                 type="button"
                                 onClick={() => setEditAvatarUrl(isSelected ? '' : avatar.url)}
-                                style={{ 
-                                  position: 'relative', 
+                                style={{
+                                  position: 'relative',
                                   width: '100%',
                                   aspectRatio: '1',
-                                  borderRadius: '10px', 
-                                  overflow: 'hidden', 
-                                  border: isSelected ? '2px solid var(--accent-pink)' : '1px solid rgba(255,255,255,0.1)', 
+                                  borderRadius: '10px',
+                                  overflow: 'hidden',
+                                  border: isSelected ? '2px solid var(--accent-pink)' : '1px solid rgba(255,255,255,0.1)',
                                   padding: 0,
                                   cursor: 'pointer',
                                   boxShadow: isSelected ? '0 0 12px var(--accent-pink)' : 'none',
@@ -7156,7 +7285,7 @@ export default function SpiceApp() {
                       ].map((t) => {
                         const isCurrent = accentTheme === t.id;
                         return (
-                          <div 
+                          <div
                             key={t.id}
                             onClick={() => {
                               setAccentTheme(t.id as any);
@@ -7335,8 +7464,8 @@ export default function SpiceApp() {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                       <div>
                         <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Audio Playback Quality</label>
-                        <select 
-                          value={audioQuality} 
+                        <select
+                          value={audioQuality}
                           onChange={(e) => {
                             setAudioQuality(e.target.value as any);
                             localStorage.setItem('spice_audio_quality', e.target.value);
@@ -7351,8 +7480,8 @@ export default function SpiceApp() {
 
                       <div>
                         <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Stream Endpoint Transport</label>
-                        <select 
-                          value={streamProtocol} 
+                        <select
+                          value={streamProtocol}
                           onChange={(e) => {
                             const nextProtocol = isStreamProtocol(e.target.value) ? e.target.value : 'proxy';
                             setStreamProtocol(nextProtocol);
@@ -7483,8 +7612,8 @@ export default function SpiceApp() {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
                       <div>
                         <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Player Placement</label>
-                        <select 
-                          value={playerPlacement} 
+                        <select
+                          value={playerPlacement}
                           onChange={(e) => {
                             setPlayerPlacement(e.target.value as any);
                             localStorage.setItem('spice_player_placement', e.target.value);
@@ -7498,8 +7627,8 @@ export default function SpiceApp() {
 
                       <div>
                         <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Player View Mode</label>
-                        <select 
-                          value={playerViewMode} 
+                        <select
+                          value={playerViewMode}
                           onChange={(e) => {
                             setPlayerViewMode(e.target.value as any);
                             localStorage.setItem('spice_player_view_mode', e.target.value);
@@ -7667,10 +7796,10 @@ export default function SpiceApp() {
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 20px 0', lineHeight: 1.4 }}>
                       Reset local session states, clear playback history logs, or completely purge LocalStorage profile registries with a single command.
                     </p>
-                    
+
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
-                      <button 
-                        className="btn btn--ghost" 
+                      <button
+                        className="btn btn--ghost"
                         onClick={() => {
                           if (confirm('Are you sure you want to clear your local database caches? All custom settings will revert to default.')) {
                             localStorage.clear();
@@ -7682,8 +7811,8 @@ export default function SpiceApp() {
                       >
                         Reset Local Database Registry
                       </button>
-                      <button 
-                        className="btn btn--ghost" 
+                      <button
+                        className="btn btn--ghost"
                         onClick={() => {
                           if (confirm('Clear entire active listening history logs?')) {
                             setHistory([]);
@@ -7705,7 +7834,7 @@ export default function SpiceApp() {
                         {Icons.tool} System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        Spice Media Core v1.0.53 (Phase 43 Collaborators, Profile Session, & Developer Dashboard)
+                        Spice Media Core v1.0.54 (Phase 44 Profile Account Isolation)
                       </span>
                     </div>
 
@@ -7920,7 +8049,7 @@ export default function SpiceApp() {
                           // e.g. [12:04:12 PM] [SYSTEM] Loaded active profile
                           const timestampMatch = log.match(/^\[(.*?)\]/);
                           const categoryMatch = log.match(/\]\s*\[(SYSTEM|PLAYER|STREAM|DATABASE|AUTH|DIAGNOSTICS|ERROR)\]/i);
-                          
+
                           let timestamp = '';
                           let category = 'SYSTEM';
                           let message = log;
@@ -7968,7 +8097,7 @@ export default function SpiceApp() {
                           );
                         });
                       })()}
-                      
+
                       {/* Anchor element for scrolling + blinking cursor */}
                       <div ref={terminalEndRef} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
                         <span style={{ color: '#4ade80', fontWeight: 700 }}>spice-core@diagnostics ~ %</span>
@@ -8066,7 +8195,7 @@ export default function SpiceApp() {
                 required
                 autoFocus
               />
-              
+
               <label style={{ fontSize: '0.8rem', color: '#a1a1aa', marginTop: '12px', display: 'block' }}>Description (optional)</label>
               <input
                 type="text"
@@ -8111,7 +8240,7 @@ export default function SpiceApp() {
                 >
                   {Icons.camera} Choose Image
                 </label>
-                
+
                 {editPlCoverUrl && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px', background: 'rgba(255,255,255,0.04)', padding: '8px', borderRadius: '8px' }}>
                     <img src={editPlCoverUrl} alt="Cover Preview" style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '6px' }} />
@@ -8316,13 +8445,13 @@ export default function SpiceApp() {
                       key={idx}
                       type="button"
                       onClick={() => setNewProfileAvatarUrl(isSelected ? '' : avatar.url)}
-                      style={{ 
-                        position: 'relative', 
-                        width: '36px', 
-                        height: '36px', 
-                        borderRadius: '8px', 
-                        overflow: 'hidden', 
-                        border: isSelected ? '2px solid var(--accent-pink)' : '1px solid rgba(255,255,255,0.1)', 
+                      style={{
+                        position: 'relative',
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '8px',
+                        overflow: 'hidden',
+                        border: isSelected ? '2px solid var(--accent-pink)' : '1px solid rgba(255,255,255,0.1)',
                         padding: 0,
                         cursor: 'pointer',
                         boxShadow: isSelected ? '0 0 8px var(--accent-pink)' : 'none'
@@ -8365,7 +8494,7 @@ export default function SpiceApp() {
             {playerQueue.map((song, idx) => {
               const isActive = idx === playerQueueIndex;
               return (
-                <div 
+                <div
                   key={`${song.id}-${idx}`}
                   style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', borderRadius: '8px', background: isActive ? 'rgba(255,255,255,0.06)' : 'transparent', border: isActive ? '1px solid var(--accent-pink)' : '1px solid transparent', cursor: 'pointer', transition: 'all 0.15s ease' }}
                   onClick={() => startTrackOnActiveReceiver(song, playerQueue)}
@@ -8376,7 +8505,7 @@ export default function SpiceApp() {
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }} className="truncate">{song.artists.map(a => a.name).join(', ')}</div>
                   </div>
                   {!isControllingRemoteReceiver && queue.length > 1 && (
-                    <button 
+                    <button
                       onClick={(e) => {
                         e.stopPropagation();
                         const newQ = [...queue];
@@ -8419,7 +8548,7 @@ export default function SpiceApp() {
               )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <button 
+              <button
                 onClick={() => lyricsData?.isSynced && setIsKaraokeMode(!isKaraokeMode)}
                 style={{ background: 'none', border: 'none', color: isKaraokeMode ? 'var(--accent-pink)' : 'rgba(255,255,255,0.4)', cursor: lyricsData?.isSynced ? 'pointer' : 'not-allowed', fontSize: '0.9rem', outline: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                 title="Toggle Karaoke Mode"
@@ -8431,9 +8560,9 @@ export default function SpiceApp() {
           </div>
 
           {/* Body content (same interactive parser view!) */}
-          <div 
+          <div
             ref={lyricsContainerRef}
-            style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '18px', textAlign: 'center', padding: '10px 0', scrollBehavior: 'smooth' }} 
+            style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '18px', textAlign: 'center', padding: '10px 0', scrollBehavior: 'smooth' }}
             className="custom-scrollbar"
           >
             {lyricsLoading ? (
@@ -8453,8 +8582,8 @@ export default function SpiceApp() {
                 const isHeader = line.text.startsWith('[') && line.text.endsWith(']');
 
                 return (
-                  <div 
-                    key={idx} 
+                  <div
+                    key={idx}
                     data-active={isActive}
                     onClick={() => {
                       if (!lyricsData.isSynced) return;
@@ -8466,9 +8595,9 @@ export default function SpiceApp() {
                         audioRef.current.currentTime = line.time;
                       }
                     }}
-                    style={{ 
-                      fontSize: isChorus ? '1rem' : '0.88rem', 
-                      fontWeight: (isChorus || isHeader) ? 800 : (isActive ? 700 : 500), 
+                    style={{
+                      fontSize: isChorus ? '1rem' : '0.88rem',
+                      fontWeight: (isChorus || isHeader) ? 800 : (isActive ? 700 : 500),
                       color: isHeader ? 'var(--accent-pink)' : isChorus ? '#fff' : (isActive ? '#fff' : 'rgba(255,255,255,0.4)'),
                       fontFamily: 'Outfit, sans-serif',
                       lineHeight: 1.3,
@@ -8534,7 +8663,7 @@ export default function SpiceApp() {
       <footer className="now-playing">
         {/* Left: playback controls */}
         <div className="now-playing__left-controls">
-          <button 
+          <button
             className={`now-playing__btn now-playing__btn--wide-only ${isShuffle ? 'active' : ''}`}
             onClick={() => {
               setIsShuffle(!isShuffle);
@@ -8545,24 +8674,24 @@ export default function SpiceApp() {
           >
             {Icons.shuffle}
           </button>
-          
+
           <button className="now-playing__btn" onClick={handleReceiverPrev} aria-label="Previous">
             {Icons.prev}
           </button>
-          
-          <button 
-            className="now-playing__btn now-playing__btn--play" 
+
+          <button
+            className="now-playing__btn now-playing__btn--play"
             onClick={toggleReceiverPlayPause}
             aria-label={playerIsPlaying ? 'Pause' : 'Play'}
           >
             {playerIsPlaying ? Icons.pause : Icons.play}
           </button>
-          
+
           <button className="now-playing__btn" onClick={handleReceiverNext} aria-label="Next">
             {Icons.next}
           </button>
 
-          <button 
+          <button
             className={`now-playing__btn now-playing__btn--wide-only ${repeatMode !== 'none' ? 'active' : ''}`}
             onClick={() => {
               const nextMode = repeatMode === 'none' ? 'all' : repeatMode === 'all' ? 'one' : 'none';
@@ -8573,7 +8702,7 @@ export default function SpiceApp() {
           >
             {repeatMode === 'one' ? Icons.repeatOne : Icons.repeat}
           </button>
-          
+
           <button
             className={`now-playing__like ${likedTracks.has(playerTrack.id) ? 'liked' : ''}`}
             onClick={() => !playerIsPlaceholder && toggleLike(playerTrack)}
@@ -8594,7 +8723,7 @@ export default function SpiceApp() {
                 {isControllingRemoteReceiver ? `${receiverLabel} - ` : ''}{playerTrack.artists.map(a => a.name).join(', ')}
               </span>
             </div>
-            
+
             {/* Animative waveform */}
             <div className={`now-playing__waveform ${!playerIsPlaying ? 'paused' : ''}`}>
               <div className="now-playing__waveform-bar"></div>
@@ -8622,13 +8751,13 @@ export default function SpiceApp() {
         <div className="now-playing__right-controls">
           {renderSpiceConnectReceiverSelect('bar')}
 
-          <button 
+          <button
             className={`now-playing__btn ${showBarLyrics ? 'active' : ''}`}
             onClick={() => {
               if (isControllingRemoteReceiver) return;
               setShowBarLyrics(!showBarLyrics);
               setShowQueueDrawer(false);
-            }} 
+            }}
             disabled={isControllingRemoteReceiver}
             title={isControllingRemoteReceiver ? 'Lyrics open on this browser only. Switch receiver to this device first.' : 'Real-time Synced Lyrics'}
             aria-label="Real-time Synced Lyrics"
@@ -8636,32 +8765,32 @@ export default function SpiceApp() {
             {Icons.microphone}
           </button>
 
-          <button 
+          <button
             className={`now-playing__btn ${showQueueDrawer ? 'active' : ''}`}
             onClick={() => {
               setShowQueueDrawer(!showQueueDrawer);
               setShowBarLyrics(false);
-            }} 
+            }}
             title="Up Next Queue"
             aria-label="Up Next Queue"
           >
             {Icons.list}
           </button>
-          
-          <button 
-            className="now-playing__btn" 
+
+          <button
+            className="now-playing__btn"
             onClick={() => {
               setPlayerViewMode('mini');
               localStorage.setItem('spice_player_view_mode', 'mini');
               setShowBarLyrics(false);
               setShowQueueDrawer(false);
-            }} 
+            }}
             title="Switch to Floating Mini Player"
             aria-label="Switch to Floating Mini Player"
           >
             {Icons.miniPlayer}
           </button>
-          
+
           <div className="now-playing__volume">
             <button className="now-playing__volume-btn" onClick={() => setReceiverVolume(playerVolume === 0 ? 70 : 0)}>
               {playerVolume === 0 ? Icons.volumeMuted : Icons.volume}
@@ -8681,7 +8810,7 @@ export default function SpiceApp() {
         </div>
 
         {/* Mobile-only Play/Pause button */}
-        <button 
+        <button
           className="now-playing__mobile-play"
           onClick={(e) => { e.stopPropagation(); toggleReceiverPlayPause(); }}
           style={{ display: 'none' }}
@@ -8713,7 +8842,7 @@ export default function SpiceApp() {
         }}>
           {/* Header */}
           <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1000px' }}>
-            <button 
+            <button
               onClick={() => {
                 setPlayerViewMode('mini');
                 localStorage.setItem('spice_player_view_mode', 'mini');
@@ -8724,7 +8853,7 @@ export default function SpiceApp() {
               {Icons.miniPlayer} Floating Mini Player
             </button>
             <div style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.2em', opacity: 0.5, fontWeight: 700 }}>Now Playing</div>
-            <button 
+            <button
               onClick={() => {
                 setPlayerViewMode('bar');
                 localStorage.setItem('spice_player_view_mode', 'bar');
@@ -8739,19 +8868,19 @@ export default function SpiceApp() {
           {/* Central content layout: Grid with artwork + controls, and Optional Playlist Queue/Lyrics */}
           {/* Central content layout: Grid with artwork + controls, and Optional Playlist Queue/Lyrics */}
           <div className="expanded-player__grid">
-            
+
             {/* Column 1: Massive Spinning Artwork & Titles */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-              <div 
+              <div
                 className={`expanded-player__art-box ${playerIsPlaying ? 'vinyl-spin' : ''}`}
-                style={{ 
+                style={{
                   boxShadow: `0 24px 64px rgba(0,0,0,0.8), 0 0 40px rgba(var(--accent-pink-rgb, 236, 72, 153), 0.25)`
                 }}
               >
-                <img 
+                <img
                   src={playerTrack.artworkUrl || '/icon.svg'}
-                  alt="" 
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                  alt=""
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />
               </div>
 
@@ -8768,7 +8897,7 @@ export default function SpiceApp() {
 
             {/* Column 2: Immersive Tabbed Controller (Controls / Up Next / Lyrics) */}
             <div style={{ display: 'flex', flexDirection: 'column', height: '420px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '24px', padding: '24px', backdropFilter: 'blur(30px)', width: '100%', minWidth: 0 }}>
-              
+
               {/* Tab headers */}
               <div style={{ display: 'flex', gap: '20px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '12px', marginBottom: '20px' }}>
                 {[
@@ -8778,20 +8907,20 @@ export default function SpiceApp() {
                 ].map(t => {
                   const isActive = expandedTab === t.id;
                   return (
-                    <button 
+                    <button
                       key={t.id}
                       onClick={() => setExpandedTab(t.id as any)}
-                      style={{ 
-                        background: 'none', 
-                        border: 'none', 
-                        color: isActive ? 'var(--accent-pink)' : 'var(--text-secondary)', 
-                        fontSize: '0.85rem', 
-                        fontWeight: 700, 
-                        textTransform: 'uppercase', 
-                        letterSpacing: '0.1em', 
-                        cursor: 'pointer', 
-                        paddingBottom: '8px', 
-                        borderBottom: isActive ? '2px solid var(--accent-pink)' : '2px solid transparent', 
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: isActive ? 'var(--accent-pink)' : 'var(--text-secondary)',
+                        fontSize: '0.85rem',
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.1em',
+                        cursor: 'pointer',
+                        paddingBottom: '8px',
+                        borderBottom: isActive ? '2px solid var(--accent-pink)' : '2px solid transparent',
                         transition: 'all 0.15s ease',
                         outline: 'none'
                       }}
@@ -8812,16 +8941,16 @@ export default function SpiceApp() {
                         const baseVal = 20 + Math.abs(Math.sin((i + playerProgress) * 0.5)) * 60;
                         const randHeight = playerIsPlaying ? baseVal + Math.abs(Math.sin(i * 12.9898 + playerProgress)) * 20 : 15;
                         return (
-                          <div 
-                            key={i} 
-                            style={{ 
-                              width: '3%', 
-                              height: `${Math.min(100, Math.max(5, randHeight))}%`, 
-                              background: 'var(--accent-pink)', 
+                          <div
+                            key={i}
+                            style={{
+                              width: '3%',
+                              height: `${Math.min(100, Math.max(5, randHeight))}%`,
+                              background: 'var(--accent-pink)',
                               borderRadius: '4px',
                               transition: 'height 0.1s ease',
                               boxShadow: '0 0 8px var(--accent-pink)'
-                            }} 
+                            }}
                           />
                         );
                       })}
@@ -8830,17 +8959,17 @@ export default function SpiceApp() {
                     {/* Progress seeker */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       <div style={{ position: 'relative', height: '8px', width: '100%', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', cursor: 'pointer' }} onClick={handleReceiverSeek}>
-                        <div 
-                          style={{ 
-                            position: 'absolute', 
-                            left: 0, 
-                            top: 0, 
-                            bottom: 0, 
+                        <div
+                          style={{
+                            position: 'absolute',
+                            left: 0,
+                            top: 0,
+                            bottom: 0,
                             width: `${playerDuration > 0 ? (playerProgress / playerDuration) * 100 : 0}%`,
-                            background: 'var(--accent-pink)', 
+                            background: 'var(--accent-pink)',
                             borderRadius: '4px',
                             boxShadow: '0 0 10px var(--accent-pink)'
-                          }} 
+                          }}
                         />
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
@@ -8851,39 +8980,39 @@ export default function SpiceApp() {
 
                     {/* Huge transport buttons */}
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '32px' }}>
-                      <button 
+                      <button
                         onClick={() => {
                           setIsShuffle(!isShuffle);
                           localStorage.setItem('spice_is_shuffle', (!isShuffle).toString());
                         }}
-                        style={{ background: 'none', border: 'none', color: isShuffle ? 'var(--accent-pink)' : '#fff', opacity: isShuffle ? 1 : 0.4, cursor: 'pointer', outline: 'none', transition: 'all 0.15s ease' }} 
+                        style={{ background: 'none', border: 'none', color: isShuffle ? 'var(--accent-pink)' : '#fff', opacity: isShuffle ? 1 : 0.4, cursor: 'pointer', outline: 'none', transition: 'all 0.15s ease' }}
                         className="expanded-player__btn"
                         title="Shuffle"
                       >
                         <span style={{ transform: 'scale(1.4)', display: 'inline-block' }}>{Icons.shuffle}</span>
                       </button>
 
-                      <button 
+                      <button
                         onClick={handleReceiverPrev}
-                        style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', outline: 'none', transition: 'all 0.15s ease' }} 
+                        style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', outline: 'none', transition: 'all 0.15s ease' }}
                         className="expanded-player__btn"
                       >
                         <span style={{ transform: 'scale(1.5)', display: 'inline-block' }}>{Icons.prev}</span>
                       </button>
 
-                      <button 
+                      <button
                         onClick={toggleReceiverPlayPause}
-                        style={{ 
-                          width: '80px', 
-                          height: '80px', 
-                          borderRadius: '50%', 
-                          background: 'var(--accent-pink)', 
-                          border: 'none', 
-                          color: '#fff', 
-                          cursor: 'pointer', 
-                          outline: 'none', 
-                          display: 'flex', 
-                          alignItems: 'center', 
+                        style={{
+                          width: '80px',
+                          height: '80px',
+                          borderRadius: '50%',
+                          background: 'var(--accent-pink)',
+                          border: 'none',
+                          color: '#fff',
+                          cursor: 'pointer',
+                          outline: 'none',
+                          display: 'flex',
+                          alignItems: 'center',
                           justifyContent: 'center',
                           boxShadow: '0 8px 24px rgba(var(--accent-pink-rgb, 236, 72, 153), 0.4)',
                           transition: 'all 0.15s ease'
@@ -8895,21 +9024,21 @@ export default function SpiceApp() {
                         </span>
                       </button>
 
-                      <button 
+                      <button
                         onClick={handleReceiverNext}
-                        style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', outline: 'none', transition: 'all 0.15s ease' }} 
+                        style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', outline: 'none', transition: 'all 0.15s ease' }}
                         className="expanded-player__btn"
                       >
                         <span style={{ transform: 'scale(1.5)', display: 'inline-block' }}>{Icons.next}</span>
                       </button>
 
-                      <button 
+                      <button
                         onClick={() => {
                           const nextMode = repeatMode === 'none' ? 'all' : repeatMode === 'all' ? 'one' : 'none';
                           setRepeatMode(nextMode);
                           localStorage.setItem('spice_repeat_mode', nextMode);
                         }}
-                        style={{ background: 'none', border: 'none', color: repeatMode !== 'none' ? 'var(--accent-pink)' : '#fff', opacity: repeatMode !== 'none' ? 1 : 0.4, cursor: 'pointer', outline: 'none', transition: 'all 0.15s ease' }} 
+                        style={{ background: 'none', border: 'none', color: repeatMode !== 'none' ? 'var(--accent-pink)' : '#fff', opacity: repeatMode !== 'none' ? 1 : 0.4, cursor: 'pointer', outline: 'none', transition: 'all 0.15s ease' }}
                         className="expanded-player__btn"
                         title={`Repeat Mode: ${repeatMode === 'none' ? 'Off' : repeatMode === 'all' ? 'Repeat All' : 'Repeat One'}`}
                       >
@@ -8959,7 +9088,7 @@ export default function SpiceApp() {
                       {playerQueue.map((song, idx) => {
                         const isActive = idx === playerQueueIndex;
                         return (
-                          <div 
+                          <div
                             key={`${song.id}-${idx}`}
                             onClick={() => startTrackOnActiveReceiver(song, playerQueue)}
                             style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px', borderRadius: '12px', background: isActive ? 'rgba(255,255,255,0.06)' : 'transparent', border: isActive ? '1px solid var(--accent-pink)' : '1px solid transparent', cursor: 'pointer', transition: 'all 0.15s ease' }}
@@ -9027,20 +9156,20 @@ export default function SpiceApp() {
                     </div>
 
                     {/* Scrollable Lyric container */}
-                    <div 
+                    <div
                       ref={lyricsContainerRef}
-                      style={{ 
-                        overflowY: 'auto', 
-                        flex: 1, 
-                        maxHeight: '265px', 
-                        paddingRight: '6px', 
-                        textAlign: 'center', 
-                        display: 'flex', 
-                        flexDirection: 'column', 
-                        gap: '20px', 
+                      style={{
+                        overflowY: 'auto',
+                        flex: 1,
+                        maxHeight: '265px',
+                        paddingRight: '6px',
+                        textAlign: 'center',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '20px',
                         padding: '12px 0',
                         scrollBehavior: 'smooth'
-                      }} 
+                      }}
                       className="custom-scrollbar"
                     >
                       {lyricsLoading ? (
@@ -9067,8 +9196,8 @@ export default function SpiceApp() {
                           const isHeader = line.text.startsWith('[') && line.text.endsWith(']');
 
                           return (
-                            <div 
-                              key={idx} 
+                            <div
+                              key={idx}
                               data-active={isActive}
                               onClick={() => {
                                 if (!lyricsData.isSynced) return;
@@ -9080,14 +9209,14 @@ export default function SpiceApp() {
                                   audioRef.current.currentTime = line.time;
                                 }
                               }}
-                              style={{ 
-                                fontSize: isChorus ? '1.15rem' : '1rem', 
-                                fontWeight: (isChorus || isHeader) ? 800 : (isActive ? 700 : 500), 
+                              style={{
+                                fontSize: isChorus ? '1.15rem' : '1rem',
+                                fontWeight: (isChorus || isHeader) ? 800 : (isActive ? 700 : 500),
                                 color: isHeader ? 'var(--accent-pink)' : isChorus ? '#fff' : (isActive ? '#fff' : 'rgba(255,255,255,0.4)'),
                                 fontFamily: 'Outfit, sans-serif',
                                 lineHeight: 1.4,
-                                textShadow: isActive 
-                                  ? (isHeader ? '0 0 10px rgba(236,72,153,0.4)' : '0 0 12px rgba(255,255,255,0.3)') 
+                                textShadow: isActive
+                                  ? (isHeader ? '0 0 10px rgba(236,72,153,0.4)' : '0 0 12px rgba(255,255,255,0.3)')
                                   : 'none',
                                 cursor: lyricsData.isSynced ? 'pointer' : 'default',
                                 padding: '6px 12px',
@@ -9164,8 +9293,8 @@ export default function SpiceApp() {
 
       {/* ═══ Floating Mini Player Widget ═══ */}
       {playerViewMode === 'mini' && (
-        <div 
-          className="mini-player animate-in" 
+        <div
+          className="mini-player animate-in"
           onPointerDown={handleMiniPointerDown}
           onPointerMove={handleMiniPointerMove}
           onPointerUp={handleMiniPointerUp}
@@ -9200,239 +9329,239 @@ export default function SpiceApp() {
         >
           <div style={{ display: 'flex', width: '100%', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
             {/* Artwork */}
-          <div 
-            style={{ 
-              position: 'relative', 
-              width: '68px', 
-              height: '68px', 
-              borderRadius: '16px', 
-              overflow: 'hidden', 
-              flexShrink: 0, 
-              border: '1px solid rgba(255,255,255,0.08)',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-              cursor: 'pointer' 
-            }}
-            onClick={toggleReceiverPlayPause}
-            title={playerIsPlaying ? 'Pause' : 'Play'}
-          >
-            <img 
-              src={playerTrack.artworkUrl || '/icon.svg'}
-              alt="" 
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-            />
-            {/* Dynamic Hover Play/Pause overlay */}
-            <div style={{
-              position: 'absolute',
-              inset: 0,
-              background: 'rgba(0,0,0,0.5)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: 0,
-              transition: 'opacity 0.2s ease',
-            }}
-            className="mini-player__art-hover"
+            <div
+              style={{
+                position: 'relative',
+                width: '68px',
+                height: '68px',
+                borderRadius: '16px',
+                overflow: 'hidden',
+                flexShrink: 0,
+                border: '1px solid rgba(255,255,255,0.08)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                cursor: 'pointer'
+              }}
+              onClick={toggleReceiverPlayPause}
+              title={playerIsPlaying ? 'Pause' : 'Play'}
             >
-              <span style={{ display: 'inline-flex' }}>
-                {playerIsPlaying ? Icons.pause : Icons.play}
-              </span>
+              <img
+                src={playerTrack.artworkUrl || '/icon.svg'}
+                alt=""
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+              {/* Dynamic Hover Play/Pause overlay */}
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                background: 'rgba(0,0,0,0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: 0,
+                transition: 'opacity 0.2s ease',
+              }}
+                className="mini-player__art-hover"
+              >
+                <span style={{ display: 'inline-flex' }}>
+                  {playerIsPlaying ? Icons.pause : Icons.play}
+                </span>
+              </div>
             </div>
-          </div>
 
-          {/* Details & Controls Column */}
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {/* Top Row: Song Details & Compact Actions */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fff', lineHeight: 1.2 }} className="truncate">
-                  {playerTrack.title}
+            {/* Details & Controls Column */}
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {/* Top Row: Song Details & Compact Actions */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fff', lineHeight: 1.2 }} className="truncate">
+                    {playerTrack.title}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }} className="truncate">
+                    {isControllingRemoteReceiver ? `${receiverLabel} - ` : ''}{playerTrack.artists.map(a => a.name).join(', ')}
+                  </div>
+                  {renderSpiceConnectReceiverSelect('mini')}
                 </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }} className="truncate">
-                  {isControllingRemoteReceiver ? `${receiverLabel} - ` : ''}{playerTrack.artists.map(a => a.name).join(', ')}
+
+                {/* Action Buttons */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    onClick={() => !playerIsPlaceholder && toggleLike(playerTrack)}
+                    disabled={playerIsPlaceholder}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: likedTracks.has(playerTrack.id) ? 'var(--accent-pink)' : 'rgba(255,255,255,0.4)',
+                      cursor: playerIsPlaceholder ? 'not-allowed' : 'pointer',
+                      outline: 'none',
+                      padding: '4px',
+                      fontSize: '0.95rem',
+                      transition: 'all 0.15s ease'
+                    }}
+                    title={likedTracks.has(playerTrack.id) ? 'Unlike' : 'Like'}
+                  >
+                    {likedTracks.has(playerTrack.id) ? Icons.heartFilled : Icons.heart}
+                  </button>
+
+                  <button
+                    onClick={() => setReceiverVolume(playerVolume === 0 ? 70 : 0)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'rgba(255,255,255,0.4)',
+                      cursor: 'pointer',
+                      outline: 'none',
+                      padding: '4px',
+                      fontSize: '0.95rem',
+                      transition: 'all 0.15s ease'
+                    }}
+                    title={playerVolume === 0 ? 'Unmute' : 'Mute'}
+                  >
+                    {playerVolume === 0 ? Icons.volumeMuted : Icons.volume}
+                  </button>
                 </div>
-                {renderSpiceConnectReceiverSelect('mini')}
               </div>
 
-              {/* Action Buttons */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <button
-                  onClick={() => !playerIsPlaceholder && toggleLike(playerTrack)}
-                  disabled={playerIsPlaceholder}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: likedTracks.has(playerTrack.id) ? 'var(--accent-pink)' : 'rgba(255,255,255,0.4)',
-                    cursor: playerIsPlaceholder ? 'not-allowed' : 'pointer',
-                    outline: 'none',
-                    padding: '4px',
-                    fontSize: '0.95rem',
-                    transition: 'all 0.15s ease'
-                  }}
-                  title={likedTracks.has(playerTrack.id) ? 'Unlike' : 'Like'}
-                >
-                  {likedTracks.has(playerTrack.id) ? Icons.heartFilled : Icons.heart}
-                </button>
+              {/* Bottom Row: Transport controls & view switches */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <button
+                    onClick={handleReceiverPrev}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'rgba(255,255,255,0.6)',
+                      cursor: 'pointer',
+                      fontSize: '1rem',
+                      padding: '4px',
+                      outline: 'none',
+                      transition: 'color 0.15s'
+                    }}
+                    title="Previous"
+                  >
+                    {Icons.prev}
+                  </button>
 
-                <button
-                  onClick={() => setReceiverVolume(playerVolume === 0 ? 70 : 0)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'rgba(255,255,255,0.4)',
-                    cursor: 'pointer',
-                    outline: 'none',
-                    padding: '4px',
-                    fontSize: '0.95rem',
-                    transition: 'all 0.15s ease'
-                  }}
-                  title={playerVolume === 0 ? 'Unmute' : 'Mute'}
-                >
-                  {playerVolume === 0 ? Icons.volumeMuted : Icons.volume}
-                </button>
-              </div>
-            </div>
+                  <button
+                    onClick={toggleReceiverPlayPause}
+                    style={{
+                      width: '30px',
+                      height: '30px',
+                      borderRadius: '50%',
+                      background: 'var(--accent-pink)',
+                      border: 'none',
+                      color: '#fff',
+                      cursor: 'pointer',
+                      outline: 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: '0 4px 12px rgba(var(--accent-pink-rgb, 236, 72, 153), 0.3)',
+                      transition: 'transform 0.15s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                  >
+                    <span style={{ display: 'inline-flex' }}>
+                      {playerIsPlaying ? Icons.pause : Icons.play}
+                    </span>
+                  </button>
 
-            {/* Bottom Row: Transport controls & view switches */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <button
-                  onClick={handleReceiverPrev}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'rgba(255,255,255,0.6)',
-                    cursor: 'pointer',
-                    fontSize: '1rem',
-                    padding: '4px',
-                    outline: 'none',
-                    transition: 'color 0.15s'
-                  }}
-                  title="Previous"
-                >
-                  {Icons.prev}
-                </button>
+                  <button
+                    onClick={handleReceiverNext}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'rgba(255,255,255,0.6)',
+                      cursor: 'pointer',
+                      fontSize: '1rem',
+                      padding: '4px',
+                      outline: 'none',
+                      transition: 'color 0.15s'
+                    }}
+                    title="Next"
+                  >
+                    {Icons.next}
+                  </button>
+                </div>
 
-                <button 
-                  onClick={toggleReceiverPlayPause}
-                  style={{ 
-                    width: '30px', 
-                    height: '30px', 
-                    borderRadius: '50%', 
-                    background: 'var(--accent-pink)', 
-                    border: 'none', 
-                    color: '#fff', 
-                    cursor: 'pointer', 
-                    outline: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    boxShadow: '0 4px 12px rgba(var(--accent-pink-rgb, 236, 72, 153), 0.3)',
-                    transition: 'transform 0.15s ease'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
-                  onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                >
-                  <span style={{ display: 'inline-flex' }}>
-                    {playerIsPlaying ? Icons.pause : Icons.play}
-                  </span>
-                </button>
+                {/* View Switches */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    onClick={() => !isControllingRemoteReceiver && setShowMiniLyrics(!showMiniLyrics)}
+                    disabled={isControllingRemoteReceiver}
+                    style={{
+                      background: showMiniLyrics ? 'var(--accent-pink)' : 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      color: '#fff',
+                      width: '28px',
+                      height: '28px',
+                      borderRadius: '8px',
+                      cursor: isControllingRemoteReceiver ? 'not-allowed' : 'pointer',
+                      opacity: isControllingRemoteReceiver ? 0.35 : 1,
+                      outline: 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '0.8rem',
+                      transition: 'all 0.15s ease',
+                      boxShadow: showMiniLyrics ? '0 0 8px rgba(236, 72, 153, 0.4)' : 'none'
+                    }}
+                    title="Toggle Lyrics View"
+                  >
+                    {Icons.microphone}
+                  </button>
 
-                <button
-                  onClick={handleReceiverNext}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'rgba(255,255,255,0.6)',
-                    cursor: 'pointer',
-                    fontSize: '1rem',
-                    padding: '4px',
-                    outline: 'none',
-                    transition: 'color 0.15s'
-                  }}
-                  title="Next"
-                >
-                  {Icons.next}
-                </button>
-              </div>
+                  <button
+                    onClick={() => {
+                      setPlayerViewMode('expanded');
+                      localStorage.setItem('spice_player_view_mode', 'expanded');
+                    }}
+                    style={{
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      color: 'rgba(255,255,255,0.7)',
+                      width: '28px',
+                      height: '28px',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      outline: 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '0.8rem',
+                      transition: 'all 0.15s ease'
+                    }}
+                    title="Expand Player"
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#fff'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'rgba(255,255,255,0.7)'; }}
+                  >
+                    {Icons.expand}
+                  </button>
 
-              {/* View Switches */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <button 
-                  onClick={() => !isControllingRemoteReceiver && setShowMiniLyrics(!showMiniLyrics)}
-                  disabled={isControllingRemoteReceiver}
-                  style={{ 
-                    background: showMiniLyrics ? 'var(--accent-pink)' : 'rgba(255,255,255,0.05)', 
-                    border: '1px solid rgba(255,255,255,0.1)', 
-                    color: '#fff', 
-                    width: '28px',
-                    height: '28px',
-                    borderRadius: '8px', 
-                    cursor: isControllingRemoteReceiver ? 'not-allowed' : 'pointer',
-                    opacity: isControllingRemoteReceiver ? 0.35 : 1,
-                    outline: 'none', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    fontSize: '0.8rem',
-                    transition: 'all 0.15s ease',
-                    boxShadow: showMiniLyrics ? '0 0 8px rgba(236, 72, 153, 0.4)' : 'none'
-                  }}
-                  title="Toggle Lyrics View"
-                >
-                  {Icons.microphone}
-                </button>
-
-                <button 
-                  onClick={() => {
-                    setPlayerViewMode('expanded');
-                    localStorage.setItem('spice_player_view_mode', 'expanded');
-                  }}
-                  style={{ 
-                    background: 'rgba(255,255,255,0.05)', 
-                    border: '1px solid rgba(255,255,255,0.1)', 
-                    color: 'rgba(255,255,255,0.7)', 
-                    width: '28px',
-                    height: '28px',
-                    borderRadius: '8px', 
-                    cursor: 'pointer', 
-                    outline: 'none', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    fontSize: '0.8rem',
-                    transition: 'all 0.15s ease' 
-                  }}
-                  title="Expand Player"
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#fff'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'rgba(255,255,255,0.7)'; }}
-                >
-                  {Icons.expand}
-                </button>
-
-                <button 
-                  onClick={() => {
-                    setPlayerViewMode('bar');
-                    localStorage.setItem('spice_player_view_mode', 'bar');
-                  }}
-                  style={{ 
-                    background: 'none', 
-                    border: 'none', 
-                    color: 'rgba(255,255,255,0.4)', 
-                    cursor: 'pointer', 
-                    fontSize: '0.95rem',
-                    padding: '4px',
-                    outline: 'none',
-                    transition: 'color 0.15s' 
-                  }}
-                  title="Minimize to Bar"
-                  onMouseEnter={(e) => e.currentTarget.style.color = '#f87171'}
-                  onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255,255,255,0.4)'}
-                >
-                  {Icons.close}
-                </button>
+                  <button
+                    onClick={() => {
+                      setPlayerViewMode('bar');
+                      localStorage.setItem('spice_player_view_mode', 'bar');
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'rgba(255,255,255,0.4)',
+                      cursor: 'pointer',
+                      fontSize: '0.95rem',
+                      padding: '4px',
+                      outline: 'none',
+                      transition: 'color 0.15s'
+                    }}
+                    title="Minimize to Bar"
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#f87171'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255,255,255,0.4)'}
+                  >
+                    {Icons.close}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
 
           </div>
 
@@ -9477,15 +9606,15 @@ export default function SpiceApp() {
           )}
 
           {/* Interactive Seek Progress strip at the very bottom */}
-          <div 
+          <div
             onClick={handleReceiverSeek}
-            style={{ 
-              position: 'absolute', 
-              bottom: 0, 
-              left: 0, 
-              right: 0, 
-              height: '4px', 
-              background: 'rgba(255,255,255,0.1)', 
+            style={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: '4px',
+              background: 'rgba(255,255,255,0.1)',
               borderBottomLeftRadius: '24px',
               borderBottomRightRadius: '24px',
               overflow: 'hidden',
@@ -9496,78 +9625,78 @@ export default function SpiceApp() {
             onMouseLeave={(e) => e.currentTarget.style.height = '4px'}
             title="Seek track"
           >
-            <div 
-              style={{ 
-                height: '100%', 
+            <div
+              style={{
+                height: '100%',
                 width: `${playerDuration > 0 ? (playerProgress / playerDuration) * 100 : 0}%`,
                 background: 'var(--accent-pink)',
                 transition: 'width 0.1s linear'
-              }} 
+              }}
             />
           </div>
 
         </div>
       )}
-    {/* Mobile Bottom Navigation Bar (Visible only on screens <= 600px via media query) */}
-    <div 
-      className="mobile-nav-bar"
-      style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: '64px',
-        background: 'rgba(5, 5, 5, 0.92)',
-        borderTop: '1px solid var(--border-color)',
-        backdropFilter: 'blur(30px)',
-        WebkitBackdropFilter: 'blur(30px)',
-        zIndex: 9999,
-        display: 'none', // Managed by mobile media queries in globals.css
-        justifyContent: 'space-around',
-        alignItems: 'center',
-        padding: '0 8px',
-        boxShadow: '0 -4px 20px rgba(0,0,0,0.6)'
-      }}
-    >
-      {[
-        { id: 'home', label: 'Home', icon: Icons.home },
-        { id: 'search', label: 'Search', icon: Icons.search },
-        { id: 'library', label: 'Library', icon: Icons.library },
-        { id: 'settings', label: 'Settings', icon: Icons.settings }
-      ].map((tab) => {
-        const isActive = currentPage === tab.id && !selectedPlaylist;
-        return (
-          <button
-            key={tab.id}
-            onClick={() => {
-              setCurrentPage(tab.id as any);
-              setSelectedPlaylist(null);
-            }}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '4px',
-              color: isActive ? 'var(--accent-pink)' : 'var(--text-secondary)',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              flex: 1,
-              height: '100%',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            <span style={{ fontSize: '1.25rem', transition: 'transform 0.15s ease', transform: isActive ? 'scale(1.1)' : 'scale(1)', filter: isActive ? 'drop-shadow(0 0 6px var(--accent-pink))' : 'none' }}>
-              {tab.icon}
-            </span>
-            <span style={{ fontSize: '0.65rem', fontWeight: isActive ? 800 : 500, letterSpacing: '0.02em' }}>
-              {tab.label}
-            </span>
-          </button>
-        );
-      })}
-    </div>
+      {/* Mobile Bottom Navigation Bar (Visible only on screens <= 600px via media query) */}
+      <div
+        className="mobile-nav-bar"
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: '64px',
+          background: 'rgba(5, 5, 5, 0.92)',
+          borderTop: '1px solid var(--border-color)',
+          backdropFilter: 'blur(30px)',
+          WebkitBackdropFilter: 'blur(30px)',
+          zIndex: 9999,
+          display: 'none', // Managed by mobile media queries in globals.css
+          justifyContent: 'space-around',
+          alignItems: 'center',
+          padding: '0 8px',
+          boxShadow: '0 -4px 20px rgba(0,0,0,0.6)'
+        }}
+      >
+        {[
+          { id: 'home', label: 'Home', icon: Icons.home },
+          { id: 'search', label: 'Search', icon: Icons.search },
+          { id: 'library', label: 'Library', icon: Icons.library },
+          { id: 'settings', label: 'Settings', icon: Icons.settings }
+        ].map((tab) => {
+          const isActive = currentPage === tab.id && !selectedPlaylist;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => {
+                setCurrentPage(tab.id as any);
+                setSelectedPlaylist(null);
+              }}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '4px',
+                color: isActive ? 'var(--accent-pink)' : 'var(--text-secondary)',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                flex: 1,
+                height: '100%',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <span style={{ fontSize: '1.25rem', transition: 'transform 0.15s ease', transform: isActive ? 'scale(1.1)' : 'scale(1)', filter: isActive ? 'drop-shadow(0 0 6px var(--accent-pink))' : 'none' }}>
+                {tab.icon}
+              </span>
+              <span style={{ fontSize: '0.65rem', fontWeight: isActive ? 800 : 500, letterSpacing: '0.02em' }}>
+                {tab.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

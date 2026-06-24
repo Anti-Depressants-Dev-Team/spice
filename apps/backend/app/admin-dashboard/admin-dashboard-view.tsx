@@ -28,7 +28,7 @@ export default function AdminDashboardView() {
   const [accounts, setAccounts] = useState<AccountSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Track save status per user ID
   const [savingUserIds, setSavingUserIds] = useState<Set<string>>(new Set());
   const [successUserIds, setSuccessUserIds] = useState<Set<string>>(new Set());
@@ -289,7 +289,7 @@ export default function AdminDashboardView() {
           <span className={styles.kicker}>Wired Admin Engine</span>
           <h1>Control SPICE accounts, services, and launch readiness from one dashboard.</h1>
           <p>
-            You are running in developer management mode. You can view all accounts below and instantly 
+            You are running in developer management mode. You can view all accounts below and instantly
             change their access roles and billing subscription parameters in the live database.
           </p>
         </div>

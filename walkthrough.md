@@ -1,5 +1,11 @@
 # SPICE Walkthrough
 
+## v1.0.54
+
+- [Spice.Music main] Fix multi-profile account isolation so each local profile restores its own SPICE account token, account snapshot, and collaborative username when switching profiles instead of falling back to or overwriting another profile's session.
+- [Spice.Music main] Guard profile cloud sync and username fetches against profile-switch races so late network responses update only the profile they started from and cannot erase another saved profile account.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.54`.
+
 ## v1.0.53
 
 - [Spice.Music main] Fix duplicate key value unique constraint error on `playlists_pkey` during playlist synchronization by checking if the playlist UUID already exists in the database and performing an update instead of an insert.
