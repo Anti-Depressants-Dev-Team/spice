@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { resolveLastFmSessionKey } from '../lib/profile-listens.ts';
+import { resolveLastFmSessionKey, resolveListenBrainzToken } from '../lib/profile-listens.ts';
 
 test('profile listen resolver prefers a provided Last.fm session key', async () => {
   let sessionLookups = 0;
@@ -75,4 +75,40 @@ test('profile listen resolver skips account lookup when database is not configur
 
   assert.equal(sessionKey, undefined);
   assert.equal(sessionLookups, 0);
+});
+
+test('profile listen resolver prefers a provided ListenBrainz token', async () => {
+  let sessionLookups = 0;
+  let connectionLookups = 0;
+
+  const token = await resolveListenBrainzToken({
+    provider: { token: ' browser-token ' },
+    databaseConfigured: true,
+    getSessionUserId: async () => {
+      sessionLookups += 1;
+      return 'user-1';
+    },
+    getConnection: async () => {
+      connectionLookups += 1;
+      return { token: 'account-token' };
+    },
+  });
+
+  assert.equal(token, 'browser-token');
+  assert.equal(sessionLookups, 0);
+  assert.equal(connectionLookups, 0);
+});
+
+test('profile listen resolver uses the account-backed ListenBrainz token when requested', async () => {
+  const token = await resolveListenBrainzToken({
+    provider: {},
+    databaseConfigured: true,
+    getSessionUserId: async () => 'user-1',
+    getConnection: async (userId) => {
+      assert.equal(userId, 'user-1');
+      return { token: 'account-token' };
+    },
+  });
+
+  assert.equal(token, 'account-token');
 });

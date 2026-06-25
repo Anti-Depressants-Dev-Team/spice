@@ -1,3 +1,14 @@
+## v1.0.67
+
+- [Spice.Music main] ListenBrainz user tokens are now encrypted and saved on the signed-in SPICE account instead of browser local storage, with restore on login and account-backed resolution during profile sync submissions.
+- [Spice.Music main] Added `PUT /api/profile/connections` for saving or clearing the ListenBrainz token, and extended profile connection restore to include ListenBrainz alongside Last.fm.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.67`.
+
+## v1.0.66
+
+- [Spice.Music main] Removed the scrapped Discord Rich Presence integration, including the `/api/discord/presence` route, `discord-ipc` server helper, client playback hooks, and `DISCORD_CLIENT_ID` environment variable documentation.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.66`.
+
 ## v1.0.65
 
 - [Spice.Music main] Fixed a code health warning in `spice-app.tsx` by commenting out the unused `RecommendationSeed` import and using an inline type import at the usage site to satisfy TypeScript requirements.
@@ -23,7 +34,6 @@
 - [Spice.Music main] Added zero-dependency Discord Rich Presence (DRP) integration, allowing the SPICE player to show track details, artists, live elapsed/remaining ticking time progress, custom logo cover assets, and a button link back to the song.
 - [Spice.Music main] Added automatic Windows named-pipe and Linux/macOS Unix domain socket discovery scanner for communicating with the local Discord client from Next.js server runtime.
 - [Spice.Music main] Wired state tracking hooks in `spice-app.tsx` to handle heartbeat ticks, unmount cleanups, and instant notifications on track play, pause, and seek actions.
-
 - [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.64 (Discord RPC)`.
 
 ## v1.0.63
