@@ -53,7 +53,7 @@ function streamSecret() {
     process.env.NEXTAUTH_SECRET;
   if (secret) return secret;
   if (process.env.NODE_ENV === 'production') {
-    return 'spice-production-fallback-secure-stream-signing-key-12345';
+    throw new Error('STREAM_HMAC_SECRET is required in production');
   }
   return localDevSecret;
 }

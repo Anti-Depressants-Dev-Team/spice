@@ -1,0 +1,5 @@
+🎯 **What:** The vulnerability fixed is the presence of a hardcoded fallback stream HMAC secret (`'spice-production-fallback-secure-stream-signing-key-12345'`) that was being used in production when environment variables were not supplied.
+
+⚠️ **Risk:** The potential impact if left unfixed is that an attacker who knows the hardcoded secret (e.g., from source code leakage or simply guessing it) can generate valid signed stream URLs, effectively bypassing stream security mechanisms intended to prevent unauthorized or modified access to media streams.
+
+🛡️ **Solution:** The hardcoded fallback secret has been removed and replaced with an `Error('STREAM_HMAC_SECRET is required in production')`. This ensures that stream URLs cannot be signed bypassing the configured security, requiring proper configuration. Tests were written to ensure the stream sign feature errors appropriately in `NODE_ENV === 'production'` when missing configuration. Additionally, version references in `walkthrough.md` and `spice-app.tsx` were updated.

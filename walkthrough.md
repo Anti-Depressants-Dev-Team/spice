@@ -2,15 +2,28 @@
 
 - [Spice.Music main] Fixed a code health warning in `spice-app.tsx` by commenting out the unused `RecommendationSeed` import and using an inline type import at the usage site to satisfy TypeScript requirements.
 - [Spice.Music main] Cleaned up unused error parameters in catch blocks and renamed an unused function to start with an underscore to appease ESLint warnings.
+- [Spice.Music main] Added unit tests for hash functions `hashPassword` and `verifyPassword`.
 - [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.65`.
 
 # SPICE Walkthrough
+
+## v1.0.65
+
+- [Spice.Music main] Fixed N+1 query issue when fetching members and profiles of shared playlists. Replaced iterative SQL queries with bulk fetches using `inArray` for better performance.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.65`.
+
+- [Spice.Music main] Throw an error in production if the stream HMAC secret is missing, removing the hardcoded fallback secret to prevent unauthorized stream URL generation.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.65`.
+- [Spice.Admin main] Added unit tests for CORS utilities (`optionsResponse` and `jsonResponse`) in `apps/backend/test/cors.test.mjs` to improve backend test coverage and reliability.
+- [Spice.Admin main] Removed hardcoded fallback secrets for JWT signing and profile connections. The application will now refuse to start and throw an error if the required `JWT_SECRET` environment variable is not explicitly set, fixing a critical security vulnerability.
+- [Spice.Admin main] Bump the visible diagnostics version to `Spice Media Core v1.0.65`.
 
 ## v1.0.64
 
 - [Spice.Music main] Added zero-dependency Discord Rich Presence (DRP) integration, allowing the SPICE player to show track details, artists, live elapsed/remaining ticking time progress, custom logo cover assets, and a button link back to the song.
 - [Spice.Music main] Added automatic Windows named-pipe and Linux/macOS Unix domain socket discovery scanner for communicating with the local Discord client from Next.js server runtime.
 - [Spice.Music main] Wired state tracking hooks in `spice-app.tsx` to handle heartbeat ticks, unmount cleanups, and instant notifications on track play, pause, and seek actions.
+
 - [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.64 (Discord RPC)`.
 
 ## v1.0.63
@@ -230,6 +243,10 @@
 - Add Spice Connect tests for device-state normalization, command validation, and resilient remote payload parsing.
 - Extract small profile-listen and Spice Connect helper modules so API route behavior is covered without mocking the full Next.js runtime.
 
+## v1.0.29
+
+- [Spice.Music main] Throw an error in production if the stream HMAC secret is missing, removing the hardcoded fallback secret to prevent unauthorized stream URL generation.
+
 ## v1.0.28
 
 - Add a private on-device recommendation profile that scores artists and language hints from local history, likes, and playlists.
@@ -349,3 +366,7 @@
 - Add bounded local track snapshots, saved search results, and per-profile playback save states.
 - Restore the most recent cached search after reload and use exact-query cached results while the network refreshes.
 - Replace generated placeholder lyrics with ranked LRCLIB matching, timeout-safe search fallback, a short server cache, real plain-lyrics fallback, and an unsynced UI state.
+
+## v1.0.65
+
+- Remove unused `SearchCacheEntry` type import from `spice-app.tsx` to improve code maintainability and readability.
