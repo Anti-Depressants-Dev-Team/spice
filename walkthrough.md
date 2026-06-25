@@ -1,5 +1,7 @@
 ## v1.0.65
 
+- [Spice.Music main] Fixed a code health warning in `spice-app.tsx` by commenting out the unused `RecommendationSeed` import and using an inline type import at the usage site to satisfy TypeScript requirements.
+- [Spice.Music main] Cleaned up unused error parameters in catch blocks and renamed an unused function to start with an underscore to appease ESLint warnings.
 - [Spice.Music main] Added unit tests for hash functions `hashPassword` and `verifyPassword`.
 - [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.65`.
 
@@ -368,3 +370,4 @@
 ## v1.0.65
 
 - Remove unused `SearchCacheEntry` type import from `spice-app.tsx` to improve code maintainability and readability.
+* [Spice Music Backend] Optimized shared playlist snapshot generation by replacing N+1 queries with batched user profile lookups, reducing DB overhead.

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import { buildSignedStreamUrl } from '../lib/stream-signing.ts';
+import { buildSignedStreamUrl, verifySignedStream } from '../lib/stream-signing.ts';
+
 
 test('STREAM_HMAC_SECRET required in production', () => {
   const originalEnv = process.env.NODE_ENV;
@@ -27,10 +28,11 @@ test('STREAM_HMAC_SECRET required in production', () => {
   if (originalStream !== undefined) process.env.STREAM_HMAC_SECRET = originalStream;
   if (originalAuth !== undefined) process.env.AUTH_SECRET = originalAuth;
   if (originalNext !== undefined) process.env.NEXTAUTH_SECRET = originalNext;
-import assert from 'node:assert/strict';
-import test from 'node:test';
+});
 
-import { buildSignedStreamUrl, verifySignedStream } from '../lib/stream-signing.ts';
+
+
+
 
 test('stream signing builds a verifiable URL', () => {
   const origin = 'https://spice.example.com';

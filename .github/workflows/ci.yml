@@ -44,6 +44,9 @@ jobs:
       - name: pub get
         working-directory: apps/flutter_client
         run: flutter pub get
+      - name: generate code
+        working-directory: apps/flutter_client
+        run: dart run build_runner build --delete-conflicting-outputs
       - name: build_runner
         working-directory: apps/flutter_client
         run: flutter pub run build_runner build --delete-conflicting-outputs

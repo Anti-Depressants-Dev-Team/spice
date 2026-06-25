@@ -21,6 +21,8 @@ import {
   buildPrivateTasteProfile,
   buildRecommendationSeeds,
   rankRecommendedTracks,
+// type RecommendationSeed,
+  type SeededRecommendationResult,
   type RecommendationSeed,
 } from './recommendations';
 import { isSpiceConnectCommandFresh, SPICE_CONNECT_COMMAND_TTL_MS } from '@/lib/spice-connect';
@@ -930,8 +932,22 @@ const scrobbleThresholdSeconds = (durationSeconds: number) => {
   return Math.min(Math.max(durationSeconds * 0.5, 30), 240);
 };
 
-const randomIndex = (length: number) => Math.floor(Math.random() * length);
-const randomSuffix = () => Math.random().toString(36).substring(2, 5);
+
+/**
+ * Generates a random number between 0 (inclusive) and 1 (exclusive) using crypto.getRandomValues
+ * Fallback to Math.random() if crypto is not available.
+ */
+const getSecureRandom = () => {
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const array = new Uint32Array(1);
+    crypto.getRandomValues(array);
+    return array[0] / (0xffffffff + 1);
+  }
+  return Math.random();
+};
+
+const randomIndex = (length: number) => Math.floor(getSecureRandom() * length);
+const randomSuffix = () => getSecureRandom().toString(36).substring(2, 5);
 const playlistUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isPlaylistUuid = (id: string) => playlistUuidPattern.test(id);
 
@@ -942,7 +958,7 @@ const createPlaylistId = () => {
 
   // Fallback RFC4122 version 4 UUID generator
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
+    const r = (getSecureRandom() * 16) | 0;
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
@@ -1159,7 +1175,7 @@ export default function SpiceApp() {
   }, []);
 
   const showSpiceNotice = useCallback((message: string, kind: SpiceNoticeKind = 'info') => {
-    const id = Date.now() + Math.random();
+    const id = Date.now() + getSecureRandom();
     setSpiceNotices((prev) => {
       const next = prev.length >= 2 ? prev.slice(1) : prev;
       return [...next, { id, message, kind }];
@@ -1596,7 +1612,7 @@ export default function SpiceApp() {
   const [homeEnergy, setHomeEnergy] = useState<Track[]>([]);
   const [homeListenAgain, setHomeListenAgain] = useState<Track[]>([]);
   const [homeRecommended, setHomeRecommended] = useState<Track[]>([]);
-  const [homeRecommendationSeed, setHomeRecommendationSeed] = useState<RecommendationSeed | null>(null);
+  const [homeRecommendationSeed, setHomeRecommendationSeed] = useState<import('./recommendations').RecommendationSeed | null>(null);
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
   const [isLoadingHome, setIsLoadingHome] = useState(true);
 
@@ -5311,7 +5327,7 @@ export default function SpiceApp() {
     if (!tracks || tracks.length === 0) return;
     setIsShuffle(true);
     localStorage.setItem('spice_is_shuffle', 'true');
-    const shuffled = [...tracks].sort(() => Math.random() - 0.5);
+    const shuffled = [...tracks].sort(() => getSecureRandom() - 0.5);
     startTrackOnActiveReceiver(shuffled[0], shuffled);
   };
 
