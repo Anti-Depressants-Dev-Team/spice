@@ -38,19 +38,22 @@ test('verifyPassword handles malformed hashes', () => {
   assert.equal(verifyPassword('password', 'salt:not-a-number:hash'), false);
   assert.equal(verifyPassword('password', 'salt:600000:'), false);
   assert.equal(verifyPassword('password', 'part1:part2:part3:part4'), false);
+});
 
 test('hashPassword creates a properly formatted hash string', () => {
   const result = hashPassword('my-secret-password');
 
   // It should contain exactly one colon
   const parts = result.split(':');
-  assert.equal(parts.length, 2);
+  assert.equal(parts.length, 3);
 
   // Both salt and hash should be non-empty hex strings
-  const [salt, hash] = parts;
+  const [salt, iterations, hash] = parts;
   assert.ok(salt.length > 0);
+  assert.ok(iterations.length > 0);
   assert.ok(hash.length > 0);
   assert.match(salt, /^[0-9a-f]+$/i);
+  assert.match(iterations, /^[0-9]+$/);
   assert.match(hash, /^[0-9a-f]+$/i);
 });
 

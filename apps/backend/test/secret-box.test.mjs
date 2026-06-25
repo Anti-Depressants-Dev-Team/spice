@@ -1,3 +1,4 @@
+process.env.JWT_SECRET = 'test-secret-key-123';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 

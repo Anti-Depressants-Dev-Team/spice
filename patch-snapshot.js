@@ -1,55 +1,9 @@
-import { db } from '@/db';
-import { playlistItems, playlistMembers, playlists, users, profiles } from '@/db/schema';
-import { eq, and, inArray } from 'drizzle-orm';
+const fs = require('fs');
 
-import { trackSnapshotFromRow } from './track-snapshot';
+const filePath = 'apps/backend/lib/shared-playlists.ts';
+let code = fs.readFileSync(filePath, 'utf8');
 
-interface SharedPlaylistOptions {
-  shared?: boolean;
-  shareRole?: string;
-  includeMembers?: boolean;
-}
-
-interface MemberInfo {
-  userId: string;
-  username: string | null;
-  displayName: string;
-  avatarUrl: string | null;
-  role: string;
-}
-
-export async function getUsersInfo(userIds: string[]): Promise<Record<string, { username: string | null; displayName: string; avatarUrl: string | null }>> {
-  if (userIds.length === 0) return {};
-
-  const uniqueIds = Array.from(new Set(userIds));
-
-  const [fetchedUsers, fetchedProfiles] = await Promise.all([
-    db.query.users.findMany({ where: inArray(users.id, uniqueIds) }),
-    db.query.profiles.findMany({
-      where: and(inArray(profiles.userId, uniqueIds), eq(profiles.id, 'default')),
-    }),
-  ]);
-
-  const userMap = new Map(fetchedUsers.map(u => [u.id, u]));
-  const profileMap = new Map(fetchedProfiles.map(p => [p.userId, p]));
-
-  const result: Record<string, { username: string | null; displayName: string; avatarUrl: string | null }> = {};
-
-  for (const id of uniqueIds) {
-    const user = userMap.get(id);
-    const profile = profileMap.get(id);
-
-    result[id] = {
-      username: user?.username || null,
-      displayName: profile?.displayName || user?.email || 'Unknown',
-      avatarUrl: profile?.avatarUrl || null,
-    };
-  }
-
-  return result;
-}
-
-export async function getPlaylistSnapshot(playlistId: string, options: SharedPlaylistOptions = {}) {
+const newCode = `export async function getPlaylistSnapshot(playlistId: string, options: SharedPlaylistOptions = {}) {
   const playlist = await db.query.playlists.findFirst({
     where: eq(playlists.id, playlistId),
   });
@@ -73,7 +27,7 @@ export async function getPlaylistSnapshot(playlistId: string, options: SharedPla
     }
   });
 
-  let memberRows: typeof playlistMembers.$inferSelect[] = [];
+  let memberRows: any[] = [];
   if (options.includeMembers || options.shared) {
     memberRows = await db.select().from(playlistMembers).where(and(eq(playlistMembers.playlistId, playlist.id), eq(playlistMembers.status, 'accepted')));
     memberRows.forEach((row) => {
@@ -134,4 +88,8 @@ export async function getPlaylistSnapshot(playlistId: string, options: SharedPla
     ...(options.shareRole ? { shareRole: options.shareRole } : {}),
     ...(members ? { members } : {}),
   };
-}
+}`;
+
+code = code.replace(/export async function getPlaylistSnapshot\([\s\S]*\}\n$/, newCode);
+
+fs.writeFileSync(filePath, code);

@@ -1,4 +1,6 @@
-import { db } from '@/db';
+const fs = require('fs');
+
+const code = `import { db } from '@/db';
 import { playlistItems, playlistMembers, playlists, users, profiles } from '@/db/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 
@@ -73,7 +75,7 @@ export async function getPlaylistSnapshot(playlistId: string, options: SharedPla
     }
   });
 
-  let memberRows: typeof playlistMembers.$inferSelect[] = [];
+  let memberRows: any[] = [];
   if (options.includeMembers || options.shared) {
     memberRows = await db.select().from(playlistMembers).where(and(eq(playlistMembers.playlistId, playlist.id), eq(playlistMembers.status, 'accepted')));
     memberRows.forEach((row) => {
@@ -135,3 +137,6 @@ export async function getPlaylistSnapshot(playlistId: string, options: SharedPla
     ...(members ? { members } : {}),
   };
 }
+`;
+
+fs.writeFileSync('apps/backend/lib/shared-playlists.ts', code);

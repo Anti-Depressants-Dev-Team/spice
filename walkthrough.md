@@ -370,3 +370,4 @@
 ## v1.0.65
 
 - Remove unused `SearchCacheEntry` type import from `spice-app.tsx` to improve code maintainability and readability.
+* [Spice Music Backend] Optimized shared playlist snapshot generation by replacing N+1 queries with batched user profile lookups, reducing DB overhead.
