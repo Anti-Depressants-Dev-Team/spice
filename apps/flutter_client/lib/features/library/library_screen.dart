@@ -46,7 +46,7 @@ class LibraryScreen extends ConsumerWidget {
                     child: Icon(Icons.queue_music),
                   ),
                   title: Text(p.title),
-                  subtitle: p.description != null && p.description!.isNotEmpty
+                  subtitle: (p.description?.isNotEmpty ?? false)
                       ? Text(p.description!, maxLines: 1)
                       : null,
                   trailing: PopupMenuButton<String>(
