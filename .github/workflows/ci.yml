@@ -44,6 +44,9 @@ jobs:
       - name: pub get
         working-directory: apps/flutter_client
         run: flutter pub get
+      - name: generate code
+        working-directory: apps/flutter_client
+        run: dart run build_runner build --delete-conflicting-outputs
       - name: analyze
         working-directory: apps/flutter_client
         run: flutter analyze
@@ -57,8 +60,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11
       - uses: actions/setup-node@v4
         with:
           node-version: 24
