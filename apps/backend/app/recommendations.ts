@@ -210,14 +210,17 @@ const sortedSignals = (buckets: Map<string, ScoreBucket>) =>
     .map(([id, bucket]) => ({ id, ...bucket }))
     .sort((a, b) => b.score - a.score || b.count - a.count || a.label.localeCompare(b.label));
 
-const languageScore = (track: RecommendationTrack, language: typeof LANGUAGE_HINTS[number]) => {
+
+const trackLanguageTokens = (track: RecommendationTrack) => {
   const normalized = normalizeText([
     track.title,
     track.album?.title,
     ...track.artists.map((artist) => artist.name),
   ].filter(Boolean).join(' '));
-  const tokens = new Set(normalized.split(/[^a-z0-9-]+/).filter(Boolean));
+  return new Set(normalized.split(/[^a-z0-9-]+/).filter(Boolean));
+};
 
+const languageScore = (tokens: Set<string>, language: typeof LANGUAGE_HINTS[number]) => {
   let score = 0;
   for (const token of language.tokens) {
     if (tokens.has(token)) score += 1;
@@ -253,8 +256,9 @@ export function buildPrivateTasteProfile<TTrack extends RecommendationTrack>({
       addScore(artists, normalizeKey(label), label, weight);
     }
 
+    const tokens = trackLanguageTokens(track);
     for (const language of LANGUAGE_HINTS) {
-      const score = languageScore(track, language);
+      const score = languageScore(tokens, language);
       if (score >= 2) {
         addScore(languages, language.id, language.label, weight * score);
       }

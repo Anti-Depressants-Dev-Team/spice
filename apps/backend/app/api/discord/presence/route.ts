@@ -58,10 +58,10 @@ export async function POST(request: NextRequest) {
     if (isPlaying) {
       const now = Date.now();
       activity.timestamps = {
-        start: Math.round(now - progressMs),
+        start: Math.round((now - progressMs) / 1000),
       };
       if (track.durationMs && track.durationMs > 0) {
-        activity.timestamps.end = Math.round(now - progressMs + track.durationMs);
+        activity.timestamps.end = Math.round((now - progressMs + track.durationMs) / 1000);
       }
     }
 

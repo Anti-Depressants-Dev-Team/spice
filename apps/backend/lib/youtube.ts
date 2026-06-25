@@ -289,47 +289,96 @@ function artistNameToList(name: string | undefined): SpiceArtist[] {
 
 export async function getPlaylistTracks(playlistId: string) {
   const yt = await getYouTube();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let playlist = (await yt.getPlaylist(playlistId)) as any;
+
+  let playlist: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  let isMusicPlaylist = true;
+  try {
+    playlist = await yt.music.getPlaylist(playlistId);
+    if (!playlist.items || playlist.items.length === 0) {
+      throw new Error('Empty music playlist, might be standard video playlist');
+    }
+  } catch (e) {
+    console.warn('yt.music.getPlaylist failed or empty, falling back to yt.getPlaylist:', e);
+    playlist = await yt.getPlaylist(playlistId);
+    isMusicPlaylist = false;
+  }
   
   const tracks: SpiceTrack[] = [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const videos = [...(playlist.videos ?? [])] as any[];
+  const videos = [...(isMusicPlaylist ? (playlist.items ?? []) : (playlist.videos ?? [])) ] as any[]; // eslint-disable-line @typescript-eslint/no-explicit-any
   
   let continuations = 0;
   while (playlist.has_continuation && continuations < 50) {
     try {
       playlist = await playlist.getContinuation();
-      if (playlist.videos) {
-        videos.push(...playlist.videos);
+      const newItems = isMusicPlaylist ? playlist.items : playlist.videos;
+      if (newItems) {
+        videos.push(...newItems);
       }
       continuations++;
     } catch (e) {
-      console.error('Error fetching playlist continuation:', e);
+      console.warn('[YOUTUBE API] Playlist continuation interrupted (soft failure):', e);
       break;
     }
   }
   
   for (const video of videos) {
-    if (!video.id || !video.title) continue;
+    let id = video.id;
+    const title = video.title?.toString() || video.flex_columns?.[0]?.title?.text;
+
+    // Extract ID from thumbnail URL as a fallback for music playlist items
+    if (!id && isMusicPlaylist) {
+      const tUrl = video.thumbnail?.contents?.[0]?.url;
+      if (tUrl) {
+        const match = tUrl.match(/\/vi\/([^\/]+)\//);
+        if (match) {
+          id = match[1];
+        }
+      }
+    }
     
-    const artists = video.author 
-      ? [{ id: video.author.id ?? video.author.name, name: video.author.name }] 
-      : [];
+    if (!id || !title) continue;
+
+    let durationMs: number | undefined;
+    if (video.duration?.seconds) {
+      durationMs = video.duration.seconds * 1000;
+    } else if (isMusicPlaylist && video.fixed_columns?.[0]?.title?.text) {
+      const maybeDur = video.fixed_columns[0].title.text;
+      if (/^\d+:\d+$/.test(maybeDur)) {
+        const parts = maybeDur.split(':');
+        durationMs = (parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10)) * 1000;
+      }
+    }
+
+    let artists: SpiceArtist[] = [];
+    if (video.author) {
+      artists = [{ id: video.author.id ?? video.author.name, name: video.author.name }];
+    } else if (video.artists && video.artists.length > 0) {
+      artists = video.artists.map((a: any) => /* eslint-disable-line @typescript-eslint/no-explicit-any */ ({ id: a.channel_id ?? a.name, name: a.name }));
+    } else if (video.authors && video.authors.length > 0) {
+      artists = video.authors.map((a: any) => /* eslint-disable-line @typescript-eslint/no-explicit-any */ ({ id: a.channel_id ?? a.name, name: a.name }));
+    } else if (isMusicPlaylist && video.flex_columns?.[1]?.title?.runs) {
+      // Very simple artist parsing from runs
+      const texts = video.flex_columns[1].title.runs
+        .map((r: any) => r.text) // eslint-disable-line @typescript-eslint/no-explicit-any
+        .filter((t: string) => t !== ' • ' && t !== ' & ' && t !== ',');
+      if (texts.length > 0) {
+        artists = [{ id: texts.join(' '), name: texts.join(' ') }];
+      }
+    }
       
     tracks.push({
-      sourceId: YOUTUBE_VIDEO_SOURCE_ID,
-      id: video.id,
-      title: video.title.toString(),
+      sourceId: isMusicPlaylist ? YOUTUBE_MUSIC_SOURCE_ID : YOUTUBE_VIDEO_SOURCE_ID,
+      id,
+      title,
       artists,
-      artworkUrl: video.thumbnails?.[0]?.url,
-      durationMs: video.duration?.seconds ? video.duration.seconds * 1000 : undefined
+      artworkUrl: video.thumbnails?.[0]?.url || video.thumbnail?.contents?.[0]?.url,
+      durationMs
     });
   }
   
   return {
-    title: playlist.title ?? 'Imported Playlist',
-    description: playlist.description ?? 'YouTube playlist import',
+    title: playlist.header?.title?.toString() || playlist.info?.title?.toString() || playlist.title?.toString() || 'Imported Playlist',
+    description: playlist.header?.description?.toString() || playlist.info?.description?.toString() || playlist.description?.toString() || 'YouTube playlist import',
     tracks
   };
 }

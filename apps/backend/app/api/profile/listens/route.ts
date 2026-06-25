@@ -4,8 +4,8 @@ import { verifySession } from '@/lib/auth';
 import { jsonResponse, optionsResponse } from '@/lib/cors';
 import { submitLastFmNowPlaying, submitLastFmScrobble, type ProfileListenTrack } from '@/lib/lastfm';
 import { submitListenBrainzNowPlaying, submitListenBrainzScrobble } from '@/lib/listenbrainz';
-import { resolveLastFmSessionKey } from '@/lib/profile-listens';
-import { getLastFmConnection } from '@/lib/profile-connections';
+import { resolveLastFmSessionKey, resolveListenBrainzToken } from '@/lib/profile-listens';
+import { getLastFmConnection, getListenBrainzConnection } from '@/lib/profile-connections';
 
 export const runtime = 'nodejs';
 
@@ -91,7 +91,12 @@ export async function POST(request: NextRequest) {
     })());
   }
 
-  const listenBrainzToken = body.providers?.listenbrainz?.token?.trim();
+  const listenBrainzToken = await resolveListenBrainzToken({
+    provider: body.providers?.listenbrainz,
+    databaseConfigured: Boolean(process.env.DATABASE_URL),
+    getSessionUserId: async () => (await optionalSession(request))?.userId ?? null,
+    getConnection: getListenBrainzConnection,
+  });
   if (listenBrainzToken) {
     tasks.push((async () => {
       try {

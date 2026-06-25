@@ -1,6 +1,24 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { normalizeAccountRole, type AccountRole } from './account';
 
+function getJwtSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') {
+      console.warn('Warning: Missing JWT_SECRET. Using fallback for dev/test.');
+      return 'spice_dev_secret_key_32_characters_minimum';
+    }
+    // Only fail if we are strictly not in dev/test AND not building
+    // In next build, the env might not be fully populated but we need the import to succeed
+    if (process.env.npm_lifecycle_event === 'build') {
+      return 'spice_build_dummy_secret_32_chars';
+    }
+    throw new Error('Missing JWT_SECRET environment variable.');
+  }
+  return secret;
+}
+
+const JWT_SECRET_STRING = getJwtSecret();
 const JWT_SECRET_STRING = process.env.JWT_SECRET;
 if (!JWT_SECRET_STRING) {
   throw new Error('JWT_SECRET environment variable is not set.');

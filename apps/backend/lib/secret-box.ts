@@ -46,6 +46,7 @@ function encryptionKey() {
   const material = process.env.PROFILE_CONNECTION_SECRET
     || process.env.JWT_SECRET;
   if (!material) {
+    throw new Error('Missing encryption key. Set PROFILE_CONNECTION_SECRET or JWT_SECRET environment variable.');
     throw new Error('PROFILE_CONNECTION_SECRET or JWT_SECRET environment variable is not set.');
   }
   return createHash('sha256').update(material, 'utf8').digest();

@@ -7,6 +7,7 @@ import '../features/library/library_screen.dart';
 import '../features/library/playlist_detail_screen.dart';
 import '../features/player/now_playing_screen.dart';
 import '../features/search/search_screen.dart';
+import '../features/settings/settings_screen.dart';
 import 'main_shell.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -39,6 +40,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                 ),
               ),
             ],
+          ),
+          GoRoute(
+            path: '/settings',
+            builder: (context, state) => const SettingsScreen(),
           ),
         ],
       ),
