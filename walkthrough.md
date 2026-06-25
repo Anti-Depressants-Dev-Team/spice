@@ -343,3 +343,7 @@
 - Add bounded local track snapshots, saved search results, and per-profile playback save states.
 - Restore the most recent cached search after reload and use exact-query cached results while the network refreshes.
 - Replace generated placeholder lyrics with ranked LRCLIB matching, timeout-safe search fallback, a short server cache, real plain-lyrics fallback, and an unsynced UI state.
+
+## v1.0.65
+
+- Remove unused `SearchCacheEntry` type import from `spice-app.tsx` to improve code maintainability and readability.
