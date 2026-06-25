@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import type { AccountSnapshot } from '@/lib/account';
 import styles from './admin-dashboard.module.css';
@@ -208,9 +209,9 @@ export default function AdminDashboardView() {
             <p style={{ margin: '20px auto', maxWidth: '500px' }}>
               Please sign in with a verified SPICE admin account on the home page or in SPICE Music to access the operations dashboard.
             </p>
-            <a href="/" className={styles.primaryLinkButton} style={{ display: 'inline-block', marginTop: '20px' }}>
+            <Link href="/" className={styles.primaryLinkButton} style={{ display: 'inline-block', marginTop: '20px' }}>
               Go to Home Screen
-            </a>
+            </Link>
           </div>
         </section>
       </main>
@@ -228,9 +229,9 @@ export default function AdminDashboardView() {
             <p style={{ margin: '20px auto', maxWidth: '500px' }}>
               Your account does not have operator privileges. Normal users are limited to profile, music, anime, and public services.
             </p>
-            <a href="/" className={styles.primaryLinkButton} style={{ display: 'inline-block', marginTop: '20px' }}>
+            <Link href="/" className={styles.primaryLinkButton} style={{ display: 'inline-block', marginTop: '20px' }}>
               Go to Home Screen
-            </a>
+            </Link>
           </div>
         </section>
       </main>

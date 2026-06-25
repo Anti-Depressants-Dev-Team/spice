@@ -16,14 +16,12 @@ import {
   rememberSearchResults,
   rememberTrackSnapshots,
   savePlaybackState,
-  type SearchCacheEntry,
 } from './spice-storage';
 import {
   buildPrivateTasteProfile,
   buildRecommendationSeeds,
   rankRecommendedTracks,
   type RecommendationSeed,
-  type SeededRecommendationResult,
 } from './recommendations';
 import { isSpiceConnectCommandFresh, SPICE_CONNECT_COMMAND_TTL_MS } from '@/lib/spice-connect';
 
@@ -1610,7 +1608,7 @@ export default function SpiceApp() {
   const [searchResultsSource, setSearchResultsSource] = useState<'network' | 'cache' | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [topbarSearchTrayOpen, setTopbarSearchTrayOpen] = useState(false);
-  const [recentSearchEntries, setRecentSearchEntries] = useState<SearchCacheEntry[]>([]);
+  const [recentSearchEntries, setRecentSearchEntries] = useState<ReturnType<typeof getRecentCachedSearches>>([]);
   const [error, setError] = useState<string>();
 
   const [selfTestRunning, setSelfTestRunning] = useState(false);
@@ -4170,7 +4168,7 @@ export default function SpiceApp() {
     }
   };
 
-  const runRecentTopbarSearch = (entry: SearchCacheEntry) => {
+  const runRecentTopbarSearch = (entry: ReturnType<typeof getRecentCachedSearches>[number]) => {
     const cachedProvider = entry.sourceId ?? null;
     const provider = isSearchProvider(cachedProvider) ? cachedProvider : searchProvider;
     runTopbarSearch(entry.query, provider);
@@ -4283,7 +4281,7 @@ export default function SpiceApp() {
     }
 
     const exclude = [currentTrack, ...history.slice(0, 20)];
-    const cachedBatches = seeds.flatMap((seed): SeededRecommendationResult<Track>[] => {
+    const cachedBatches = seeds.flatMap((seed) => {
       const cached = getCachedSearch(seed.query, 'hybrid');
       if (!cached) return [];
 
@@ -4304,7 +4302,7 @@ export default function SpiceApp() {
     const timeout = setTimeout(async () => {
       try {
         const batches = await Promise.allSettled(
-          seeds.map(async (seed): Promise<SeededRecommendationResult<Track>> => {
+          seeds.map(async (seed) => {
             const tracks = await fetchSearchProviderResults(seed.query, 'hybrid');
             rememberSearchResults(seed.query, tracks, 'hybrid');
             return { seed, tracks };
@@ -8634,6 +8632,7 @@ export default function SpiceApp() {
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
                         Spice Media Core v1.0.65 (Discord RPC)
+                        Spice Media Core v1.0.65
                       </span>
                     </div>
 
