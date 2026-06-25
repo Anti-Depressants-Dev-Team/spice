@@ -3,7 +3,7 @@ import { jsonResponse, optionsResponse } from '@/lib/cors';
 import { verifySession } from '@/lib/auth';
 import { db } from '@/db';
 import { playlists, playlistItems, playlistMembers, playlistInvites } from '@/db/schema';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, inArray } from 'drizzle-orm';
 import { trackSnapshotColumns } from '@/lib/track-snapshot';
 import type { TrackSnapshotInput } from '@/lib/track-snapshot';
 import { getPlaylistSnapshot } from '@/lib/shared-playlists';
@@ -120,12 +120,21 @@ export async function POST(request: Request) {
 
     // Only delete private (non-shared) playlists to preserve collaborative memberships/invites
     const privatePlaylists = [];
-    for (const pl of existing) {
-      const members = await db.select().from(playlistMembers).where(eq(playlistMembers.playlistId, pl.id));
-      const invites = await db.select().from(playlistInvites).where(eq(playlistInvites.playlistId, pl.id));
-      const isShared = members.length > 0 || invites.length > 0;
-      if (!isShared) {
-        privatePlaylists.push(pl);
+    const existingIds = existing.map((pl) => pl.id);
+
+    if (existingIds.length > 0) {
+      const allMembers = await db.select({ playlistId: playlistMembers.playlistId }).from(playlistMembers).where(inArray(playlistMembers.playlistId, existingIds));
+      const allInvites = await db.select({ playlistId: playlistInvites.playlistId }).from(playlistInvites).where(inArray(playlistInvites.playlistId, existingIds));
+
+      const sharedPlaylistIds = new Set([
+        ...allMembers.map((m) => m.playlistId),
+        ...allInvites.map((i) => i.playlistId)
+      ]);
+
+      for (const pl of existing) {
+        if (!sharedPlaylistIds.has(pl.id)) {
+          privatePlaylists.push(pl);
+        }
       }
     }
 
