@@ -7,6 +7,9 @@
 
 ## v1.0.65
 
+- [Spice.Music main] Fixed N+1 query issue when fetching members and profiles of shared playlists. Replaced iterative SQL queries with bulk fetches using `inArray` for better performance.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.65`.
+
 - [Spice.Music main] Throw an error in production if the stream HMAC secret is missing, removing the hardcoded fallback secret to prevent unauthorized stream URL generation.
 - [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.65`.
 - [Spice.Admin main] Added unit tests for CORS utilities (`optionsResponse` and `jsonResponse`) in `apps/backend/test/cors.test.mjs` to improve backend test coverage and reliability.
