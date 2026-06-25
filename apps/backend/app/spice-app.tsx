@@ -5,7 +5,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable react-hooks/exhaustive-deps */
 
-import { type FormEvent, useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   enrichTrackSnapshot,
   getCachedSearch,
@@ -4156,7 +4156,7 @@ export default function SpiceApp() {
     queueSearch(trimmedQuery, provider);
   };
 
-  const handleTopbarSearchSubmit = (e: FormEvent) => {
+  const handleTopbarSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     runTopbarSearch(topbarSearchQuery, searchProvider);
   };
@@ -4341,7 +4341,7 @@ export default function SpiceApp() {
     }
   };
 
-  const createPlaylist = (e: FormEvent) => {
+  const createPlaylist = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPlTitle.trim()) return;
 
@@ -4416,7 +4416,7 @@ export default function SpiceApp() {
     reader.readAsDataURL(file);
   };
 
-  const savePlaylistEdits = async (e: FormEvent) => {
+  const savePlaylistEdits = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPlaylist) return;
 
@@ -4953,7 +4953,7 @@ export default function SpiceApp() {
     setShowMembersPanel(false);
   }, [selectedPlaylist?.id]);
 
-  const createSharedPlaylist = async (e: FormEvent) => {
+  const createSharedPlaylist = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSharedPlTitle.trim() || !cloudToken) return;
 
@@ -5435,7 +5435,7 @@ export default function SpiceApp() {
     }
   };
 
-  const createProfile = (e: FormEvent) => {
+  const createProfile = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProfileName.trim()) return;
 
@@ -5527,7 +5527,7 @@ export default function SpiceApp() {
     showSpiceNotice('Passcode protection removed successfully.', 'success');
   };
 
-  const saveProfile = (e: FormEvent) => {
+  const saveProfile = (e: React.FormEvent) => {
     e.preventDefault();
 
     // Passcode validation
