@@ -172,7 +172,7 @@
         var onLoad = props.onLoad;
 
         return html`
-            <div class="flex-1 flex flex-col items-center justify-center text-center px-6 animate-fade-in select-none"
+            <div class="flex-1 relative flex flex-col items-center justify-center text-center px-6 animate-fade-in select-none"
                  style=${{ background: 'radial-gradient(ellipse at 50% 40%, rgba(168,85,247,0.06) 0%, transparent 70%)' }}>
 
                 <!-- Animated Spice Logo -->
@@ -185,8 +185,13 @@
                               WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                     SPICE
                 </h1>
-                <p class="text-gray-600 text-xs tracking-[0.3em] uppercase mb-16 font-medium">
+                <p class="text-gray-600 text-xs tracking-[0.3em] uppercase mb-5 font-medium">
                     Your music · Elevated
+                </p>
+
+                <p class="text-gray-500 text-sm mb-14">
+                    Ready to <span class="text-purple-400 font-semibold"
+                        style=${{ textShadow: '0 0 16px rgba(168,85,247,0.85)' }}>Spice</span> things up?
                 </p>
 
                 <!-- Service Cards -->
@@ -204,20 +209,7 @@
                         <span class="text-[11px] text-gray-600 mt-1">Ad-free streaming</span>
                     </button>
 
-                    <!-- SoundCloud -->
-                    <button class="group glass rounded-2xl w-[240px] h-[200px] flex flex-col items-center justify-center
-                                   cursor-pointer transition-all duration-300 hover:-translate-y-1.5
-                                   hover:border-purple-500/30 hover:shadow-[0_8px_40px_rgba(168,85,247,0.15)]
-                                   active:scale-95"
-                            onClick=${function() { onLoad('sc'); }}>
-                        <div class="text-purple-500 mb-5 transition-transform duration-300 group-hover:scale-110">
-                            ${icon(IC.cloud, 44)}
-                        </div>
-                        <h2 class="text-base font-semibold tracking-wide">SoundCloud</h2>
-                        <span class="text-[11px] text-gray-600 mt-1">Experimental</span>
-                    </button>
-
-                    <!-- Spice Crazier -->
+                    <!-- Spice Music -->
                     <button class="group glass rounded-2xl w-[240px] h-[200px] flex flex-col items-center justify-center
                                    cursor-pointer transition-all duration-300 hover:-translate-y-1.5
                                    hover:border-purple-500/30 hover:shadow-[0_8px_40px_rgba(168,85,247,0.15)]
@@ -226,9 +218,31 @@
                         <div class="text-purple-500 mb-5 transition-transform duration-300 group-hover:scale-110">
                             ${icon(IC.ytMusic, 44)}
                         </div>
-                        <h2 class="text-base font-semibold tracking-wide">Spice Crazier</h2>
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-base font-semibold tracking-wide">Spice Music</h2>
+                            <span class="text-[9px] uppercase tracking-[0.18em] text-purple-300 bg-purple-500/15 border border-purple-500/25 rounded-full px-2 py-0.5">Preview</span>
+                        </div>
                         <span class="text-[11px] text-gray-600 mt-1">Wrapped web player</span>
                     </button>
+                </div>
+
+                <!-- Deprecated Services -->
+                <div class="absolute right-4 bottom-4 text-left no-drag opacity-35 hover:opacity-100 transition-opacity duration-300">
+                    <label class="block text-[9px] uppercase tracking-[0.24em] text-gray-800 mb-1.5">
+                        Deprecated folder
+                    </label>
+                    <select class="bg-black/40 text-gray-600 border border-white/[0.04] rounded-full
+                                   px-2.5 py-1.5 text-[11px] outline-none cursor-pointer hover:text-gray-300
+                                   hover:border-purple-500/20 focus:border-purple-500/30 transition-all"
+                            onChange=${function(e) {
+                                if (e.target.value) {
+                                    onLoad(e.target.value);
+                                    e.target.value = '';
+                                }
+                            }}>
+                        <option value="">Legacy services</option>
+                        <option value="sc">SoundCloud</option>
+                    </select>
                 </div>
             </div>
         `;
@@ -253,7 +267,7 @@
                 var h = parsed.hostname.toLowerCase();
                 var valid = h.includes('music.youtube.com') ||
                             h.includes('soundcloud.com') ||
-                            h === 'spice-but-its-crazier-cuz-yes-backe.vercel.app';
+                            h === 'music.spice-app.xyz';
                 if (!valid) {
                     if (errorRef.current) errorRef.current.textContent = 'Only supported service URLs are allowed.';
                     return;
@@ -271,7 +285,7 @@
                      onClick=${function(e) { e.stopPropagation(); }}>
                     <h3 class="text-lg font-semibold mb-4">Open URL</h3>
                     <input ref=${inputRef} type="text"
-                           placeholder="https://music.youtube.com/watch?v=..."
+                           placeholder="https://music.spice-app.xyz/?song=..."
                            class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white
                                   placeholder-gray-600 focus:border-purple-500/50 focus:ring-2 focus:ring-purple-500/20
                                   outline-none transition-all"
@@ -394,7 +408,14 @@
         var showVolumePopup = props.showVolumePopup;
         var setShowVolumePopup = props.setShowVolumePopup;
         var topSearchVisible = props.topSearchVisible;
+        var toolbarButtons = props.toolbarButtons || {};
+        var activeService = props.activeService;
         var onOpenUrlModal = props.onOpenUrlModal;
+        var showServiceTools = activeService === 'yt';
+        var showYoutubeTools = showServiceTools;
+        function toolbarVisible(key) {
+            return toolbarButtons[key] !== false;
+        }
 
         var volumeRef = useRef(null);
 
@@ -410,30 +431,61 @@
             return function() { document.removeEventListener('mousedown', handler); };
         }, [showVolumePopup]);
 
+        var _boostWarn = useState(false);
+        var showBoostWarning = _boostWarn[0];
+        var setShowBoostWarning = _boostWarn[1];
+
+        function disableBoost() {
+            if (volume > 200) {
+                setVolume(200);
+                callApi('setVolume', 2.0);
+            }
+            setBoostEnabled(false);
+        }
+
+        function requestBoost() {
+            setShowBoostWarning(true);
+        }
+
+        function acceptBoostWarning() {
+            setShowBoostWarning(false);
+            setBoostEnabled(true);
+        }
+
+        function handleBoostClick(e) {
+            e.stopPropagation();
+            if (boostEnabled) {
+                disableBoost();
+                return;
+            }
+            requestBoost();
+        }
+
         return html`
             <div class="h-[40px] flex items-center justify-between drag relative z-[2000] border-b border-white/[0.04]"
                  style=${{ background: 'rgba(0,0,0,0.92)' }}>
 
                 <!-- LEFT: Nav Controls -->
                 <div class="flex items-center h-full pl-2 no-drag gap-0.5">
-                    <button class="nav-btn" onClick=${function() { callApi('navigate', 'back'); }}
-                            title="Back">${icon(IC.back)}</button>
-                    <button class="nav-btn" onClick=${function() { callApi('navigate', 'reload'); }}
-                            title="Reload">${icon(IC.refresh)}</button>
-                    <button class="nav-btn" onClick=${function() { onOpenUrlModal(); }}
-                            title="Open URL">${icon(IC.link)}</button>
-                    <button class="nav-btn" onClick=${function() { callApi('navigate', 'home'); }}
-                            title="Home">${icon(IC.home)}</button>
+                    ${toolbarVisible('back') && html`<button class="nav-btn" onClick=${function() { callApi('navigate', 'back'); }}
+                            title="Back">${icon(IC.back)}</button>`}
+                    ${toolbarVisible('reload') && html`<button class="nav-btn" onClick=${function() { callApi('navigate', 'reload'); }}
+                            title="Reload">${icon(IC.refresh)}</button>`}
+                    ${toolbarVisible('openUrl') && html`<button class="nav-btn" onClick=${function() { onOpenUrlModal(); }}
+                            title="Open URL">${icon(IC.link)}</button>`}
+                    ${toolbarVisible('home') && html`<button class="nav-btn" onClick=${function() { callApi('navigate', 'home'); }}
+                            title="Home">${icon(IC.home)}</button>`}
                 </div>
 
                 <!-- CENTER: Search Bar -->
-                ${topSearchVisible && html`
-                    <div class="absolute left-1/2 -translate-x-1/2 w-[320px] no-drag">
+                ${topSearchVisible && showYoutubeTools && html`
+                    <div class="absolute left-1/2 w-[320px] no-drag transition-transform duration-300"
+                         style=${{ transform: showVolumePopup ? 'translateX(calc(-50% - 150px))' : 'translateX(-50%)' }}>
                         <div class="relative">
                             <div class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 pointer-events-none">
                                 ${icon(IC.search, 14)}
                             </div>
-                            <input type="text" placeholder="Search YouTube Music…"
+                            <input type="text" placeholder="Search"
                                    id="spice-search-bar"
                                    class="w-full bg-white/[0.04] text-white border border-white/[0.06] rounded-full
                                           pl-9 pr-4 py-1.5 text-[13px] placeholder-gray-600
@@ -452,7 +504,7 @@
                 <!-- RIGHT: Feature + Window Buttons -->
                 <div class="flex items-center h-full ml-auto no-drag">
                     <!-- Volume -->
-                    <div ref=${volumeRef} class="flex items-center h-full">
+                    <div ref=${volumeRef} class=${(showServiceTools && toolbarVisible('volume') ? 'flex' : 'hidden') + ' items-center h-full'}>
                         <button class="nav-btn"
                                 onClick=${function(e) { e.stopPropagation(); setShowVolumePopup(!showVolumePopup); }}
                                 title="Volume">
@@ -495,25 +547,18 @@
                                     + (boostEnabled
                                         ? 'border-purple-500/50 text-purple-400 bg-purple-500/10'
                                         : 'border-white/10 text-gray-600 hover:text-gray-400 hover:bg-white/5')}
-                                    onClick=${function(e) {
-                                        e.stopPropagation();
-                                        if (boostEnabled && volume > 200) {
-                                            setVolume(200);
-                                            callApi('setVolume', 2.0);
-                                        }
-                                        setBoostEnabled(!boostEnabled);
-                                    }}>Boost</button>
+                                    onClick=${handleBoostClick}>Boost</button>
                             </div>
                         `}
                     </div>
 
                     <!-- Feature Buttons -->
-                    <button class="nav-btn" onClick=${function() { callApi('openLyrics'); }}
-                            title="Lyrics">${icon(IC.mic)}</button>
-                    <button class="nav-btn" onClick=${function() { callApi('openMiniPlayer'); }}
-                            title="Mini Player">${icon(IC.pip)}</button>
-                    <button class="nav-btn" onClick=${function() { callApi('openQueue'); }}
-                            title="Queue">${icon(IC.queue)}</button>
+                    ${showServiceTools && toolbarVisible('lyrics') && html`<button class="nav-btn" onClick=${function() { callApi('openLyrics'); }}
+                            title="Lyrics">${icon(IC.mic)}</button>`}
+                    ${showServiceTools && toolbarVisible('miniPlayer') && html`<button class="nav-btn" onClick=${function() { callApi('openMiniPlayer'); }}
+                            title="Mini Player">${icon(IC.pip)}</button>`}
+                    ${showServiceTools && toolbarVisible('queue') && html`<button class="nav-btn" onClick=${function() { callApi('openQueue'); }}
+                            title="Queue">${icon(IC.queue)}</button>`}
                     <button class="nav-btn" onClick=${function() { callApi('openSettings'); }}
                             title="Settings">${icon(IC.settings)}</button>
 
@@ -528,6 +573,44 @@
                     <button class="win-btn win-close" onClick=${function() { callApi('windowControls', 'close'); }}
                             title="Close">${icon(IC.close, 10)}</button>
                 </div>
+
+                ${showBoostWarning && html`
+                    <div class="fixed inset-0 z-[5000] flex items-center justify-center bg-black/70 no-drag"
+                         onMouseDown=${function(e) { e.stopPropagation(); }}
+                         onClick=${function(e) { e.stopPropagation(); }}>
+                        <div class="w-[360px] rounded-2xl border border-purple-500/30 bg-[#0d0d12] p-5 shadow-2xl shadow-purple-950/30"
+                             role="dialog"
+                             aria-modal="true"
+                             aria-labelledby="boost-warning-title">
+                            <div class="mb-3 text-sm font-semibold text-purple-300" id="boost-warning-title">
+                                Volume Boost Warning
+                            </div>
+                            <p class="mb-4 text-[13px] leading-5 text-gray-300">
+                                Boost can push audio above normal safe levels. High volume may cause permanent hearing damage,
+                                especially with headphones, and can also distort or damage speakers.
+                            </p>
+                            <p class="mb-5 text-[12px] leading-5 text-gray-500">
+                                Start low, raise volume slowly, and stop immediately if audio feels painful or distorted.
+                            </p>
+                            <div class="flex justify-end gap-2">
+                                <button class="rounded-full border border-white/10 px-4 py-1.5 text-[12px] text-gray-300 hover:bg-white/5"
+                                        onClick=${function(e) {
+                                            e.stopPropagation();
+                                            setShowBoostWarning(false);
+                                        }}>
+                                    Cancel
+                                </button>
+                                <button class="rounded-full border border-purple-400/50 bg-purple-500/20 px-4 py-1.5 text-[12px] font-semibold text-purple-100 hover:bg-purple-500/30"
+                                        onClick=${function(e) {
+                                            e.stopPropagation();
+                                            acceptBoostWarning();
+                                        }}>
+                                    I understand, enable Boost
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `}
             </div>
         `;
     }
@@ -543,12 +626,14 @@
         };
         var _track = useState(trackInit);       var track = _track[0];       var setTrack = _track[1];
         var _sa    = useState(false);            var serviceActive = _sa[0];  var setServiceActive = _sa[1];
+        var _as    = useState(null);             var activeService = _as[0];   var setActiveService = _as[1];
         var _pv    = useState(false);            var playerVisible = _pv[0];  var setPlayerVisible = _pv[1];
         var _vol   = useState(100);              var volume = _vol[0];        var setVolume = _vol[1];
         var _boost = useState(false);            var boostEnabled = _boost[0]; var setBoostEnabled = _boost[1];
         var _vp    = useState(false);            var showVolumePopup = _vp[0]; var setShowVolumePopup = _vp[1];
         var _url   = useState(false);            var showUrlModal = _url[0];  var setShowUrlModal = _url[1];
         var _ts    = useState(false);            var topSearchVisible = _ts[0]; var setTopSearchVisible = _ts[1];
+        var _tb    = useState({});               var toolbarButtons = _tb[0]; var setToolbarButtons = _tb[1];
         var _drag  = useState(false);            var isDragging = _drag[0];   var setIsDragging = _drag[1];
         var _dragT = useState(0);                var dragTime = _dragT[0];    var setDragTime = _dragT[1];
 
@@ -587,8 +672,17 @@
             // Service activation
             window.api.onServiceActive(function(active) {
                 setServiceActive(active);
-                if (!active) setPlayerVisible(false);
+                if (!active) {
+                    setActiveService(null);
+                    setPlayerVisible(false);
+                }
             });
+
+            if (window.api.onActiveServiceChanged) {
+                window.api.onActiveServiceChanged(function(service) {
+                    setActiveService(service || null);
+                });
+            }
 
             // VK Player visibility
             if (window.api.onVkPlayerVisibility) {
@@ -608,6 +702,12 @@
             if (window.api.onTopBarSearchVisibility) {
                 window.api.onTopBarSearchVisibility(function(vis) {
                     setTopSearchVisible(vis);
+                });
+            }
+
+            if (window.api.onToolbarButtonsChanged) {
+                window.api.onToolbarButtonsChanged(function(buttons) {
+                    setToolbarButtons(buttons || {});
                 });
             }
 
@@ -631,17 +731,12 @@
                 // Check search bar visibility
                 var searchVis = await callApi('getTopBarSearch');
                 if (searchVis === true) setTopSearchVisible(true);
-            })();
-        }, []);
 
-        // --- Auto-load default service (backup for main.js auto-load) ---
-        useEffect(function() {
-            var timer = setTimeout(function() {
-                if (!serviceActiveRef.current) {
-                    callApi('loadService', 'yt');
+                if (window.api && window.api.getSettings) {
+                    var settings = await window.api.getSettings();
+                    setToolbarButtons((settings && settings.toolbarButtons) || {});
                 }
-            }, 1500);
-            return function() { clearTimeout(timer); };
+            })();
         }, []);
 
         // --- Browser Polling (non-Electron fallback) ---
@@ -665,6 +760,7 @@
                             likeStatus:  !!state.likeStatus,
                         });
                         setServiceActive(true);
+                        setActiveService('yt');
                         setPlayerVisible(true);
                     }
                 } catch (e) { /* polling failed, ignore */ }
@@ -733,6 +829,7 @@
             callApi('loadService', service);
             if (!window.api) {
                 setServiceActive(true);
+                setActiveService(service);
                 setPlayerVisible(true);
             }
         }, []);
@@ -749,6 +846,8 @@
                     showVolumePopup=${showVolumePopup}
                     setShowVolumePopup=${setShowVolumePopup}
                     topSearchVisible=${topSearchVisible}
+                    toolbarButtons=${toolbarButtons}
+                    activeService=${activeService}
                     onOpenUrlModal=${openUrlModal}
                 />
 

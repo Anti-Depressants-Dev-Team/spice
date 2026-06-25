@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld("api", {
   loadService: (service) => ipcRenderer.send("load-service", service),
   navigate: (action) => ipcRenderer.send("navigate", action),
   openSettings: () => ipcRenderer.send("open-settings"),
+  openToolbarSettings: () => ipcRenderer.send("open-toolbar-settings"),
   setVolume: (value) => ipcRenderer.send("set-volume", value),
   loadUrl: (url) => ipcRenderer.send("load-url", url),
   hideView: () => ipcRenderer.send("hide-view"),
@@ -18,6 +19,8 @@ contextBridge.exposeInMainWorld("api", {
   setVkPlayer: (enabled) => ipcRenderer.send("set-vk-player", enabled),
   setDefaultService: (service) =>
     ipcRenderer.send("set-default-service", service),
+  setToolbarButtons: (buttons) => ipcRenderer.send("set-toolbar-buttons", buttons),
+  setCustomCss: (css) => ipcRenderer.send("set-custom-css", css),
   getVolume: () => ipcRenderer.invoke("get-volume"),
   setDiscordRpc: (enabled) => ipcRenderer.send("set-discord-rpc", enabled),
   openLyrics: () => ipcRenderer.send("open-lyrics"),
@@ -45,11 +48,19 @@ contextBridge.exposeInMainWorld("api", {
   playQueueIndex: (index) => ipcRenderer.send("play-queue-index", index),
   onServiceActive: (callback) =>
     ipcRenderer.on("service-active", (event, value) => callback(value)),
+  onActiveServiceChanged: (callback) =>
+    ipcRenderer.on("active-service-changed", (event, service) =>
+      callback(service),
+    ),
   onVolumeChanged: (callback) =>
     ipcRenderer.on("volume-changed", (event, value) => callback(value)),
   onVkPlayerVisibility: (callback) =>
     ipcRenderer.on("vk-player-visibility", (event, visible) =>
       callback(visible),
+    ),
+  onToolbarButtonsChanged: (callback) =>
+    ipcRenderer.on("toolbar-buttons-changed", (event, buttons) =>
+      callback(buttons),
     ),
   onVkTrackUpdate: (callback) =>
     ipcRenderer.on("vk-track-update", (event, info) => callback(info)),

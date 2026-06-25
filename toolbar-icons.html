@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Toolbar Icons</title>
+        <link rel="stylesheet" href="styles.css" />
+        <style>
+            body {
+                margin: 0;
+                background: #0a0a0c;
+                color: #fff;
+                height: 100vh;
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+            }
+
+            #title-bar {
+                height: 40px;
+                display: flex;
+                align-items: center;
+                background: rgba(0, 0, 0, 0.94);
+                border-bottom: 1px solid rgba(168, 85, 247, 0.22);
+                -webkit-app-region: drag;
+                flex-shrink: 0;
+            }
+
+            .drag-region {
+                flex: 1;
+                padding-left: 14px;
+                color: #b9a8c9;
+                font-size: 13px;
+                font-weight: 600;
+            }
+
+            .window-controls {
+                height: 100%;
+                display: flex;
+                -webkit-app-region: no-drag;
+            }
+
+            .content {
+                padding: 18px;
+                overflow-y: auto;
+            }
+
+            h2 {
+                margin: 0 0 6px;
+                font-weight: 400;
+                font-size: 20px;
+            }
+
+            p {
+                margin: 0 0 18px;
+                color: #777;
+                font-size: 12px;
+                line-height: 1.5;
+            }
+
+            .icon-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 13px 0;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            }
+
+            .icon-name {
+                display: block;
+                color: #e5e5e5;
+                font-size: 14px;
+            }
+
+            .icon-hint {
+                display: block;
+                color: #666;
+                font-size: 11px;
+                margin-top: 3px;
+            }
+
+            .switch {
+                position: relative;
+                display: inline-block;
+                width: 40px;
+                height: 20px;
+                flex-shrink: 0;
+            }
+
+            .switch input {
+                opacity: 0;
+                width: 0;
+                height: 0;
+            }
+
+            .slider {
+                position: absolute;
+                cursor: pointer;
+                inset: 0;
+                background-color: #444;
+                transition: 0.2s;
+                border-radius: 20px;
+            }
+
+            .slider:before {
+                position: absolute;
+                content: "";
+                height: 16px;
+                width: 16px;
+                left: 2px;
+                bottom: 2px;
+                background-color: white;
+                transition: 0.2s;
+                border-radius: 50%;
+            }
+
+            input:checked + .slider {
+                background-color: #ba2f2f;
+            }
+
+            input:checked + .slider:before {
+                transform: translateX(20px);
+            }
+        </style>
+    </head>
+    <body>
+        <div id="title-bar">
+            <div class="drag-region">Toolbar Icons</div>
+            <div class="window-controls">
+                <button id="btn-close" class="win-btn win-close" title="Close">
+                    <svg viewBox="0 0 12 12">
+                        <path
+                            fill="currentColor"
+                            d="M11 1.7L10.3 1 6 5.3 1.7 1 1 1.7 5.3 6 1 10.3 1.7 11 6 6.7 10.3 11 11 10.3 6.7 6z"
+                        />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <main class="content">
+            <h2>Toolbar Icons</h2>
+            <p>Choose which controls appear in the main app title bar.</p>
+            <div id="icon-list"></div>
+        </main>
+
+        <script>
+            const iconList = document.getElementById("icon-list");
+            const iconOptions = [
+                ["back", "Back", "Go to the previous page."],
+                ["reload", "Reload", "Restart the app view."],
+                ["openUrl", "Open URL", "Open a supported music link."],
+                ["home", "Home", "Return to the Spice home screen."],
+                ["volume", "Volume", "Show the volume and boost control."],
+                ["lyrics", "Lyrics", "Open the synced lyrics window."],
+                ["miniPlayer", "Mini Player", "Open the compact player."],
+                ["queue", "Queue", "Open the playback queue window."],
+            ];
+
+            let currentButtons = {};
+
+            function save() {
+                window.api.setToolbarButtons(currentButtons);
+            }
+
+            function render() {
+                iconList.innerHTML = "";
+                iconOptions.forEach(([key, name, hint]) => {
+                    const row = document.createElement("div");
+                    row.className = "icon-row";
+                    row.innerHTML = `
+                        <div>
+                            <span class="icon-name">${name}</span>
+                            <span class="icon-hint">${hint}</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" data-key="${key}" ${currentButtons[key] !== false ? "checked" : ""} />
+                            <span class="slider"></span>
+                        </label>
+                    `;
+                    iconList.appendChild(row);
+                });
+
+                iconList.querySelectorAll("input[type='checkbox']").forEach((input) => {
+                    input.addEventListener("change", (event) => {
+                        currentButtons[event.target.dataset.key] = event.target.checked;
+                        save();
+                    });
+                });
+            }
+
+            window.api.getSettings().then((settings) => {
+                currentButtons = settings.toolbarButtons || {};
+                render();
+            });
+
+            document
+                .getElementById("btn-close")
+                .addEventListener("click", () =>
+                    window.api.windowControls.close(),
+                );
+        </script>
+    </body>
+</html>

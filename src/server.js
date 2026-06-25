@@ -40,6 +40,8 @@ const APP_UI_FILES = {
   "/index.html": "index.html",
   "/settings": "settings.html",
   "/settings.html": "settings.html",
+  "/toolbar-icons": "toolbar-icons.html",
+  "/toolbar-icons.html": "toolbar-icons.html",
   "/lyrics": "lyrics.html",
   "/lyrics.html": "lyrics.html",
   "/queue": "queue.html",

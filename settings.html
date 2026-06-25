@@ -11,16 +11,40 @@
                 flex-direction: column;
                 margin: 0;
                 padding: 0;
-                background-color: #121212;
+                background-color: #0a0a0c;
                 color: #ffffff;
                 height: 100vh;
                 overflow: hidden;
             }
 
             #title-bar {
-                position: relative;
-                /* Relative is fine as body is flex column */
+                height: 40px;
+                display: flex;
+                align-items: center;
+                background: rgba(0, 0, 0, 0.94);
+                border-bottom: 1px solid rgba(168, 85, 247, 0.22);
+                -webkit-app-region: drag;
                 flex-shrink: 0;
+            }
+
+            .drag-region {
+                height: 100%;
+                display: flex;
+                align-items: center;
+                flex: 1;
+                padding-left: 14px;
+                color: #b9a8c9;
+                font-size: 13px;
+                font-weight: 600;
+                letter-spacing: 0.01em;
+            }
+
+            .window-controls {
+                height: 100%;
+                display: flex;
+                align-items: center;
+                margin-left: auto;
+                -webkit-app-region: no-drag;
             }
 
             .settings-content {
@@ -124,7 +148,8 @@
 
             /* Input Fields */
             input[type="text"],
-            input[type="password"] {
+            input[type="password"],
+            textarea {
                 background-color: #222;
                 color: #fff;
                 border: 1px solid #444;
@@ -137,9 +162,18 @@
             }
 
             input[type="text"]:focus,
-            input[type="password"]:focus {
+            input[type="password"]:focus,
+            textarea:focus {
                 outline: none;
                 border-color: #ba2f2f;
+            }
+
+            textarea {
+                min-height: 150px;
+                resize: vertical;
+                font-family:
+                    "Cascadia Code", Consolas, "Courier New", monospace;
+                line-height: 1.45;
             }
 
             /* Buttons */
@@ -231,15 +265,6 @@
             <!-- Spacer/Drag Region -->
             <div
                 class="drag-region"
-                style="
-                    -webkit-app-region: drag;
-                    flex-grow: 1;
-                    margin-left: 15px;
-                    display: flex;
-                    align-items: center;
-                    font-weight: bold;
-                    color: #888;
-                "
             >
                 Spice Settings
             </div>
@@ -295,7 +320,7 @@
                     <option value="home">None (Home Screen)</option>
                     <option value="yt">YouTube Music</option>
                     <option value="sc">SoundCloud (experimental)</option>
-                    <option value="spice_crazy">Spice Crazier</option>
+                    <option value="spice_crazy" selected>Spice Music</option>
                 </select>
             </div>
 
@@ -339,7 +364,7 @@
                     <label
                         for="topbar-search-toggle"
                         style="margin: 0; font-size: 16px"
-                        >Top Bar Search (YT Music)</label
+                        >Top Bar Search</label
                     >
                     <label class="switch">
                         <input type="checkbox" id="topbar-search-toggle" />
@@ -347,9 +372,52 @@
                     </label>
                 </div>
                 <p style="color: #666; font-size: 12px; margin-top: 5px">
-                    Enable a quick search bar in the top navigation bar tailored
-                    for YouTube Music.
+                    Enable a quick search bar in the top navigation bar.
                 </p>
+            </div>
+
+            <div class="settings-section">
+                <div class="section-header">
+                    <div>
+                        <label style="margin: 0; font-size: 16px"
+                            >Toolbar Icons</label
+                        >
+                        <p style="color: #666; font-size: 12px; margin: 0">
+                            Pick which title bar icons are shown in a separate
+                            window.
+                        </p>
+                    </div>
+                    <button
+                        id="open-toolbar-settings-btn"
+                        class="btn"
+                        style="margin-left: auto"
+                    >
+                        Customize
+                    </button>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <label for="custom-css" style="font-size: 16px"
+                    >Custom CSS</label
+                >
+                <p style="color: #666; font-size: 12px; margin-bottom: 10px">
+                    Add your own CSS for the Spice app shell and loaded music
+                    view.
+                </p>
+                <textarea
+                    id="custom-css"
+                    spellcheck="false"
+                    placeholder=":root { --accent: #ff4d8d; }"
+                ></textarea>
+                <div style="display: flex; gap: 10px; justify-content: flex-end">
+                    <button id="clear-custom-css-btn" class="btn btn-secondary">
+                        Clear
+                    </button>
+                    <button id="save-custom-css-btn" class="btn">
+                        Save CSS
+                    </button>
+                </div>
             </div>
 
             <!-- Updates Section -->
@@ -539,6 +607,15 @@
             const topbarSearchToggle = document.getElementById(
                 "topbar-search-toggle",
             );
+            const openToolbarSettingsBtn = document.getElementById(
+                "open-toolbar-settings-btn",
+            );
+            const customCssInput = document.getElementById("custom-css");
+            const saveCustomCssBtn =
+                document.getElementById("save-custom-css-btn");
+            const clearCustomCssBtn = document.getElementById(
+                "clear-custom-css-btn",
+            );
 
             // Load settings
             window.api.getSettings().then((settings) => {
@@ -555,6 +632,7 @@
                 discordToggle.checked = settings.discordRpcEnabled;
                 vkPlayerToggle.checked = settings.vkPlayerEnabled;
                 topbarSearchToggle.checked = settings.topBarSearchEnabled;
+                customCssInput.value = settings.customCss || "";
             });
 
             adBlockTypeSelect.addEventListener("change", (e) => {
@@ -589,6 +667,19 @@
 
             topbarSearchToggle.addEventListener("change", (e) => {
                 window.api.setTopBarSearch(e.target.checked);
+            });
+
+            openToolbarSettingsBtn.addEventListener("click", () => {
+                window.api.openToolbarSettings();
+            });
+
+            saveCustomCssBtn.addEventListener("click", () => {
+                window.api.setCustomCss(customCssInput.value);
+            });
+
+            clearCustomCssBtn.addEventListener("click", () => {
+                customCssInput.value = "";
+                window.api.setCustomCss("");
             });
 
             defaultServiceSelect.addEventListener("change", (e) => {
