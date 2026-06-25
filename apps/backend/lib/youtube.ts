@@ -316,7 +316,7 @@ export async function getPlaylistTracks(playlistId: string) {
       }
       continuations++;
     } catch (e) {
-      console.error('Error fetching playlist continuation:', e);
+      console.warn('[YOUTUBE API] Playlist continuation interrupted (soft failure):', e);
       break;
     }
   }
