@@ -4,7 +4,7 @@ import { verifySession } from '@/lib/auth';
 import { jsonResponse, optionsResponse } from '@/lib/cors';
 import { db } from '@/db';
 import { playlists, playlistItems, playlistMembers, users, profiles } from '@/db/schema';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { trackSnapshotColumns, trackSnapshotFromRow } from '@/lib/track-snapshot';
 import type { TrackSnapshotInput } from '@/lib/track-snapshot';
 
@@ -82,15 +82,26 @@ export async function GET(
       items.map((item) => item.addedByUserId).filter((id): id is string => !!id),
     );
     const addedByMap: Record<string, { username: string | null; displayName: string }> = {};
-    for (const uid of addedByUserIds) {
-      const user = await db.query.users.findFirst({ where: eq(users.id, uid) });
-      const profile = await db.query.profiles.findFirst({
-        where: and(eq(profiles.userId, uid), eq(profiles.id, 'default')),
-      });
-      addedByMap[uid] = {
-        username: user?.username || null,
-        displayName: profile?.displayName || user?.email || 'Unknown',
-      };
+    const uidsArray = Array.from(addedByUserIds);
+    if (uidsArray.length > 0) {
+      const [fetchedUsers, fetchedProfiles] = await Promise.all([
+        db.query.users.findMany({ where: inArray(users.id, uidsArray) }),
+        db.query.profiles.findMany({
+          where: and(inArray(profiles.userId, uidsArray), eq(profiles.id, 'default')),
+        }),
+      ]);
+
+      const userMap = new Map(fetchedUsers.map(u => [u.id, u]));
+      const profileMap = new Map(fetchedProfiles.map(p => [p.userId, p]));
+
+      for (const uid of uidsArray) {
+        const user = userMap.get(uid);
+        const profile = profileMap.get(uid);
+        addedByMap[uid] = {
+          username: user?.username || null,
+          displayName: profile?.displayName || user?.email || 'Unknown',
+        };
+      }
     }
 
     const tracks = items.map((item) => {

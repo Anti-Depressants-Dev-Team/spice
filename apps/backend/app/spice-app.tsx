@@ -740,32 +740,6 @@ const profileOriginUrl = (track: Track) => {
 const safeSharedString = (value: unknown, fallback = '') =>
   typeof value === 'string' && value.trim() ? value.trim() : fallback;
 
-const compactTrackForSongShare = (track: Track): Track => ({
-  id: track.id,
-  title: track.title,
-  artists: (track.artists || []).map((artist) => ({
-    id: safeSharedString(artist.id, artist.name || 'artist'),
-    name: safeSharedString(artist.name, 'Unknown Artist'),
-    ...(artist.artworkUrl ? { artworkUrl: artist.artworkUrl } : {}),
-  })),
-  ...(track.album ? {
-    album: {
-      id: track.album.id,
-      title: track.album.title,
-      artists: (track.album.artists || []).map((artist) => ({
-        id: safeSharedString(artist.id, artist.name || 'artist'),
-        name: safeSharedString(artist.name, 'Unknown Artist'),
-        ...(artist.artworkUrl ? { artworkUrl: artist.artworkUrl } : {}),
-      })),
-      ...(track.album.artworkUrl ? { artworkUrl: track.album.artworkUrl } : {}),
-      ...(track.album.year ? { year: track.album.year } : {}),
-    },
-  } : {}),
-  ...(track.durationMs ? { durationMs: track.durationMs } : {}),
-  ...(track.artworkUrl ? { artworkUrl: track.artworkUrl } : {}),
-  ...(track.sourceId ? { sourceId: track.sourceId } : {}),
-  ...(track.permalinkUrl ? { permalinkUrl: track.permalinkUrl } : {}),
-});
 
 const encodeBase64Url = (value: string) => {
   const bytes = new TextEncoder().encode(value);
@@ -4778,7 +4752,7 @@ export default function SpiceApp() {
         const err = await res.json();
         showSpiceNotice(err.message || 'Failed to accept invite.', 'danger');
       }
-    } catch (e) {
+    } catch {
       showSpiceNotice('Failed to accept invite.', 'danger');
     } finally {
       setAcceptingInvite(false);
@@ -4800,7 +4774,7 @@ export default function SpiceApp() {
         const err = await res.json();
         showSpiceNotice(err.message || 'Failed to reject invite.', 'danger');
       }
-    } catch (e) {
+    } catch {
       showSpiceNotice('Failed to reject invite.', 'danger');
     } finally {
       setAcceptingInvite(false);
