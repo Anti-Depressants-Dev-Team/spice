@@ -1,3 +1,9 @@
+## v1.0.66
+
+- [Spice.Music main] Added a setting in the settings tab to allow users to customize their global theme color.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.66`.
+
+
 ## v1.0.65
 
 - [Spice.Music main] Fixed a code health warning in `spice-app.tsx` by commenting out the unused `RecommendationSeed` import and using an inline type import at the usage site to satisfy TypeScript requirements.

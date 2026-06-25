@@ -3,7 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/player/mini_player.dart';
 
-/// Persistent chrome wrapping the top-level tabs: search + library.
+/// Persistent chrome wrapping the top-level tabs: search + library + settings.
 ///
 /// Layout is body=[child, MiniPlayer], `bottomNavigationBar`=tabs. Putting the
 /// mini-player inside the body (not the bottomNavigationBar slot) means
@@ -47,18 +47,25 @@ class MainShell extends StatelessWidget {
             selectedIcon: Icon(Icons.library_music),
             label: 'Library',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings),
+            label: 'Settings',
+          ),
         ],
       ),
     );
   }
 
   static int _indexFor(String location) {
+    if (location.startsWith('/settings')) return 2;
     if (location.startsWith('/library')) return 1;
     return 0;
   }
 
   static void _goToTab(BuildContext context, int index) {
     context.go(switch (index) {
+      2 => '/settings',
       1 => '/library',
       _ => '/search',
     });
