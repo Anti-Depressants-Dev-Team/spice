@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { corsHeaders, jsonResponse, optionsResponse } from '../lib/cors.ts';
+import { jsonResponse, optionsResponse } from '../lib/cors.ts';
 
 test('optionsResponse returns a 204 response with CORS headers', () => {
   const response = optionsResponse();
