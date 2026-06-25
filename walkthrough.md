@@ -1,5 +1,11 @@
 # SPICE Walkthrough
 
+## v1.0.65
+
+- [Spice.Music main] Fixed N+1 query issue when fetching members and profiles of shared playlists. Replaced iterative SQL queries with bulk fetches using `inArray` for better performance.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.65`.
+
+
 ## v1.0.64
 
 - [Spice.Music main] Added zero-dependency Discord Rich Presence (DRP) integration, allowing the SPICE player to show track details, artists, live elapsed/remaining ticking time progress, custom logo cover assets, and a button link back to the song.
