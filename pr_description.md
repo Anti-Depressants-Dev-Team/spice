@@ -1,3 +1,6 @@
-🎯 **What:** Removed hardcoded fallback string for `JWT_SECRET` and `PROFILE_CONNECTION_SECRET`.
-⚠️ **Risk:** The previous code would silently fallback to a known string if the required `JWT_SECRET` environment variable was unset, rendering all signed JWTs trivially forgeable by anyone with access to the source code.
-🛡️ **Solution:** The application now explicitly throws a startup error if the required `JWT_SECRET` environment variable is absent.
+🧹 [Code Health] Remove hardcoded console.error for expected lrclib failures
+
+🎯 **What:** Removed `console.error` logs in the catch blocks of `getDirectLyrics` and `searchLyrics` in `apps/backend/lib/lrclib.ts`.
+💡 **Why:** Logging expected third-party API failures using `console.error` pollutes logs without adding actionable value. Returning `null` natively handles these failures gracefully without littering console output.
+✅ **Verification:** Ran backend tests (`pnpm --filter @spice/backend test`) and linters (`pnpm backend:lint`) successfully. Additionally, fixed an existing duplicated code block and parsing error in `apps/backend/lib/shared-playlists.ts` to unblock linting.
+✨ **Result:** Cleaner standard error output, improved observability focus, and a bump to `Spice Media Core v1.0.66`.

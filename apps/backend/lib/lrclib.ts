@@ -101,8 +101,8 @@ async function getDirectLyrics(
       signal: AbortSignal.timeout(LYRICS_REQUEST_TIMEOUT_MS),
     });
     return response.ok ? await response.json() as LrcLibTrack : null;
-  } catch (error) {
-    console.error('[LYRICS API] LRCLIB direct lookup failed:', error);
+  } catch {
+    // Suppress logging for expected network/lookup failures
     return null;
   }
 }
@@ -126,8 +126,8 @@ async function searchLyrics(
 
     const results = await response.json() as LrcLibTrack[];
     return selectLyricsMatch(results, title, artist, durationSec) ?? null;
-  } catch (error) {
-    console.error('[LYRICS API] LRCLIB ranked search failed:', error);
+  } catch {
+    // Suppress logging for expected network/lookup failures
     return null;
   }
 }

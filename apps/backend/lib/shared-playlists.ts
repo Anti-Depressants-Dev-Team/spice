@@ -47,9 +47,11 @@ export async function getUsersInfo(userIds: string[]): Promise<Record<string, { 
   }
 
   return result;
+}
+
 type UserInfo = { username: string | null; displayName: string; avatarUrl: string | null };
 
-async function getUserInfo(userId: string): Promise<UserInfo> {
+async function _getUserInfo(userId: string): Promise<UserInfo> {
   const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
   const profile = await db.query.profiles.findFirst({
     where: and(eq(profiles.userId, userId), eq(profiles.id, 'default')),
@@ -61,7 +63,7 @@ async function getUserInfo(userId: string): Promise<UserInfo> {
   };
 }
 
-async function getBatchUserInfo(userIds: string[]): Promise<Record<string, UserInfo>> {
+async function _getBatchUserInfo(userIds: string[]): Promise<Record<string, UserInfo>> {
   if (userIds.length === 0) return {};
 
   const fetchedUsers = await db.query.users.findMany({ where: inArray(users.id, userIds) });
@@ -86,6 +88,7 @@ async function getBatchUserInfo(userIds: string[]): Promise<Record<string, UserI
   }
   return result;
 }
+
 
 export async function getPlaylistSnapshot(playlistId: string, options: SharedPlaylistOptions = {}) {
   const playlist = await db.query.playlists.findFirst({
@@ -117,38 +120,6 @@ export async function getPlaylistSnapshot(playlistId: string, options: SharedPla
     memberRows.forEach((row) => {
       allUserIds.add(row.userId);
     });
-  // Collect all user IDs to fetch in one batch
-  const allUserIds = new Set<string>();
-  allUserIds.add(playlist.userId);
-
-  // Build addedBy map for attribution
-  const addedByUserIds = new Set(
-    items.map((item) => item.addedByUserId).filter((id): id is string => !!id),
-  );
-  for (const uid of addedByUserIds) {
-    allUserIds.add(uid);
-  }
-
-  // Collect members if requested
-  let memberRows: any[] = [];
-  if (options.includeMembers || options.shared) {
-    memberRows = await db.select().from(playlistMembers).where(and(eq(playlistMembers.playlistId, playlist.id), eq(playlistMembers.status, 'accepted')));
-    for (const row of memberRows) {
-      if (row.userId !== playlist.userId) {
-        allUserIds.add(row.userId);
-      }
-    }
-  }
-
-  // Fetch all user info in a single batch
-  const userInfos = await getBatchUserInfo(Array.from(allUserIds));
-
-  const addedByMap: Record<string, { username: string | null; displayName: string }> = {};
-  for (const uid of addedByUserIds) {
-    const info = userInfos[uid];
-    if (info) {
-      addedByMap[uid] = { username: info.username, displayName: info.displayName };
-    }
   }
 
   // Fetch all users in one batch query
@@ -174,7 +145,6 @@ export async function getPlaylistSnapshot(playlistId: string, options: SharedPla
     for (const row of memberRows) {
       if (row.userId === playlist.userId) continue;
       const info = usersInfoMap[row.userId];
-      const info = userInfos[row.userId];
       if (info) {
         members.push({
           userId: row.userId,
@@ -189,7 +159,6 @@ export async function getPlaylistSnapshot(playlistId: string, options: SharedPla
 
   // Get owner info
   const ownerInfo = usersInfoMap[playlist.userId];
-  const ownerInfo = userInfos[playlist.userId] || { username: null, displayName: 'Unknown', avatarUrl: null };
 
   return {
     id: playlist.id,

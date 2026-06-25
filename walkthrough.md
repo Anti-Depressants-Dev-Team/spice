@@ -1,3 +1,8 @@
+## v1.0.66
+
+- [Spice.Music main] Fixed code health issue in `apps/backend/lib/lrclib.ts` by suppressing hardcoded `console.error` for expected LRCLIB lookup failures.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.66`.
+
 ## v1.0.65
 
 - [Spice.Music main] Fixed a code health warning in `spice-app.tsx` by commenting out the unused `RecommendationSeed` import and using an inline type import at the usage site to satisfy TypeScript requirements.
