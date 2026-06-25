@@ -4,7 +4,7 @@ import { verifySession } from '@/lib/auth';
 import { jsonResponse, optionsResponse } from '@/lib/cors';
 import { db } from '@/db';
 import { playlists, playlistMembers, users, profiles } from '@/db/schema';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, inArray } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
 
@@ -67,21 +67,34 @@ export async function GET(request: NextRequest) {
     // Get members
     const memberRows = await db.select().from(playlistMembers).where(eq(playlistMembers.playlistId, playlistId));
 
+    const otherMemberRows = memberRows.filter((row) => row.userId !== playlist.userId);
     const members = [];
-    for (const row of memberRows) {
-      if (row.userId === playlist.userId) continue;
-      const user = await db.query.users.findFirst({ where: eq(users.id, row.userId) });
-      const profile = await db.query.profiles.findFirst({
-        where: and(eq(profiles.userId, row.userId), eq(profiles.id, 'default')),
-      });
-      members.push({
-        userId: row.userId,
-        username: user?.username || null,
-        displayName: profile?.displayName || user?.email || 'Unknown',
-        avatarUrl: profile?.avatarUrl || null,
-        role: row.role,
-        acceptedAt: row.acceptedAt.toISOString(),
-      });
+
+    if (otherMemberRows.length > 0) {
+      const userIds = otherMemberRows.map((row) => row.userId);
+
+      const [fetchedUsers, fetchedProfiles] = await Promise.all([
+        db.query.users.findMany({ where: inArray(users.id, userIds) }),
+        db.query.profiles.findMany({
+          where: and(inArray(profiles.userId, userIds), eq(profiles.id, 'default')),
+        }),
+      ]);
+
+      const userMap = new Map(fetchedUsers.map((u) => [u.id, u]));
+      const profileMap = new Map(fetchedProfiles.map((p) => [p.userId, p]));
+
+      for (const row of otherMemberRows) {
+        const user = userMap.get(row.userId);
+        const profile = profileMap.get(row.userId);
+        members.push({
+          userId: row.userId,
+          username: user?.username || null,
+          displayName: profile?.displayName || user?.email || 'Unknown',
+          avatarUrl: profile?.avatarUrl || null,
+          role: row.role,
+          acceptedAt: row.acceptedAt.toISOString(),
+        });
+      }
     }
 
     return jsonResponse({

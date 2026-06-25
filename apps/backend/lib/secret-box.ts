@@ -44,7 +44,9 @@ export function decryptSecret(value: string) {
 
 function encryptionKey() {
   const material = process.env.PROFILE_CONNECTION_SECRET
-    || process.env.JWT_SECRET
-    || 'spice_super_secret_signing_key_32_characters_minimum';
+    || process.env.JWT_SECRET;
+  if (!material) {
+    throw new Error('PROFILE_CONNECTION_SECRET or JWT_SECRET environment variable is not set.');
+  }
   return createHash('sha256').update(material, 'utf8').digest();
 }
