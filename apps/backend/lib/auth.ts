@@ -1,7 +1,10 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { normalizeAccountRole, type AccountRole } from './account';
 
-const JWT_SECRET_STRING = process.env.JWT_SECRET || 'spice_super_secret_signing_key_32_characters_minimum';
+const JWT_SECRET_STRING = process.env.JWT_SECRET;
+if (!JWT_SECRET_STRING) {
+  throw new Error('JWT_SECRET environment variable is not set.');
+}
 const JWT_SECRET = new TextEncoder().encode(JWT_SECRET_STRING);
 
 export interface SpiceSession {
