@@ -23,7 +23,6 @@ import {
   buildRecommendationSeeds,
   rankRecommendedTracks,
   type RecommendationSeed,
-  type SeededRecommendationResult,
 } from './recommendations';
 import { isSpiceConnectCommandFresh, SPICE_CONNECT_COMMAND_TTL_MS } from '@/lib/spice-connect';
 
@@ -4283,7 +4282,7 @@ export default function SpiceApp() {
     }
 
     const exclude = [currentTrack, ...history.slice(0, 20)];
-    const cachedBatches = seeds.flatMap((seed): SeededRecommendationResult<Track>[] => {
+    const cachedBatches = seeds.flatMap((seed) => {
       const cached = getCachedSearch(seed.query, 'hybrid');
       if (!cached) return [];
 
@@ -4304,7 +4303,7 @@ export default function SpiceApp() {
     const timeout = setTimeout(async () => {
       try {
         const batches = await Promise.allSettled(
-          seeds.map(async (seed): Promise<SeededRecommendationResult<Track>> => {
+          seeds.map(async (seed) => {
             const tracks = await fetchSearchProviderResults(seed.query, 'hybrid');
             rememberSearchResults(seed.query, tracks, 'hybrid');
             return { seed, tracks };
