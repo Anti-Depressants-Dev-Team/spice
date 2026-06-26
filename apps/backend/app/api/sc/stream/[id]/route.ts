@@ -58,9 +58,9 @@ export async function GET(
     }
 
     if (request.nextUrl.searchParams.get('download') === 'true') {
-      let title = request.nextUrl.searchParams.get('title') || 'audio';
-      title = title.replace(/[^a-zA-Z0-9 \-_]/g, '').trim() || 'audio';
-      responseHeaders['Content-Disposition'] = `attachment; filename="${title}.mp3"`;
+      const title = request.nextUrl.searchParams.get('title') || 'audio';
+      const asciiTitle = title.replace(/[^a-zA-Z0-9 \-_]/g, '').trim() || 'audio';
+      responseHeaders['Content-Disposition'] = `attachment; filename="${asciiTitle}.mp3"; filename*=UTF-8''${encodeURIComponent(title)}.mp3`;
     }
 
     return new Response(upstream.body, {

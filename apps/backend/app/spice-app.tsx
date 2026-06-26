@@ -1289,9 +1289,15 @@ export default function SpiceApp() {
         finalUrl.searchParams.set('download', 'true');
         finalUrl.searchParams.set('title', downloadTitle);
         
-        // This will trigger the browser's download manager without unloading the page
-        // because the backend endpoint now returns Content-Disposition: attachment
-        window.location.href = finalUrl.toString();
+        // This will trigger the browser's download manager safely without unloading
+        const link = document.createElement('a');
+        link.href = finalUrl.toString();
+        link.download = downloadTitle;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
 
         showSpiceNotice(`Started downloading "${track.title}".`, 'success');
         setSongShareDialog(null);

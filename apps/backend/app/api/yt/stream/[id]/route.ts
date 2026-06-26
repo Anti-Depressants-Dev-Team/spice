@@ -90,10 +90,11 @@ export async function GET(
     responseHeaders['Cache-Control'] = 'no-store';
 
     if (request.nextUrl.searchParams.get('download') === 'true') {
-      let title = request.nextUrl.searchParams.get('title') || 'audio';
-      // Sanitize title for HTTP header
-      title = title.replace(/[^a-zA-Z0-9 \-_]/g, '').trim() || 'audio';
-      responseHeaders['Content-Disposition'] = `attachment; filename="${title}.mp3"`;
+      const title = request.nextUrl.searchParams.get('title') || 'audio';
+      // Keep sanitized ASCII for fallback filename
+      const asciiTitle = title.replace(/[^a-zA-Z0-9 \-_]/g, '').trim() || 'audio';
+      // Use filename*=UTF-8'' for full Unicode support
+      responseHeaders['Content-Disposition'] = `attachment; filename="${asciiTitle}.mp3"; filename*=UTF-8''${encodeURIComponent(title)}.mp3`;
     }
 
     return new Response(upstream.body, {
