@@ -23,7 +23,7 @@ import {
   rankRecommendedTracks,
 } from './recommendations';
 import { isSpiceConnectCommandFresh, SPICE_CONNECT_COMMAND_TTL_MS } from '@/lib/spice-connect';
-import { SPICE_MEDIA_CORE_VERSION, RELEASE_NOTIFICATION_STORAGE_KEY, type ReleaseNotification } from '@/lib/release-notifications';
+import { SPICE_MEDIA_CORE_VERSION, RELEASE_NOTIFICATION_STORAGE_KEY, RELEASE_NOTIFICATIONS, type ReleaseNotification } from '@/lib/release-notifications';
 
 const SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS = 400;
 const SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS = 1500;
@@ -144,11 +144,6 @@ const Icons = {
       <rect x="14" y="3" width="7" height="7" />
       <rect x="3" y="14" width="7" height="7" />
       <rect x="14" y="14" width="7" height="7" />
-    </svg>
-  ),
-  refresh: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
-      <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.59-9.21l5.67-5.67" />
     </svg>
   ),
   trash: (
@@ -1161,8 +1156,8 @@ function saveProfilesToStorage(profiles: UserProfile[]) {
 
 export default function SpiceApp() {
   const [volumeBoosterAccepted, setVolumeBoosterAccepted] = useState(false);
-  const [showVolumeBoosterDisclaimer, setShowVolumeBoosterDisclaimer] = useState(false);
-  const [currentPage, setCurrentPage] = useState<AppPage>('home');
+  const [isVolumeHovered, setIsVolumeHovered] = useState(false);
+    const [currentPage, setCurrentPage] = useState<AppPage>('home');
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
 
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
@@ -1343,7 +1338,6 @@ export default function SpiceApp() {
         const link = document.createElement('a');
         link.href = finalUrl.toString();
         link.download = `${downloadTitle}.mp3`; // keeping .mp3 extension from HEAD
-        link.target = '_blank';
         link.rel = 'noopener noreferrer';
         document.body.appendChild(link);
         link.click();
@@ -1538,18 +1532,6 @@ export default function SpiceApp() {
       return [];
     }
   });
-  const [releaseNotifications, setReleaseNotifications] = useState<ReleaseNotification[]>([]);
-
-  useEffect(() => {
-    fetch('/api/notifications/release')
-      .then(res => res.json())
-      .then(data => {
-        if (data.notifications && Array.isArray(data.notifications)) {
-          setReleaseNotifications(data.notifications);
-        }
-      })
-      .catch(() => {});
-  }, []);
   const [showMembersPanel, setShowMembersPanel] = useState(false);
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersList, setMembersList] = useState<{ owner: PlaylistMember; members: PlaylistMember[]; maxMembers: number } | null>(null);
@@ -1712,22 +1694,9 @@ export default function SpiceApp() {
     logDebug('profile', `Last.fm linked as ${resolvedUser}.`);
   }, [logDebug]);
 
-  const prevTerminalAutoScrollRef = useRef(terminalAutoScroll);
-
   useEffect(() => {
-    const toggledOn = terminalAutoScroll && !prevTerminalAutoScrollRef.current;
-    prevTerminalAutoScrollRef.current = terminalAutoScroll;
-
     if (terminalAutoScroll && terminalEndRef.current) {
-      const parent = terminalEndRef.current.parentElement;
-      if (parent) {
-        const isNearBottom = parent.scrollHeight - parent.scrollTop - parent.clientHeight < 100;
-        if (isNearBottom || toggledOn) {
-          terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
-        }
-      } else {
-        terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
-      }
+      terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [debugLogs, terminalAutoScroll]);
 
@@ -4004,7 +3973,7 @@ export default function SpiceApp() {
           currentTrack: device.currentTrack ? enrichTrackSnapshot(device.currentTrack) : null,
           queue: Array.isArray(device.queue) ? device.queue.map(enrichTrackSnapshot) : [],
           lastSeenSeconds: Math.max(0, Math.round((Date.now() - new Date(device.updatedAt).getTime()) / 1000)),
-        })).filter((device: any) => device.lastSeenSeconds <= 7200)
+        }))
         : [];
       setRemoteDevices(devices);
 
@@ -5289,7 +5258,6 @@ export default function SpiceApp() {
     const safeDeviceId = deviceId === remoteDeviceId ? '' : deviceId;
     setSelectedRemoteDeviceId(safeDeviceId);
     if (safeDeviceId) {
-      pauseCurrentPlayback();
       localStorage.setItem('spice_connect_receiver_id', safeDeviceId);
       const device = remoteTargetDevices.find((entry) => entry.deviceId === safeDeviceId);
       setRemoteStatus(`Player controls now target ${device?.displayName || 'selected Spice Connect device'}.`);
@@ -5390,7 +5358,8 @@ export default function SpiceApp() {
   };
 
   const setReceiverVolume = (nextVolume: number) => {
-    const safeVolume = Math.max(0, Math.min(1000, Math.round(nextVolume)));
+    const maxAllowed = volumeBoosterAccepted ? 1000 : 200;
+    const safeVolume = Math.max(0, Math.min(maxAllowed, Math.round(nextVolume)));
     if (isControllingRemoteReceiver) {
       if (!canControlSelectedRemoteReceiver('volume')) return;
       patchSelectedRemoteDevice({ volume: safeVolume });
@@ -5410,8 +5379,7 @@ export default function SpiceApp() {
     if (!device) return 'Local playback';
     if (device.lastSeenSeconds === undefined) return 'Remote ready';
     if (device.lastSeenSeconds <= 5) return device.isPlaying ? 'Live now' : 'Online now';
-    const minutes = Math.floor(device.lastSeenSeconds / 60);
-    return `Last seen ${minutes === 0 ? '<1' : minutes}m ago`;
+    return `Last seen ${device.lastSeenSeconds}s ago`;
   };
 
   const renderSpiceConnectReceiverOption = (
@@ -6279,7 +6247,7 @@ export default function SpiceApp() {
   const shouldShowTopbarSearchTray =
     topbarSearchTrayOpen
     && (Boolean(topbarSearchQuery.trim()) || topbarRecentSuggestions.length > 0 || topbarTrayResults.length > 0 || isSearching);
-  const unreadReleaseNotifications = releaseNotifications.filter((notification) => !readReleaseNotificationIds.includes(notification.id));
+  const unreadReleaseNotifications = RELEASE_NOTIFICATIONS.filter((notification) => !readReleaseNotificationIds.includes(notification.id));
   const notificationCount = unreadReleaseNotifications.length + pendingInvites.length;
   const notificationCountLabel = notificationCount > 99 ? '99+' : String(notificationCount);
 
@@ -6290,29 +6258,7 @@ export default function SpiceApp() {
   return (
     <div className={`app ${sidebarHidden ? 'app--sidebar-hidden' : ''}`}>
       <style dangerouslySetInnerHTML={{ __html: getAccentStyles() }} />
-      {showVolumeBoosterDisclaimer && (
-        <div className="modal-overlay" style={{ zIndex: 9999 }} onClick={() => setShowVolumeBoosterDisclaimer(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Volume Booster Warning</h2>
-            <p>
-              Warning: Boosting the volume above 100% may cause audio distortion and could potentially damage your speakers or hearing. Use at your own risk.
-            </p>
-            <div className="modal-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
-              <button className="btn" onClick={() => setShowVolumeBoosterDisclaimer(false)}>Cancel</button>
-              <button
-                className="btn btn--primary"
-                onClick={() => {
-                  setVolumeBoosterAccepted(true);
-                  localStorage.setItem('spice_volume_booster_accepted', 'true');
-                  setShowVolumeBoosterDisclaimer(false);
-                }}
-              >
-                I Accept
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {spiceNotices.length > 0 && (
         <div className="spice-notices-container">
@@ -6868,7 +6814,7 @@ export default function SpiceApp() {
 
                     <div className="app-topbar__notification-section">
                       <span className="app-topbar__notification-section-title">Version updates</span>
-                      {releaseNotifications.map((notification) => {
+                      {RELEASE_NOTIFICATIONS.map((notification) => {
                         const isUnread = !readReleaseNotificationIds.includes(notification.id);
                         return (
                           <div key={notification.id} className={`app-topbar__notification-item ${isUnread ? 'is-unread' : ''}`}>
@@ -7076,22 +7022,7 @@ export default function SpiceApp() {
               {showMembersPanel && (
                 <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '20px', margin: '24px auto', maxWidth: '800px' }} className="animate-in">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <h3 style={{ margin: 0, fontSize: '1.1rem', fontFamily: 'Outfit, sans-serif' }}>Playlist Collaborators</h3>
-                      {selectedPlaylist && (
-                        <button
-                          className="btn btn--ghost"
-                          style={{ padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                          onClick={() => fetchPlaylistMembers(selectedPlaylist.id)}
-                          title="Refresh Collaborators"
-                          disabled={membersLoading}
-                        >
-                          <div style={{ display: 'flex', animation: membersLoading ? 'spin 1s linear infinite' : 'none' }}>
-                            {Icons.refresh}
-                          </div>
-                        </button>
-                      )}
-                    </div>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontFamily: 'Outfit, sans-serif' }}>Playlist Collaborators</h3>
                     <button className="btn btn--ghost" style={{ padding: '4px 8px', fontSize: '0.8rem' }} onClick={() => setShowMembersPanel(false)}>
                       Close
                     </button>
@@ -8965,7 +8896,7 @@ export default function SpiceApp() {
                                   {selectedRemoteDevice.currentTrack?.artists?.map((artist) => artist.name).join(', ') || selectedRemoteDevice.displayName}
                                 </div>
                                 <div style={{ color: 'var(--text-muted)', fontSize: '0.68rem', marginTop: '4px' }}>
-                                  Last seen {Math.floor((selectedRemoteDevice.lastSeenSeconds ?? 0) / 60) === 0 ? '<1' : Math.floor((selectedRemoteDevice.lastSeenSeconds ?? 0) / 60)}m ago
+                                  Last seen {selectedRemoteDevice.lastSeenSeconds ?? 0}s ago
                                 </div>
                               </div>
                             </div>
@@ -8985,7 +8916,7 @@ export default function SpiceApp() {
                               <input
                                 type="range"
                                 min="0"
-                                max="100"
+                                max={volumeBoosterAccepted ? 1000 : 200}
                                 defaultValue={selectedRemoteDevice.volume}
                                 onMouseUp={(e) => sendRemoteCommand('volume', { volume: Number((e.target as HTMLInputElement).value) })}
                                 onTouchEnd={(e) => sendRemoteCommand('volume', { volume: Number((e.target as HTMLInputElement).value) })}
@@ -10019,29 +9950,68 @@ export default function SpiceApp() {
             {Icons.miniPlayer}
           </button>
 
-          <div className="now-playing__volume">
+          <div className="now-playing__volume" onMouseEnter={() => setIsVolumeHovered(true)} onMouseLeave={() => setIsVolumeHovered(false)} style={{ position: 'relative' }}>
+            <button
+              className="now-playing__volume-btn"
+              onClick={() => {
+                const newState = !volumeBoosterAccepted;
+                setVolumeBoosterAccepted(newState);
+                localStorage.setItem('spice_volume_booster_accepted', String(newState));
+                if (!newState && playerVolume > 200) {
+                  setReceiverVolume(200);
+                }
+              }}
+              style={{
+                fontSize: '0.65rem',
+                fontWeight: 'bold',
+                width: 'auto',
+                padding: '0 6px',
+                color: volumeBoosterAccepted ? 'var(--accent-pink)' : 'var(--text-secondary)'
+              }}
+              title="Toggle Volume Booster"
+            >
+              BOOST
+            </button>
+
+
             <button className="now-playing__volume-btn" onClick={() => setReceiverVolume(playerVolume === 0 ? 70 : 0)}>
               {playerVolume === 0 ? Icons.volumeMuted : Icons.volume}
             </button>
+            {isVolumeHovered && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '-24px',
+                  right: '0',
+                  background: 'rgba(0, 0, 0, 0.8)',
+                  color: '#fff',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  fontSize: '0.7rem',
+                  pointerEvents: 'none',
+                  whiteSpace: 'nowrap',
+                  zIndex: 10,
+                  transform: 'translateX(-50%)'
+                }}
+              >
+                {playerVolume}%
+              </div>
+            )}
             <input
               type="range"
               className="now-playing__volume-slider"
               min="0"
-              max="1000"
+              max={volumeBoosterAccepted ? 1000 : 200}
               value={playerVolume}
               onChange={(e) => {
                 const newVol = Number(e.target.value);
-                if (newVol > 100 && !volumeBoosterAccepted) {
-                  setShowVolumeBoosterDisclaimer(true);
-                  setReceiverVolume(100);
-                } else {
-                  setReceiverVolume(newVol);
-                }
+                setReceiverVolume(newVol);
               }}
               style={{
-                background: `linear-gradient(to right, var(--accent-pink) 0%, var(--accent-pink) ${Math.min(playerVolume, 1000) / 10}%, hsla(270, 10%, 25%, 0.5) ${Math.min(playerVolume, 1000) / 10}%, hsla(270, 10%, 25%, 0.5) 100%)`
+                background: `linear-gradient(to right, var(--accent-pink) 0%, var(--accent-pink) ${Math.min(playerVolume, volumeBoosterAccepted ? 1000 : 200) / (volumeBoosterAccepted ? 10 : 2)}%, hsla(270, 10%, 25%, 0.5) ${Math.min(playerVolume, volumeBoosterAccepted ? 1000 : 200) / (volumeBoosterAccepted ? 10 : 2)}%, hsla(270, 10%, 25%, 0.5) 100%)`
               }}
             />
+
           </div>
         </div>
 
@@ -10313,7 +10283,7 @@ export default function SpiceApp() {
                         <input
                           type="range"
                           min="0"
-                          max="100"
+                          max={volumeBoosterAccepted ? 1000 : 200}
                           value={playerVolume}
                           onChange={(e) => setReceiverVolume(Number(e.target.value))}
                           style={{ width: '100%', cursor: 'pointer', accentColor: 'var(--accent-pink)' }}

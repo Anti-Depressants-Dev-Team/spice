@@ -1,15 +1,9 @@
-## v1.0.76
-
-- [Spice.Music main] Fixed a Vercel build failure caused by an implicit `any` type error on the `device` parameter within the remote devices mapping logic in `spice-app.tsx`.
-- [Spice.Music main] Bump the visible diagnostics version to `v1.0.76`.
-
 ## v1.0.75
 
 - [Spice.Music main] Fixed an issue where the ListenBrainz user token input field appeared empty after a browser refresh by populating it directly from the database profile connections endpoint, avoiding any dependency on browser cookies or local storage.
 - [Spice.Music main] Bump the visible diagnostics version to `PWA v1.0.75`.
 - [Spice.Marketing main] Fix layout clipping in the top navigation bar by restructuring the CSS grid and adjusting element widths.
 - [Spice.Marketing main] Synchronize the "account info" state on the home screen to match `spice_cloud_user` and `spice_profiles_list` from localStorage.
-- [Spice.Music main] Sync notification center release updates dynamically with `walkthrough.md` content via a new `/api/notifications/release` endpoint.
 
 ## v1.0.74
 
@@ -469,6 +463,7 @@
 ## Optimization & Containerization Update
 - [Spice.Music main] Added multi-stage Dockerfile for Next.js to enable VPS deployments and set Next config output to `standalone`.
 - [Spice.Music main] Optimized Vercel Fluid Compute costs on media proxy streams by introducing a 2MB chunking strategy for Range requests in the YouTube and SoundCloud APIs.
+- **v1.0.76 (Spice.Music main)**: Fixed volume booster to have an explicit BOOST toggle button and an exact percentage UI, capped max normal volume to 200%, capped max boosted volume to 1000%, and fixed the song downloader failing to start properly when popup blockers were triggered.
 
 ## v1.0.76 - Profile Creation & Notification UI Fixes
 - [Spice.Music main] Fixed the Profile tab in the Home screen to offer a native profile creation form when no local profile is found instead of redirecting the user to SPICE Music account setup.
