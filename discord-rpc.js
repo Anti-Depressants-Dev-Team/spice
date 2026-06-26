@@ -88,11 +88,12 @@ async function setActivity(track) {
 
     try {
         const serviceName = track.service === 'yt' ? 'YouTube Music' :
-            track.service === 'sc' ? 'SoundCloud' : 'Spice';
+            track.service === 'sc' ? 'SoundCloud' :
+                track.service === 'spice_crazy' ? 'Spice Music' : 'Spice';
 
         const activity = {
             type: 2, // Listening
-            details: (track.track || 'Unknown Track').substring(0, 128),
+            details: (track.track || track.title || 'Unknown Track').substring(0, 128),
             state: (track.artist || 'Unknown Artist').substring(0, 128),
             largeImageKey: track.albumArt || 'spice',
             largeImageText: ((track.album || serviceName) || serviceName).substring(0, 128),
@@ -109,6 +110,16 @@ async function setActivity(track) {
 
             activity.startTimestamp = Math.floor(startTime);
             activity.endTimestamp = Math.floor(startTime + (track.duration * 1000));
+        }
+
+        const listenUrl = track.listenUrl || track.url;
+        if (track.service === 'spice_crazy' && /^https:\/\/music\.spice-app\.xyz\/\?song=/.test(listenUrl || '')) {
+            activity.buttons = [
+                {
+                    label: 'Listen To Spice Music',
+                    url: listenUrl
+                }
+            ];
         }
 
         await client.user?.setActivity(activity);

@@ -388,7 +388,11 @@ function injectAdSkipper(targetView) {
 }
 
 function supportsInjectedPlayback(serviceKey) {
-  return serviceKey === "yt" || serviceKey === "sc";
+  return (
+    serviceKey === "yt" ||
+    serviceKey === "sc" ||
+    serviceKey === "spice_crazy"
+  );
 }
 
 function resetTrackedPlayback() {
@@ -943,6 +947,308 @@ function startTrackPolling() {
       // Query track info directly from the page - simplified to return raw text
       const rawData = await activeView.webContents.executeJavaScript(`
                     (function () {
+                        const serviceKey = ${JSON.stringify(currentService)};
+
+                        if (serviceKey === 'spice_crazy') {
+                            const media = document.querySelector('audio, video');
+                            const mediaSession = navigator.mediaSession && navigator.mediaSession.metadata
+                                ? navigator.mediaSession.metadata
+                                : null;
+
+                            function cleanLine(value) {
+                                return (value || '')
+                                    .replace(/\\s+/g, ' ')
+                                    .trim();
+                            }
+
+                            function isTimeLine(value) {
+                                return /^\\d{1,2}:\\d{2}(\\s*\\/\\s*\\d{1,2}:\\d{2})?$/.test(value);
+                            }
+
+                            function parseTime(value) {
+                                const parts = cleanLine(value).split(':').map((part) => Number.parseInt(part, 10));
+                                if (parts.some((part) => Number.isNaN(part))) return 0;
+                                if (parts.length === 2) return parts[0] * 60 + parts[1];
+                                if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+                                return 0;
+                            }
+
+                            function normalize(value) {
+                                return cleanLine(value).toLowerCase();
+                            }
+
+                            function decodeSongParam(value) {
+                                try {
+                                    const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+                                    const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+                                    return JSON.parse(decodeURIComponent(escape(atob(padded))));
+                                } catch (e) {
+                                    return null;
+                                }
+                            }
+
+                            function sourceFromValue(value) {
+                                const text = normalize(value);
+                                if (text.includes('soundcloud') || text === 'sc') return 'soundcloud';
+                                return 'youtube_music';
+                            }
+
+                            function encodeSongLink(id, songTitle, songArtist, sourceId) {
+                                if (!id || !songTitle) return '';
+                                try {
+                                    const payload = [
+                                        String(id),
+                                        cleanLine(songTitle),
+                                        cleanLine(songArtist) || 'Unknown Artist',
+                                        sourceFromValue(sourceId || id)
+                                    ];
+                                    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+                                    return 'https://music.spice-app.xyz/?song=' + encodeURIComponent(encoded);
+                                } catch (e) {
+                                    return '';
+                                }
+                            }
+
+                            function songParamMatches(url, songTitle, songArtist) {
+                                try {
+                                    const parsed = new URL(url, window.location.href);
+                                    const song = parsed.searchParams.get('song');
+                                    if (!song) return false;
+                                    const payload = decodeSongParam(song);
+                                    if (!Array.isArray(payload)) return false;
+                                    const payloadTitle = normalize(payload[1]);
+                                    const payloadArtist = normalize(payload[2]);
+                                    return payloadTitle === normalize(songTitle) &&
+                                        (!songArtist || !payloadArtist || payloadArtist === normalize(songArtist));
+                                } catch (e) {
+                                    return false;
+                                }
+                            }
+
+                            function getArtistName(candidate) {
+                                if (!candidate || typeof candidate !== 'object') return '';
+                                if (Array.isArray(candidate.artists) && candidate.artists.length) {
+                                    const first = candidate.artists[0];
+                                    return cleanLine(typeof first === 'string' ? first : first && first.name);
+                                }
+                                return cleanLine(
+                                    candidate.artist ||
+                                    candidate.artistName ||
+                                    candidate.author ||
+                                    candidate.channel ||
+                                    candidate.uploader
+                                );
+                            }
+
+                            function trackMatches(candidate, songTitle, songArtist) {
+                                if (!candidate || typeof candidate !== 'object') return false;
+                                const candidateTitle = normalize(
+                                    candidate.title ||
+                                    candidate.name ||
+                                    candidate.track ||
+                                    candidate.trackName
+                                );
+                                const candidateArtist = normalize(getArtistName(candidate));
+                                if (!candidateTitle || candidateTitle !== normalize(songTitle)) return false;
+                                return !songArtist || !candidateArtist || candidateArtist === normalize(songArtist);
+                            }
+
+                            function linkFromCandidate(candidate, songTitle, songArtist) {
+                                if (!candidate || typeof candidate !== 'object') return '';
+                                const id = candidate.id ||
+                                    candidate.trackId ||
+                                    candidate.videoId ||
+                                    candidate.songId ||
+                                    candidate.soundcloudId ||
+                                    candidate.youtubeId;
+                                const sourceId = candidate.sourceId ||
+                                    candidate.source ||
+                                    candidate.provider ||
+                                    candidate.platform;
+                                return encodeSongLink(
+                                    id,
+                                    candidate.title || candidate.name || songTitle,
+                                    getArtistName(candidate) || songArtist,
+                                    sourceId
+                                );
+                            }
+
+                            function findTrackInValue(value, songTitle, songArtist) {
+                                if (!value || typeof value !== 'object') return null;
+                                const seen = new WeakSet();
+                                let checked = 0;
+
+                                function walk(node, depth) {
+                                    if (!node || typeof node !== 'object' || depth > 8 || checked > 6000) return null;
+                                    if (seen.has(node)) return null;
+                                    seen.add(node);
+                                    checked += 1;
+
+                                    if (trackMatches(node, songTitle, songArtist)) return node;
+
+                                    const values = Array.isArray(node) ? node : Object.values(node);
+                                    for (const child of values) {
+                                        const match = walk(child, depth + 1);
+                                        if (match) return match;
+                                    }
+                                    return null;
+                                }
+
+                                return walk(value, 0);
+                            }
+
+                            function findStoredTrackLink(songTitle, songArtist) {
+                                const stores = [window.localStorage, window.sessionStorage].filter(Boolean);
+                                for (const storage of stores) {
+                                    for (let i = 0; i < storage.length; i += 1) {
+                                        const key = storage.key(i);
+                                        const value = storage.getItem(key) || '';
+                                        if (!value.includes(songTitle)) continue;
+                                        try {
+                                            const parsed = JSON.parse(value);
+                                            const candidate = findTrackInValue(parsed, songTitle, songArtist);
+                                            const link = linkFromCandidate(candidate, songTitle, songArtist);
+                                            if (link) return link;
+                                        } catch (e) {}
+                                    }
+                                }
+                                return '';
+                            }
+
+                            function findResourceTrackLink(songTitle, songArtist) {
+                                const resources = performance.getEntriesByType('resource')
+                                    .map((entry) => entry.name)
+                                    .reverse();
+                                for (const resource of resources) {
+                                    const match = resource.match(/\\/api\\/(yt|sc)\\/track\\/([^?&#]+)/);
+                                    if (!match) continue;
+                                    const sourceId = match[1] === 'sc' ? 'soundcloud' : 'youtube_music';
+                                    const id = decodeURIComponent(match[2]);
+                                    return encodeSongLink(id, songTitle, songArtist, sourceId);
+                                }
+                                return '';
+                            }
+
+                            function findSongAnchorLink(songTitle, songArtist, playerEl) {
+                                const currentUrl = window.location.href;
+                                if (currentUrl.startsWith('https://music.spice-app.xyz/') && songParamMatches(currentUrl, songTitle, songArtist)) {
+                                    return currentUrl;
+                                }
+
+                                const anchors = [
+                                    ...(playerEl ? Array.from(playerEl.querySelectorAll('a[href*="song="]')) : []),
+                                    ...Array.from(document.querySelectorAll('a[href*="song="]'))
+                                ];
+
+                                for (const anchor of anchors) {
+                                    const href = anchor.href || '';
+                                    if (songParamMatches(href, songTitle, songArtist)) return href;
+                                }
+
+                                return '';
+                            }
+
+                            function buildListenUrl(songTitle, songArtist, playerEl) {
+                                return findSongAnchorLink(songTitle, songArtist, playerEl) ||
+                                    findStoredTrackLink(songTitle, songArtist) ||
+                                    findResourceTrackLink(songTitle, songArtist);
+                            }
+
+                            function isUiLine(value) {
+                                const text = cleanLine(value).toLowerCase();
+                                if (!text) return true;
+                                if (isTimeLine(text)) return true;
+                                return [
+                                    'this device',
+                                    'sign in to choose devices',
+                                    'choose devices',
+                                    'spice music',
+                                    'spice listener',
+                                    'local profile',
+                                    'playlists',
+                                    'no playlists yet',
+                                    'home',
+                                    'search',
+                                    'library',
+                                    'profile',
+                                    'settings',
+                                    'hybrid'
+                                ].includes(text);
+                            }
+
+                            function bottomDistance(el) {
+                                const rect = el.getBoundingClientRect();
+                                return Math.abs(window.innerHeight - rect.bottom);
+                            }
+
+                            const candidates = Array.from(document.querySelectorAll('footer, [class*="player" i], [id*="player" i], [class*="now" i], [class*="bottom" i]'))
+                                .filter((el) => {
+                                    const rect = el.getBoundingClientRect();
+                                    if (rect.width < 180 || rect.height < 32) return false;
+                                    const style = getComputedStyle(el);
+                                    const nearBottom = rect.bottom > window.innerHeight - 180 || style.position === 'fixed' || style.position === 'sticky';
+                                    return nearBottom && cleanLine(el.innerText).length > 0;
+                                })
+                                .sort((a, b) => {
+                                    const aImg = a.querySelectorAll('img').length;
+                                    const bImg = b.querySelectorAll('img').length;
+                                    const aScore = aImg * 50 - bottomDistance(a);
+                                    const bScore = bImg * 50 - bottomDistance(b);
+                                    return bScore - aScore;
+                                });
+
+                            const player = candidates[0] || null;
+                            const rawText = player ? player.innerText : '';
+                            const timeMatch = rawText.match(/(\\d{1,2}:\\d{2})(?:\\s*\\/\\s*|\\s+)(\\d{1,2}:\\d{2})/);
+                            const uiCurrentTime = timeMatch ? parseTime(timeMatch[1]) : 0;
+                            const uiDuration = timeMatch ? parseTime(timeMatch[2]) : 0;
+                            const lines = rawText
+                                .split('\\n')
+                                .map(cleanLine)
+                                .filter((line) => line && !isUiLine(line));
+
+                            const metadataTitle = cleanLine(mediaSession && mediaSession.title);
+                            const metadataArtist = cleanLine(mediaSession && mediaSession.artist);
+                            const metadataAlbum = cleanLine(mediaSession && mediaSession.album);
+                            const metadataArt = mediaSession && mediaSession.artwork && mediaSession.artwork.length
+                                ? mediaSession.artwork[mediaSession.artwork.length - 1].src
+                                : '';
+
+                            let title = metadataTitle || lines[0] || '';
+                            let artist = metadataArtist || lines.find((line) => line !== title) || '';
+                            let album = metadataAlbum || '';
+
+                            const img = player
+                                ? player.querySelector('img[src]')
+                                : document.querySelector('img[src]');
+                            const albumArt = metadataArt || (img ? img.src : '');
+
+                            if (!artist && title.includes(' - ')) {
+                                const parts = title.split(' - ');
+                                artist = cleanLine(parts[0]);
+                                title = cleanLine(parts.slice(1).join(' - '));
+                            }
+
+                            const listenUrl = buildListenUrl(title, artist, player);
+
+                            return {
+                                sourceService: 'spice_crazy',
+                                rawText: rawText,
+                                title: title,
+                                artist: artist,
+                                album: album,
+                                albumArt: albumArt,
+                                duration: media && Number.isFinite(media.duration) && media.duration > 0 ? media.duration : uiDuration,
+                                paused: media ? media.paused : false,
+                                currentTime: media && Number.isFinite(media.currentTime) ? media.currentTime : uiCurrentTime,
+                                listenUrl: listenUrl,
+                                shuffle: false,
+                                repeat: 'off',
+                                likeStatus: false,
+                                repeatDebug: ''
+                            };
+                        }
+
                         const playerBar = document.querySelector('ytmusic-player-bar');
                         const video = document.querySelector('video');
                         const albumArtEl = document.querySelector('ytmusic-player-bar .image img, .thumbnail-image-wrapper img');
@@ -1037,7 +1343,25 @@ function startTrackPolling() {
 
       // Parse the raw data in main process
       let track = null;
-      if (rawData && rawData.rawText) {
+      if (rawData && rawData.sourceService === "spice_crazy" && rawData.title) {
+        track = {
+          track: rawData.title,
+          title: rawData.title,
+          artist: rawData.artist || "Unknown Artist",
+          album: rawData.album || "",
+          duration: rawData.duration || 0,
+          albumArt: rawData.albumArt || "",
+          artwork: rawData.albumArt || "",
+          listenUrl: rawData.listenUrl || "",
+          url: rawData.listenUrl || "",
+          paused: rawData.paused,
+          currentTime: rawData.currentTime,
+          shuffle: false,
+          repeat: "off",
+          likeStatus: false,
+          repeatDebug: "",
+        };
+      } else if (rawData && rawData.rawText) {
         const lines = rawData.rawText.split("\n");
         let title = rawData.title || (lines.length > 1 ? lines[1].trim() : "");
         let artist = "";
