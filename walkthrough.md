@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 ## v1.0.70
 
 - [Spice.Music main] Added a topbar notification bell to the right of the profile control, with a lower-right badge showing unread release updates plus pending shared playlist requests.
@@ -17,9 +16,6 @@
 
 - [Spice.Music main] Fixed local profile deletion so removing an inactive profile no longer forces a switch away from the current profile, while active profile deletion switches cleanly to the next remaining profile.
 - [Spice.Music main] Added a six-profile cap to local profile creation, including disabled create controls and a warning when the cap is reached.
-=======
-## v1.0.69
-## v1.0.68
 
 ### Added Volume Booster Feature
 - [Spice.Music main] Added a volume booster feature to the player bar (up to 1000% volume via Web Audio API) with a disclaimer modal that must be accepted at least once.
@@ -29,7 +25,6 @@
 - [Spice.Music main] Cleaned up unused discord-ipc imports and route handler.
 - [Spice.Music main] Updated AGENTS.md with rules for asynchronous agent workflow coordination.
 - [Spice.Music main] Fixed walkthrough and version string conflicts from concurrent merges.
->>>>>>> 1227595be8267417683161acc59fda1c385f1b88
 - [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.68`.
 
 ## v1.0.67

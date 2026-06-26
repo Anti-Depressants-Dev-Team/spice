@@ -1317,17 +1317,11 @@ export default function SpiceApp() {
         finalUrl.searchParams.set('download', 'true');
         finalUrl.searchParams.set('title', downloadTitle);
         
-<<<<<<< HEAD
-        const link = document.createElement('a');
-        link.href = finalUrl.toString();
-        link.download = `${downloadTitle}.mp3`;
-=======
         // This will trigger the browser's download manager safely without unloading
         const link = document.createElement('a');
         link.href = finalUrl.toString();
-        link.download = downloadTitle;
+        link.download = `${downloadTitle}.mp3`; // keeping .mp3 extension from HEAD
         link.target = '_blank';
->>>>>>> 1227595be8267417683161acc59fda1c385f1b88
         link.rel = 'noopener noreferrer';
         document.body.appendChild(link);
         link.click();
@@ -8947,11 +8941,7 @@ export default function SpiceApp() {
                         {Icons.tool} System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-<<<<<<< HEAD
                         {SPICE_MEDIA_CORE_LABEL}
-=======
-                        Spice Media Core v1.0.69
->>>>>>> 1227595be8267417683161acc59fda1c385f1b88
                       </span>
                     </div>
 
