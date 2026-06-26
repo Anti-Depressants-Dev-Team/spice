@@ -1,3 +1,7 @@
+## v1.0.75
+- [Spice.Marketing main] Fix layout clipping in the top navigation bar by restructuring the CSS grid and adjusting element widths.
+- [Spice.Marketing main] Synchronize the "account info" state on the home screen to match `spice_cloud_user` and `spice_profiles_list` from localStorage.
+
 ## v1.0.74
 
 - [Spice.Music main] Added a notification bell to the top bar for checking release notes and shared playlist invites.

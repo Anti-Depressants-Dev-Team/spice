@@ -39,7 +39,7 @@
   top: 18px;
   z-index: 20;
   display: grid;
-  grid-template-columns: auto minmax(220px, 0.7fr) minmax(280px, 1fr) auto;
+  grid-template-columns: auto auto 1fr auto;
   align-items: center;
   gap: 12px;
   margin-bottom: clamp(42px, 7vh, 84px);
@@ -126,6 +126,9 @@
 }
 
 .homeTopbarSearch {
+  width: 100%;
+  max-width: 440px;
+  justify-self: end;
   min-width: 0;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -241,8 +244,8 @@
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 10px;
-  min-width: 204px;
-  max-width: 270px;
+  min-width: auto;
+  max-width: 230px;
   min-height: 50px;
   padding: 5px 12px 5px 5px;
   border: 1px solid rgba(255, 255, 255, 0.11);

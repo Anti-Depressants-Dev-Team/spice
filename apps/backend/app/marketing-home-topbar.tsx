@@ -144,6 +144,13 @@ export default function MarketingHomeTopbar({ onProfileClick }: { onProfileClick
     const onStorage = () => {
       const nextProfile = readStoredProfile();
       if (nextProfile) setProfile(nextProfile);
+
+      const nextAccount = readStoredAccount();
+      setAccount(nextAccount);
+
+      const hasToken = !!window.localStorage.getItem('spice_cloud_token');
+      const isAdmin = nextAccount?.isAdmin || nextAccount?.accountRole === 'admin';
+      setAccountStatus(hasToken ? (isAdmin ? 'admin' : 'signed-in') : (nextAccount ? 'cached' : 'guest'));
     };
     window.addEventListener('storage', onStorage);
 
@@ -484,10 +491,10 @@ function readStoredProfile(): HomeProfile | null {
     const activeProfileId = window.localStorage.getItem('spice_active_profile_id') || 'default';
     const profiles = JSON.parse(savedProfiles) as StoredProfile[];
     const activeProfile = profiles.find((item) => item.id === activeProfileId) || profiles[0];
-    if (!activeProfile?.displayName) return null;
+    if (!activeProfile) return null;
 
     return {
-      displayName: activeProfile.displayName,
+      displayName: activeProfile.displayName || DEFAULT_PROFILE.displayName,
       avatarUrl: activeProfile.avatarUrl,
       gradient: activeProfile.gradient || DEFAULT_PROFILE.gradient,
     };
