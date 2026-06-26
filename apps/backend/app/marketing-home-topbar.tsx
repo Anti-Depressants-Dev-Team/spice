@@ -45,7 +45,7 @@ const SEARCH_PROVIDER_LABELS: Record<SearchProvider, string> = {
   soundcloud: 'SoundCloud',
 };
 
-export default function MarketingHomeTopbar() {
+export default function MarketingHomeTopbar({ onProfileClick }: { onProfileClick?: () => void }) {
   const [query, setQuery] = useState('');
   const [provider, setProvider] = useState<SearchProvider>('hybrid');
   const [profile, setProfile] = useState<HomeProfile>(DEFAULT_PROFILE);
@@ -105,7 +105,16 @@ export default function MarketingHomeTopbar() {
         });
     });
 
+
+    const onStorage = () => {
+      const nextProfile = readStoredProfile();
+      if (nextProfile) setProfile(nextProfile);
+    };
+    window.addEventListener('storage', onStorage);
+
     return () => {
+      window.removeEventListener('storage', onStorage);
+
       active = false;
     };
   }, []);
@@ -204,7 +213,17 @@ export default function MarketingHomeTopbar() {
             Admin
           </a>
         ) : null}
-        <a className={styles.homeTopbarProfile} href={accountHref} aria-label={`${accountLabel}: ${displayName}`}>
+        <a
+          className={styles.homeTopbarProfile}
+          href={accountHref}
+          onClick={(e) => {
+            if (onProfileClick) {
+              e.preventDefault();
+              onProfileClick();
+            }
+          }}
+          aria-label={`${accountLabel}: ${displayName}`}
+        >
           <span className={styles.homeTopbarAvatar} style={{ background: profile.avatarUrl ? 'transparent' : profile.gradient }}>
             {profile.avatarUrl ? <img src={profile.avatarUrl} alt="" /> : avatarLetter}
           </span>

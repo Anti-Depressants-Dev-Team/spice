@@ -1,3 +1,7 @@
+'use client';
+/* eslint-disable @next/next/no-img-element */
+
+import { useState, useEffect } from 'react';
 import styles from './marketing-home.module.css';
 import MarketingHomeTopbar from './marketing-home-topbar';
 
@@ -11,72 +15,107 @@ const musicFeatures = [
   'Last.fm and ListenBrainz profile sync from your SPICE account',
 ];
 
-const accountAccess = [
-  {
-    role: 'Normal user',
-    summary: 'Built for listeners who need one profile across SPICE services.',
-    access: ['Profile and avatar settings', 'SPICE Music library sync', 'Provider connections', 'Future services as they launch'],
-  },
-  {
-    role: 'Admin account',
-    summary: 'Reserved for operators who need service health and account oversight.',
-    access: ['Everything normal users get', 'Admin dashboard access', 'Service status controls', 'User and invite moderation'],
-  },
-];
-
-const services = [
-  {
-    status: 'Live',
-    title: 'SPICE Music',
-    href: 'https://music.spice-app.xyz',
-    description: 'The full player service: search, stream, save libraries, sync profiles, and control other signed-in devices with Spice Connect.',
-    cta: 'Open Music',
-    live: true,
-  },
-  {
-    status: 'Starter',
-    title: 'Spice Anime',
-    href: 'https://anime.spice-app.xyz',
-    description: 'A first-pass anime watching surface with featured playback, continue watching rows, trending shows, release schedule, and watchlist structure.',
-    cta: 'Open Anime',
-    live: true,
-  },
-  {
-    status: 'Starter',
-    title: 'Spice Movie',
-    href: 'https://movie.spice-app.xyz',
-    description: 'A first-pass movie surface with cinematic hero playback, private queues, premiere rows, showtimes, and watchlist structure.',
-    cta: 'Open Movie',
-    live: true,
-  },
-  {
-    status: 'Planned',
-    title: 'SPICE Rooms',
-    description: 'Shared listening rooms, friend invites, and collaborative queue control built on top of the playlist system.',
-    cta: 'Coming soon',
-  },
-  {
-    status: 'Planned',
-    title: 'SPICE Recap',
-    description: 'Trimester and yearly listening recaps with favorite songs, artists, playtime, and profile history.',
-    cta: 'Coming soon',
-  },
-  {
-    status: 'Planned',
-    title: 'SPICE Cloud',
-    description: 'Account tools for saved devices, provider links, shared playlists, and future service settings.',
-    cta: 'Coming soon',
-  },
-];
-
 export default function MarketingHome() {
+  const [activeTab, setActiveTab] = useState<'hub' | 'profile'>('hub');
+  const [activeProfile, setActiveProfile] = useState<{ id: string, displayName: string, avatarUrl: string, gradient: string, bio: string } | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editBio, setEditBio] = useState('');
+  const [editAvatarUrl, setEditAvatarUrl] = useState('');
+
+  useEffect(() => {
+    window.queueMicrotask(() => {
+    try {
+      const savedProfiles = window.localStorage.getItem('spice_profiles_list');
+      if (savedProfiles) {
+        const activeProfileId = window.localStorage.getItem('spice_active_profile_id') || 'default';
+        const profiles = JSON.parse(savedProfiles);
+        const profile = profiles.find((p: Record<string, string>) => p.id === activeProfileId) || profiles[0];
+        if (profile) {
+          setActiveProfile(profile);
+          setEditName(profile.displayName || '');
+          setEditBio(profile.bio || '');
+          setEditAvatarUrl(profile.avatarUrl || '');
+        }
+      }
+    } catch (_e) {}
+    });
+  }, []);
+
+  const handleSaveProfile = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeProfile) return;
+
+    try {
+      const savedProfiles = window.localStorage.getItem('spice_profiles_list');
+      if (savedProfiles) {
+        const profiles = JSON.parse(savedProfiles);
+        const updatedProfiles = profiles.map((p: Record<string, string>) => {
+          if (p.id === activeProfile.id) {
+            return { ...p, displayName: editName, bio: editBio, avatarUrl: editAvatarUrl };
+          }
+          return p;
+        });
+        window.localStorage.setItem('spice_profiles_list', JSON.stringify(updatedProfiles));
+
+        setActiveProfile({ ...activeProfile, displayName: editName, bio: editBio, avatarUrl: editAvatarUrl });
+        // Force a small reload or trigger event so the topbar catches it
+        window.dispatchEvent(new Event('storage'));
+      }
+    } catch (_e) {}
+  };
+
   return (
     <main className={styles.shell}>
       <div className={styles.backdrop} aria-hidden="true" />
 
       <section className={styles.hero}>
-        <MarketingHomeTopbar />
+        <MarketingHomeTopbar onProfileClick={() => setActiveTab('profile')} />
 
+        {activeTab === 'profile' ? (
+          <div className={styles.profileEditor} style={{ padding: '40px 20px', maxWidth: '600px', margin: '0 auto', background: 'var(--bg-surface)', borderRadius: '24px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+              <h2 style={{ fontSize: '2rem', margin: 0, color: 'var(--text-primary)' }}>Your Profile</h2>
+              <button onClick={() => setActiveTab('hub')} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1rem', padding: '8px 16px' }}>&larr; Back to Hub</button>
+            </div>
+
+            {activeProfile ? (
+              <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
+                  <div style={{ width: '96px', height: '96px', borderRadius: '50%', background: activeProfile.avatarUrl ? 'none' : activeProfile.gradient, border: '2px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', fontWeight: 900, color: '#fff', overflow: 'hidden', flexShrink: 0 }}>
+                    {activeProfile.avatarUrl ? <img src={activeProfile.avatarUrl} alt="" /* eslint-disable-next-line @next/next/no-img-element */
+ style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : activeProfile.displayName.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <h3 style={{ margin: '0 0 4px 0', fontSize: '1.5rem', color: 'var(--text-primary)' }}>{activeProfile.displayName}</h3>
+                    <p style={{ margin: 0, color: 'var(--text-secondary)' }}>Manage your public presence across the SPICE ecosystem.</p>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Display Name</label>
+                  <input type="text" value={editName} onChange={e => setEditName(e.target.value)} style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', background: 'var(--bg-primary)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', fontSize: '1rem' }} required />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Bio</label>
+                  <textarea value={editBio} onChange={e => setEditBio(e.target.value)} rows={3} style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', background: 'var(--bg-primary)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', fontSize: '1rem', resize: 'vertical' }} />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Avatar URL</label>
+                  <input type="url" value={editAvatarUrl} onChange={e => setEditAvatarUrl(e.target.value)} placeholder="https://..." style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', background: 'var(--bg-primary)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', fontSize: '1rem' }} />
+                </div>
+
+                <button type="submit" style={{ padding: '14px', borderRadius: '999px', background: 'var(--text-primary)', color: 'var(--bg-primary)', border: 'none', fontSize: '1rem', fontWeight: 700, cursor: 'pointer', marginTop: '16px' }}>Save Profile Changes</button>
+              </form>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-secondary)' }}>
+                <p>No local profile found.</p>
+                <a href={musicAccountSetupUrl} style={{ color: 'var(--accent-pink)', textDecoration: 'none', fontWeight: 600 }}>Create an account to start</a>
+              </div>
+            )}
+          </div>
+        ) : (
         <div className={styles.heroGrid}>
           <div className={styles.copy}>
             <div className={styles.kicker}>spice-app.xyz is the SPICE home screen</div>
@@ -191,95 +230,9 @@ export default function MarketingHome() {
             </div>
           </div>
         </div>
+        )}
       </section>
 
-      <section className={styles.accountAccess} aria-label="SPICE account access types">
-        <div className={styles.sectionHeading}>
-          <span>Account access</span>
-          <h2>Regular listeners get their profile. Admins get the control room.</h2>
-        </div>
-
-        <div className={styles.accessGrid}>
-          {accountAccess.map((account) => (
-            <article key={account.role} className={styles.accessCard}>
-              <div className={styles.accessCardHeader}>
-                <span>{account.role}</span>
-                <strong>{account.role === 'Admin account' ? 'Dashboard tier' : 'Listener tier'}</strong>
-              </div>
-              <p>{account.summary}</p>
-              <ul>
-                {account.access.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section id="services" className={styles.services} aria-label="SPICE services">
-        <div className={styles.sectionHeading}>
-          <span>Service stack</span>
-          <h2>Launch what exists. Reserve space for what comes next.</h2>
-        </div>
-
-        <div className={styles.serviceGrid}>
-          {services.map((service) => {
-            const content = (
-              <>
-                <div className={styles.serviceHeader}>
-                  <span className={service.live ? styles.statusLive : styles.statusPlanned}>{service.status}</span>
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11A2.5 2.5 0 0 1 17.5 20h-11A2.5 2.5 0 0 1 4 17.5v-11Z" />
-                    <path d="M8 13.5V8l7 4-7 4Z" />
-                  </svg>
-                </div>
-                <h3>{service.title}</h3>
-                <p>{service.description}</p>
-                <strong>{service.cta}</strong>
-              </>
-            );
-
-            return service.href ? (
-              <a key={service.title} className={`${styles.serviceCard} ${styles.serviceCardLive}`} href={service.href}>
-                {content}
-              </a>
-            ) : (
-              <article key={service.title} className={styles.serviceCard}>
-                {content}
-              </article>
-            );
-          })}
-        </div>
-      </section>
-
-      <section id="route-map" className={styles.bottomBand} aria-label="SPICE service routing">
-        <div>
-          <span>Home screen</span>
-          <strong>spice-app.xyz</strong>
-          <p>Root domain for service discovery, account entry points, and future SPICE products.</p>
-        </div>
-        <div>
-          <span>Music service</span>
-          <strong>music.spice-app.xyz</strong>
-          <p>The full SPICE player, provider sync, shared playlists, and playback app.</p>
-        </div>
-        <div>
-          <span>Anime starter</span>
-          <strong>anime.spice-app.xyz</strong>
-          <p>A first-pass anime watching interface for featured episodes, watchlists, and schedule structure.</p>
-        </div>
-        <div>
-          <span>Movie starter</span>
-          <strong>movie.spice-app.xyz</strong>
-          <p>A first-pass movie watching interface for cinematic queues, premieres, showtimes, and watch rooms.</p>
-        </div>
-        <div>
-          <span>Future services</span>
-          <strong>*.spice-app.xyz</strong>
-          <p>Reserved structure for Rooms, Recap, Cloud, and anything else we ship later.</p>
-        </div>
-      </section>
     </main>
   );
 }

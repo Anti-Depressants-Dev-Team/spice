@@ -1,3 +1,4 @@
+- [Spice.Home] Refactor the Home screen to focus purely on being a service hub, removing unnecessary marketing fluff and syncing its theme tokens with Spice Music. Also added an independent local Profile tab to the Home screen.
 ## v1.0.70
 
 - [Spice.Music main] Added a topbar notification bell to the right of the profile control, with a lower-right badge showing unread release updates plus pending shared playlist requests.
