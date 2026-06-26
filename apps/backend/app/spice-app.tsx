@@ -21,9 +21,6 @@ import {
   buildPrivateTasteProfile,
   buildRecommendationSeeds,
   rankRecommendedTracks,
-// type RecommendationSeed,
-  type SeededRecommendationResult,
-  type RecommendationSeed,
 } from './recommendations';
 import { isSpiceConnectCommandFresh, SPICE_CONNECT_COMMAND_TTL_MS } from '@/lib/spice-connect';
 
@@ -1137,6 +1134,45 @@ const initialDefaultProfile: UserProfile = {
 
 const createUserProfileId = () => 'profile_' + Date.now();
 
+function saveProfilesToStorage(profiles: UserProfile[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem("spice_profiles_list", JSON.stringify(profiles));
+  } catch (error: any) {
+    if (error.name === "QuotaExceededError" || error.message.toLowerCase().includes("quota")) {
+      console.warn("Storage quota exceeded, shrinking profiles list...");
+      const shrinkTrack = (t: Track) => ({
+        id: t.id,
+        title: t.title,
+        artists: t.artists,
+        sourceId: t.sourceId
+      } as Track);
+      const shrunkenProfiles = profiles.map(profile => {
+        const newLikedTrackDetails: Record<string, Track> = {};
+        for (const [id, t] of Object.entries(profile.likedTrackDetails || {})) {
+          newLikedTrackDetails[id] = shrinkTrack(t);
+        }
+        return {
+          ...profile,
+          history: (profile.history || []).map(shrinkTrack),
+          customPlaylists: (profile.customPlaylists || []).map(p => ({
+            ...p,
+            tracks: (p.tracks || []).map(shrinkTrack)
+          })),
+          likedTrackDetails: newLikedTrackDetails
+        };
+      });
+      try {
+        localStorage.setItem("spice_profiles_list", JSON.stringify(shrunkenProfiles));
+      } catch (err) {
+        console.error("Still exceeded quota after shrinking profiles", err);
+      }
+    } else {
+      console.error("Failed to save profiles to storage", error);
+    }
+  }
+}
+
 export default function SpiceApp() {
   const [volumeBoosterAccepted, setVolumeBoosterAccepted] = useState(false);
   const [showVolumeBoosterDisclaimer, setShowVolumeBoosterDisclaimer] = useState(false);
@@ -1880,7 +1916,7 @@ export default function SpiceApp() {
         }
         return p;
       });
-      localStorage.setItem('spice_profiles_list', JSON.stringify(updated));
+      saveProfilesToStorage(updated);
       autoSyncProfiles(updated);
       return updated;
     });
@@ -2063,6 +2099,10 @@ export default function SpiceApp() {
   // Load localStorage states safely on client mount to prevent SSR hydration mismatch
   useEffect(() => {
     setIsMounted(true);
+    if (typeof window !== 'undefined') {
+      const savedBooster = localStorage.getItem('spice_volume_booster_accepted');
+      if (savedBooster === 'true') setVolumeBoosterAccepted(true);
+    }
     if (typeof window !== 'undefined') {
       const savedTheme = localStorage.getItem('spice_accent_theme');
       if (isAccentTheme(savedTheme)) setAccentTheme(savedTheme);
@@ -2842,7 +2882,7 @@ export default function SpiceApp() {
         ...mergedPlaylists.flatMap((playlist) => playlist.tracks),
       ]);
       setProfiles(profilesToPersist);
-      localStorage.setItem('spice_profiles_list', JSON.stringify(profilesToPersist));
+      saveProfilesToStorage(profilesToPersist);
 
       // 8. Update visible client state only if this sync still belongs to the selected profile.
       if (activeProf && syncStillMatchesActiveProfile()) {
@@ -5458,7 +5498,7 @@ export default function SpiceApp() {
     });
     if (capturedCurrentSession) {
       setProfiles(latestProfiles);
-      localStorage.setItem('spice_profiles_list', JSON.stringify(latestProfiles));
+      saveProfilesToStorage(latestProfiles);
     }
 
     const target = profileOverride || latestProfiles.find(p => p.id === profileId);
@@ -5574,7 +5614,7 @@ export default function SpiceApp() {
 
     const updatedList = [...profiles, newProf];
     setProfiles(updatedList);
-    localStorage.setItem('spice_profiles_list', JSON.stringify(updatedList));
+    saveProfilesToStorage(updatedList);
     autoSyncProfiles(updatedList);
 
     // Reset forms and dialogs
@@ -5601,7 +5641,7 @@ export default function SpiceApp() {
       onConfirm: () => {
         const updated = profiles.filter(p => p.id !== profileId);
         setProfiles(updated);
-        localStorage.setItem('spice_profiles_list', JSON.stringify(updated));
+        saveProfilesToStorage(updated);
         autoSyncProfiles(updated);
 
         if (profileId === activeProfileIdRef.current) {

@@ -10,53 +10,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  dart:
-    name: Dart packages
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dart-lang/setup-dart@v1
-        with:
-          sdk: stable
-      - name: pub get (source_api)
-        working-directory: packages/source_api
-        run: dart pub get
-      - name: pub get (source_youtube)
-        working-directory: packages/source_youtube
-        run: dart pub get
-      - name: analyze
-        run: dart analyze packages/source_api packages/source_youtube
-      - name: test (source_api)
-        working-directory: packages/source_api
-        run: dart test
-      - name: test (source_youtube)
-        working-directory: packages/source_youtube
-        run: dart test
-
-  flutter:
-    name: Flutter client
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-      - name: pub get
-        working-directory: apps/flutter_client
-        run: flutter pub get
-      - name: generate code
-        working-directory: apps/flutter_client
-        run: dart run build_runner build --delete-conflicting-outputs
-      - name: build_runner
-        working-directory: apps/flutter_client
-        run: dart run build_runner build --delete-conflicting-outputs
-      - name: analyze
-        working-directory: apps/flutter_client
-        run: flutter analyze
-      - name: test
-        working-directory: apps/flutter_client
-        run: flutter test
-
   backend:
     name: Backend
     runs-on: ubuntu-latest

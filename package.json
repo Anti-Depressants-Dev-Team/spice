@@ -2,7 +2,7 @@
   "name": "spice",
   "private": true,
   "version": "0.0.0",
-  "description": "Spice — multi-platform music client (Flutter + Next.js backend).",
+  "description": "Spice — multi-platform music client (Next.js backend).",
   "engines": {
     "node": ">=24"
   },

@@ -34,6 +34,7 @@
 - [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.67`.
 
 ## v1.0.66
+- [Spice] Removed Flutter client and Dart packages from the monorepo.
 
 - [Spice.Music main] Fixed code health issue in `apps/backend/lib/lrclib.ts` by suppressing hardcoded `console.error` for expected LRCLIB lookup failures.
 - [Spice.Music main] Removed the scrapped Discord Rich Presence integration, including the `/api/discord/presence` route, `discord-ipc` server helper, client playback hooks, and `DISCORD_CLIENT_ID` environment variable documentation.
@@ -424,3 +425,9 @@
 - Replaced sequential database operations with `db.batch()` across all sync endpoints (`profiles`, `likes`, `history`, `playlists`) for improved performance using the `neon-http` driver.
 - Fixed TypeScript errors related to `db.batch()` typing in Next.js `POST` handlers.
 - Updated SPICE_MEDIA_CORE_VERSION to v1.0.71 in `spice-app.tsx`.
+### v1.0.36
+* [Spice.Music main] UI changes to the volume lever control now include a percentage readout, and max out at 200%. Added a Boost button to optionally enable volume boosting up to 1000% maximum.
+* [Spice.Music main] Fixed the placement of the volume booster disclaimer to render in the center of the viewport.
+- **Version:** 1.0.43
+- **Changes:** Fixed a `QuotaExceededError` issue on `spice_profiles_list` by catching and shrinking massive track items (omitting artwork URLs and keeping only IDs/Names) before saving to local storage.
+- **Affected Lane:** [Spice.Music main]
