@@ -23,7 +23,7 @@ import {
   rankRecommendedTracks,
 } from './recommendations';
 import { isSpiceConnectCommandFresh, SPICE_CONNECT_COMMAND_TTL_MS } from '@/lib/spice-connect';
-import { SPICE_MEDIA_CORE_VERSION, RELEASE_NOTIFICATION_STORAGE_KEY, RELEASE_NOTIFICATIONS, type ReleaseNotification } from '@/lib/release-notifications';
+import { SPICE_MEDIA_CORE_VERSION, RELEASE_NOTIFICATION_STORAGE_KEY, type ReleaseNotification } from '@/lib/release-notifications';
 
 const SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS = 400;
 const SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS = 1500;
@@ -144,6 +144,11 @@ const Icons = {
       <rect x="14" y="3" width="7" height="7" />
       <rect x="3" y="14" width="7" height="7" />
       <rect x="14" y="14" width="7" height="7" />
+    </svg>
+  ),
+  refresh: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+      <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.59-9.21l5.67-5.67" />
     </svg>
   ),
   trash: (
@@ -1533,6 +1538,18 @@ export default function SpiceApp() {
       return [];
     }
   });
+  const [releaseNotifications, setReleaseNotifications] = useState<ReleaseNotification[]>([]);
+
+  useEffect(() => {
+    fetch('/api/notifications/release')
+      .then(res => res.json())
+      .then(data => {
+        if (data.notifications && Array.isArray(data.notifications)) {
+          setReleaseNotifications(data.notifications);
+        }
+      })
+      .catch(() => {});
+  }, []);
   const [showMembersPanel, setShowMembersPanel] = useState(false);
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersList, setMembersList] = useState<{ owner: PlaylistMember; members: PlaylistMember[]; maxMembers: number } | null>(null);
@@ -1695,9 +1712,22 @@ export default function SpiceApp() {
     logDebug('profile', `Last.fm linked as ${resolvedUser}.`);
   }, [logDebug]);
 
+  const prevTerminalAutoScrollRef = useRef(terminalAutoScroll);
+
   useEffect(() => {
+    const toggledOn = terminalAutoScroll && !prevTerminalAutoScrollRef.current;
+    prevTerminalAutoScrollRef.current = terminalAutoScroll;
+
     if (terminalAutoScroll && terminalEndRef.current) {
-      terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      const parent = terminalEndRef.current.parentElement;
+      if (parent) {
+        const isNearBottom = parent.scrollHeight - parent.scrollTop - parent.clientHeight < 100;
+        if (isNearBottom || toggledOn) {
+          terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      } else {
+        terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      }
     }
   }, [debugLogs, terminalAutoScroll]);
 
@@ -3974,7 +4004,7 @@ export default function SpiceApp() {
           currentTrack: device.currentTrack ? enrichTrackSnapshot(device.currentTrack) : null,
           queue: Array.isArray(device.queue) ? device.queue.map(enrichTrackSnapshot) : [],
           lastSeenSeconds: Math.max(0, Math.round((Date.now() - new Date(device.updatedAt).getTime()) / 1000)),
-        }))
+        })).filter((device: any) => device.lastSeenSeconds <= 7200)
         : [];
       setRemoteDevices(devices);
 
@@ -5259,6 +5289,7 @@ export default function SpiceApp() {
     const safeDeviceId = deviceId === remoteDeviceId ? '' : deviceId;
     setSelectedRemoteDeviceId(safeDeviceId);
     if (safeDeviceId) {
+      pauseCurrentPlayback();
       localStorage.setItem('spice_connect_receiver_id', safeDeviceId);
       const device = remoteTargetDevices.find((entry) => entry.deviceId === safeDeviceId);
       setRemoteStatus(`Player controls now target ${device?.displayName || 'selected Spice Connect device'}.`);
@@ -5379,7 +5410,8 @@ export default function SpiceApp() {
     if (!device) return 'Local playback';
     if (device.lastSeenSeconds === undefined) return 'Remote ready';
     if (device.lastSeenSeconds <= 5) return device.isPlaying ? 'Live now' : 'Online now';
-    return `Last seen ${device.lastSeenSeconds}s ago`;
+    const minutes = Math.floor(device.lastSeenSeconds / 60);
+    return `Last seen ${minutes === 0 ? '<1' : minutes}m ago`;
   };
 
   const renderSpiceConnectReceiverOption = (
@@ -6247,7 +6279,7 @@ export default function SpiceApp() {
   const shouldShowTopbarSearchTray =
     topbarSearchTrayOpen
     && (Boolean(topbarSearchQuery.trim()) || topbarRecentSuggestions.length > 0 || topbarTrayResults.length > 0 || isSearching);
-  const unreadReleaseNotifications = RELEASE_NOTIFICATIONS.filter((notification) => !readReleaseNotificationIds.includes(notification.id));
+  const unreadReleaseNotifications = releaseNotifications.filter((notification) => !readReleaseNotificationIds.includes(notification.id));
   const notificationCount = unreadReleaseNotifications.length + pendingInvites.length;
   const notificationCountLabel = notificationCount > 99 ? '99+' : String(notificationCount);
 
@@ -6836,7 +6868,7 @@ export default function SpiceApp() {
 
                     <div className="app-topbar__notification-section">
                       <span className="app-topbar__notification-section-title">Version updates</span>
-                      {RELEASE_NOTIFICATIONS.map((notification) => {
+                      {releaseNotifications.map((notification) => {
                         const isUnread = !readReleaseNotificationIds.includes(notification.id);
                         return (
                           <div key={notification.id} className={`app-topbar__notification-item ${isUnread ? 'is-unread' : ''}`}>
@@ -7044,7 +7076,22 @@ export default function SpiceApp() {
               {showMembersPanel && (
                 <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '20px', margin: '24px auto', maxWidth: '800px' }} className="animate-in">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontFamily: 'Outfit, sans-serif' }}>Playlist Collaborators</h3>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <h3 style={{ margin: 0, fontSize: '1.1rem', fontFamily: 'Outfit, sans-serif' }}>Playlist Collaborators</h3>
+                      {selectedPlaylist && (
+                        <button
+                          className="btn btn--ghost"
+                          style={{ padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          onClick={() => fetchPlaylistMembers(selectedPlaylist.id)}
+                          title="Refresh Collaborators"
+                          disabled={membersLoading}
+                        >
+                          <div style={{ display: 'flex', animation: membersLoading ? 'spin 1s linear infinite' : 'none' }}>
+                            {Icons.refresh}
+                          </div>
+                        </button>
+                      )}
+                    </div>
                     <button className="btn btn--ghost" style={{ padding: '4px 8px', fontSize: '0.8rem' }} onClick={() => setShowMembersPanel(false)}>
                       Close
                     </button>
@@ -8918,7 +8965,7 @@ export default function SpiceApp() {
                                   {selectedRemoteDevice.currentTrack?.artists?.map((artist) => artist.name).join(', ') || selectedRemoteDevice.displayName}
                                 </div>
                                 <div style={{ color: 'var(--text-muted)', fontSize: '0.68rem', marginTop: '4px' }}>
-                                  Last seen {selectedRemoteDevice.lastSeenSeconds ?? 0}s ago
+                                  Last seen {Math.floor((selectedRemoteDevice.lastSeenSeconds ?? 0) / 60) === 0 ? '<1' : Math.floor((selectedRemoteDevice.lastSeenSeconds ?? 0) / 60)}m ago
                                 </div>
                               </div>
                             </div>
