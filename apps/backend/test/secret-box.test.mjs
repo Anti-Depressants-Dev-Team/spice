@@ -22,13 +22,10 @@ test('secret-box throws error when no secret is configured', () => {
   delete process.env.PROFILE_CONNECTION_SECRET;
   assert.throws(() => encryptSecret('data'), /Missing encryption key/);
   assert.throws(() => decryptSecret('v1:iv:tag:data'), /Missing encryption key/);
-process.env.JWT_SECRET = 'test-secret-key-123';
-import assert from 'node:assert/strict';
-import test from 'node:test';
-
-import { encryptSecret, decryptSecret } from '../lib/secret-box.ts';
+});
 
 test('encryptSecret generates correctly formatted v1 string', () => {
+  process.env.JWT_SECRET = 'test_jwt_secret';
   const encrypted = encryptSecret('test-secret');
 
   assert.equal(encrypted.startsWith('v1:'), true);
@@ -42,6 +39,7 @@ test('encryptSecret generates correctly formatted v1 string', () => {
 });
 
 test('decryptSecret recovers original text from encryptSecret output', () => {
+  process.env.JWT_SECRET = 'test_jwt_secret';
   const original = 'super-secret-value-123!@#';
   const encrypted = encryptSecret(original);
   const decrypted = decryptSecret(encrypted);
@@ -50,6 +48,7 @@ test('decryptSecret recovers original text from encryptSecret output', () => {
 });
 
 test('encryptSecret uses random IVs (different output for same input)', () => {
+  process.env.JWT_SECRET = 'test_jwt_secret';
   const input = 'same-secret-value';
   const encrypted1 = encryptSecret(input);
   const encrypted2 = encryptSecret(input);
@@ -77,6 +76,7 @@ test('decryptSecret throws error when given malformed v1 strings', () => {
 });
 
 test('decryptSecret throws error when decrypting tampered data', () => {
+  process.env.JWT_SECRET = 'test_jwt_secret';
   const original = 'secret-to-tamper';
   const encrypted = encryptSecret(original);
   const [prefix, iv, tag, ciphertext] = encrypted.split(':');
