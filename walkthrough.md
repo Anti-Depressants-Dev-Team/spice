@@ -469,3 +469,7 @@
 ## Optimization & Containerization Update
 - [Spice.Music main] Added multi-stage Dockerfile for Next.js to enable VPS deployments and set Next config output to `standalone`.
 - [Spice.Music main] Optimized Vercel Fluid Compute costs on media proxy streams by introducing a 2MB chunking strategy for Range requests in the YouTube and SoundCloud APIs.
+
+## v1.0.76 - Profile Creation & Notification UI Fixes
+- [Spice.Music main] Fixed the Profile tab in the Home screen to offer a native profile creation form when no local profile is found instead of redirecting the user to SPICE Music account setup.
+- [Spice.Music main] Fixed the Release Notification dialog CSS classes in the marketing home topbar so the popup matches the layout and styling found in the main application.

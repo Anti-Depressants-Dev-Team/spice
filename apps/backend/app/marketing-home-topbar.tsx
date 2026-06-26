@@ -268,30 +268,31 @@ export default function MarketingHomeTopbar({ onProfileClick }: { onProfileClick
     <>
       {selectedReleaseNotification && (
         <div className="spice-dialog-backdrop" role="presentation" onClick={() => setSelectedReleaseNotification(null)}>
-          <div className="spice-dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="spice-release-title" aria-modal="true">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <span className="spice-dialog__tag" style={{ background: 'rgba(216, 180, 254, 0.1)', color: '#d8b4fe', padding: '4px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Release Notes</span>
+          <div
+            className="spice-release-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="spice-release-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="spice-release-dialog__header">
+              <span>Release Notes</span>
               <button
                 type="button"
-                className="app-topbar__tray-close"
+                className="spice-share-dialog__close"
                 onClick={() => setSelectedReleaseNotification(null)}
-                aria-label="Close dialog"
+                aria-label="Close version details"
                 style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px', borderRadius: '50%', margin: '-8px -8px 0 0' }}
               >
                 {Icons.close}
               </button>
             </div>
-            <h2 id="spice-release-title" style={{ margin: '0 0 8px 0', fontSize: '1.25rem', color: 'var(--text-primary)' }}>{selectedReleaseNotification.version}: {selectedReleaseNotification.title}</h2>
-            <p className="spice-release-dialog__summary" style={{ margin: '0 0 24px 0', color: '#d8b4fe', fontSize: '0.9rem', lineHeight: '1.4' }}>{selectedReleaseNotification.summary}</p>
-            <div className="spice-dialog__content" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <h2 id="spice-release-title">{selectedReleaseNotification.version}: {selectedReleaseNotification.title}</h2>
+            <p className="spice-release-dialog__summary">{selectedReleaseNotification.summary}</p>
+            <div className="spice-release-dialog__body">
               {selectedReleaseNotification.body.map((paragraph, i) => (
-                <p key={i} style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: '1.5' }}>{paragraph}</p>
+                <p key={i}>{paragraph}</p>
               ))}
-            </div>
-            <div className="spice-dialog__actions" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '32px' }}>
-              <button type="button" className="app-topbar__notification-action app-topbar__notification-action--primary" onClick={() => setSelectedReleaseNotification(null)} style={{ padding: '8px 16px', background: 'var(--text-primary)', color: 'var(--bg-primary)', border: 'none', borderRadius: '999px', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer' }}>
-                Close
-              </button>
             </div>
           </div>
         </div>

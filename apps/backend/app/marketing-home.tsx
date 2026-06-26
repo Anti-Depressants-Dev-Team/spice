@@ -22,6 +22,62 @@ export default function MarketingHome() {
   const [editBio, setEditBio] = useState('');
   const [editAvatarUrl, setEditAvatarUrl] = useState('');
 
+  const [newName, setNewName] = useState('');
+  const [newBio, setNewBio] = useState('');
+  const [newAvatarUrl, setNewAvatarUrl] = useState('');
+
+  const PRESET_GRADIENTS = [
+    'linear-gradient(135deg, #7c3aed, #c084fc)',
+    'linear-gradient(135deg, #ec4899, #f472b6)',
+    'linear-gradient(135deg, #f59e0b, #fbbf24)',
+    'linear-gradient(135deg, #10b981, #34d399)',
+    'linear-gradient(135deg, #3b82f6, #60a5fa)',
+    'linear-gradient(135deg, #ef4444, #f87171)'
+  ];
+
+  const handleCreateProfile = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+
+    try {
+      const newId = 'profile_' + Date.now();
+      const newProf = {
+        id: newId,
+        displayName: newName.trim(),
+        bio: newBio.trim() || 'A fresh Spice listener.',
+        gradient: PRESET_GRADIENTS[Math.floor(Math.random() * PRESET_GRADIENTS.length)],
+        songsPlayed: 0,
+        joinedAt: new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long' }),
+        likedTracks: [],
+        likedTrackDetails: {},
+        customPlaylists: [],
+        history: [],
+        avatarUrl: newAvatarUrl.trim() || ''
+      };
+
+      const savedProfilesStr = window.localStorage.getItem('spice_profiles_list');
+      let profiles = [];
+      if (savedProfilesStr) {
+        profiles = JSON.parse(savedProfilesStr);
+      }
+      const updatedProfiles = [...profiles, newProf];
+      window.localStorage.setItem('spice_profiles_list', JSON.stringify(updatedProfiles));
+      window.localStorage.setItem('spice_active_profile_id', newId);
+
+      setActiveProfile(newProf);
+      setEditName(newProf.displayName);
+      setEditBio(newProf.bio);
+      setEditAvatarUrl(newProf.avatarUrl || '');
+
+      setNewName('');
+      setNewBio('');
+      setNewAvatarUrl('');
+
+      window.dispatchEvent(new Event('storage'));
+    } catch (_e) {}
+  };
+
+
   useEffect(() => {
     window.queueMicrotask(() => {
     try {
@@ -82,8 +138,7 @@ export default function MarketingHome() {
               <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
                   <div style={{ width: '96px', height: '96px', borderRadius: '50%', background: activeProfile.avatarUrl ? 'none' : activeProfile.gradient, border: '2px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', fontWeight: 900, color: '#fff', overflow: 'hidden', flexShrink: 0 }}>
-                    {activeProfile.avatarUrl ? <img src={activeProfile.avatarUrl} alt="" /* eslint-disable-next-line @next/next/no-img-element */
- style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : activeProfile.displayName.charAt(0).toUpperCase()}
+                    {activeProfile.avatarUrl ? <img src={activeProfile.avatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : activeProfile.displayName.charAt(0).toUpperCase()}
                   </div>
                   <div>
                     <h3 style={{ margin: '0 0 4px 0', fontSize: '1.5rem', color: 'var(--text-primary)' }}>{activeProfile.displayName}</h3>
@@ -109,10 +164,29 @@ export default function MarketingHome() {
                 <button type="submit" style={{ padding: '14px', borderRadius: '999px', background: 'var(--text-primary)', color: 'var(--bg-primary)', border: 'none', fontSize: '1rem', fontWeight: 700, cursor: 'pointer', marginTop: '16px' }}>Save Profile Changes</button>
               </form>
             ) : (
-              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-secondary)' }}>
-                <p>No local profile found.</p>
-                <a href={musicAccountSetupUrl} style={{ color: 'var(--accent-pink)', textDecoration: 'none', fontWeight: 600 }}>Create an account to start</a>
-              </div>
+              <form onSubmit={handleCreateProfile} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ textAlign: 'center', marginBottom: '8px' }}>
+                  <h3 style={{ margin: '0 0 8px 0', fontSize: '1.5rem', color: 'var(--text-primary)' }}>Create Profile</h3>
+                  <p style={{ margin: 0, color: 'var(--text-secondary)' }}>Set up your local SPICE profile to get started.</p>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Display Name</label>
+                  <input type="text" value={newName} onChange={e => setNewName(e.target.value)} style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', background: 'var(--bg-primary)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', fontSize: '1rem' }} required placeholder="e.g. Spice Listener" />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Bio</label>
+                  <textarea value={newBio} onChange={e => setNewBio(e.target.value)} rows={3} style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', background: 'var(--bg-primary)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', fontSize: '1rem', resize: 'vertical' }} placeholder="Chasing the craziest tunes." />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Avatar URL</label>
+                  <input type="url" value={newAvatarUrl} onChange={e => setNewAvatarUrl(e.target.value)} placeholder="https://..." style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', background: 'var(--bg-primary)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', fontSize: '1rem' }} />
+                </div>
+
+                <button type="submit" style={{ padding: '14px', borderRadius: '999px', background: 'var(--text-primary)', color: 'var(--bg-primary)', border: 'none', fontSize: '1rem', fontWeight: 700, cursor: 'pointer', marginTop: '16px' }}>Create Profile</button>
+              </form>
             )}
           </div>
         ) : (
