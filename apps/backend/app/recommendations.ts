@@ -241,13 +241,15 @@ export function buildPrivateTasteProfile<TTrack extends RecommendationTrack>({
   const artists = new Map<string, ScoreBucket>();
   const languages = new Map<string, ScoreBucket>();
   const trackIds = new Set<string>();
+  const tokenCache = new Map<string, Set<string>>();
   let totalSignals = 0;
 
   const collect = (track: TTrack, baseWeight: number, recencyBonus = 0) => {
     if (!track?.id || track.id === 'placeholder') return;
 
+    const tKey = trackKey(track);
     const weight = baseWeight + recencyBonus;
-    trackIds.add(trackKey(track));
+    trackIds.add(tKey);
     totalSignals += weight;
 
     for (const artist of track.artists || []) {
@@ -256,7 +258,12 @@ export function buildPrivateTasteProfile<TTrack extends RecommendationTrack>({
       addScore(artists, normalizeKey(label), label, weight);
     }
 
-    const tokens = trackLanguageTokens(track);
+    let tokens = tokenCache.get(tKey);
+    if (!tokens) {
+      tokens = trackLanguageTokens(track);
+      tokenCache.set(tKey, tokens);
+    }
+
     for (const language of LANGUAGE_HINTS) {
       const score = languageScore(tokens, language);
       if (score >= 2) {
