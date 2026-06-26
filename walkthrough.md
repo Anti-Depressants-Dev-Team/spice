@@ -468,3 +468,8 @@
 ## v1.0.76 - Profile Creation & Notification UI Fixes
 - [Spice.Music main] Fixed the Profile tab in the Home screen to offer a native profile creation form when no local profile is found instead of redirecting the user to SPICE Music account setup.
 - [Spice.Music main] Fixed the Release Notification dialog CSS classes in the marketing home topbar so the popup matches the layout and styling found in the main application.
+
+## v1.0.77 - Emergency Switch & System Controls
+- [Spice.Music main] Added an Emergency Switch to the Admin Dashboard for operators to activate emergency austerity mode and emergency stop globally across all services, targeting all Vercel fluid compute and most neon database sync.
+- [Spice.Music main] Designed `systemSettings` table in PostgreSQL to handle operations and state for global emergency halting and throttling.
+- [Spice.Music main] Created Next.js `proxy.ts` Edge Middleware to conditionally halt API requests using `503 Service Unavailable` or drop them via `429 Too Many Requests` at various configurable rates based on system settings.

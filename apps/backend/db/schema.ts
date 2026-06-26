@@ -198,3 +198,12 @@ export const profiles = pgTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.id] })],
 );
+
+export const systemSettings = pgTable('system_settings', {
+  id: text('id').primaryKey().default('default'),
+  emergencyAusterity: boolean('emergency_austerity').notNull().default(false),
+  austerityThrottleRate: integer('austerity_throttle_rate').notNull().default(50),
+  disableSync: boolean('disable_sync').notNull().default(false),
+  emergencyStop: boolean('emergency_stop').notNull().default(false),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

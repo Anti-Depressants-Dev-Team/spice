@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import Link from 'next/link';
@@ -25,15 +26,22 @@ const activity = [
 
 export default function AdminDashboardView() {
   const [token, setToken] = useState<string | null>(null);
-  const [currentUser, setCurrentUser] = useState<AccountSnapshot | null>(null);
-  const [accounts, setAccounts] = useState<AccountSnapshot[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Track save status per user ID
   const [savingUserIds, setSavingUserIds] = useState<Set<string>>(new Set());
   const [successUserIds, setSuccessUserIds] = useState<Set<string>>(new Set());
   const [saveErrors, setSaveErrors] = useState<Record<string, string>>({});
+
+  const [systemSettings, setSystemSettings] = useState<any>({
+    emergencyAusterity: false,
+    austerityThrottleRate: 50,
+    disableSync: false,
+    emergencyStop: false
+  });
+  const [savingSettings, setSavingSettings] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -77,13 +85,20 @@ export default function AdminDashboardView() {
         const accountsRes = await fetch('/api/admin/accounts', {
           headers: { Authorization: `Bearer ${savedToken}` },
         });
-
-        if (!accountsRes.ok) {
-          throw new Error('accounts_fetch_failed');
-        }
-
+        if (!accountsRes.ok) throw new Error('fetch_accounts_failed');
         const accountsData = await accountsRes.json();
         setAccounts(accountsData.accounts || []);
+
+        // 3. Fetch system settings
+        const settingsRes = await fetch('/api/admin/system', {
+          headers: { Authorization: `Bearer ${savedToken}` },
+        });
+        if (settingsRes.ok) {
+          const settingsData = await settingsRes.json();
+          if (settingsData.settings) {
+            setSystemSettings(settingsData.settings);
+          }
+        }
       } catch (err) {
         console.error(err);
         setError('connection_error');
@@ -174,6 +189,47 @@ export default function AdminDashboardView() {
     }
   };
 
+  const handleUpdateSettings = async (updates: any) => {
+    const savedToken = localStorage.getItem('spice_token');
+    if (!savedToken) return;
+
+    setSavingSettings(true);
+
+    // Optimistic update
+    setSystemSettings((prev: any) => ({ ...prev, ...updates }));
+
+    try {
+      const res = await fetch('/api/admin/system', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${savedToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
+
+      if (!res.ok) throw new Error('Failed to update system settings');
+
+      const data = await res.json();
+      if (data.settings) {
+        setSystemSettings(data.settings);
+      }
+    } catch (err) {
+      console.error(err);
+      // Fallback to fetch current state on error
+      const settingsRes = await fetch('/api/admin/system', {
+        headers: { Authorization: `Bearer ${savedToken}` },
+      });
+      if (settingsRes.ok) {
+        const settingsData = await settingsRes.json();
+        if (settingsData.settings) {
+          setSystemSettings(settingsData.settings);
+        }
+      }
+    } finally {
+      setSavingSettings(false);
+    }
+  };
   const getProfileInitials = () => {
     if (!currentUser?.email) return 'SA';
     return currentUser.email.slice(0, 2).toUpperCase();
@@ -350,6 +406,81 @@ export default function AdminDashboardView() {
             Developer Sync Enabled
           </button>
         </aside>
+      </section>
+
+      <section className={styles.systemPanel} aria-label="System Operations">
+        <div className={styles.panelHeading}>
+          <span>System Controls</span>
+          <h2>Emergency Operations</h2>
+        </div>
+
+        <div className={styles.systemControls}>
+          <div className={styles.controlRow}>
+            <div>
+              <strong>Global Emergency Stop</strong>
+              <p>Immediately halt all API requests (except admin functions) with a 503 response.</p>
+            </div>
+            <button
+              onClick={() => handleUpdateSettings({ emergencyStop: !systemSettings.emergencyStop })}
+              disabled={savingSettings}
+              className={systemSettings.emergencyStop ? styles.dangerButtonActive : styles.dangerButton}
+            >
+              {systemSettings.emergencyStop ? 'Disable Emergency Stop' : 'ENABLE EMERGENCY STOP'}
+            </button>
+          </div>
+
+          <div className={styles.controlRow}>
+            <div>
+              <strong>Emergency Austerity Mode</strong>
+              <p>Randomly throttle incoming requests with 429 Too Many Requests to reduce server load.</p>
+            </div>
+            <button
+              onClick={() => handleUpdateSettings({ emergencyAusterity: !systemSettings.emergencyAusterity })}
+              disabled={savingSettings || systemSettings.emergencyStop}
+              className={systemSettings.emergencyAusterity ? styles.warningButtonActive : styles.warningButton}
+            >
+              {systemSettings.emergencyAusterity ? 'Disable Austerity Mode' : 'Enable Austerity Mode'}
+            </button>
+          </div>
+
+          <div className={styles.controlRow} style={{ opacity: systemSettings.emergencyAusterity ? 1 : 0.5, pointerEvents: systemSettings.emergencyAusterity ? 'auto' : 'none' }}>
+            <div>
+              <strong>Austerity Throttle Rate</strong>
+              <p>Percentage of requests to drop when Austerity Mode is enabled.</p>
+            </div>
+            <div className={styles.sliderContainer}>
+              <input
+                type="range"
+                min="10"
+                max="90"
+                step="10"
+                value={systemSettings.austerityThrottleRate || 50}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  setSystemSettings((prev: any) => ({ ...prev, austerityThrottleRate: val }));
+                }}
+                onMouseUp={(e) => handleUpdateSettings({ austerityThrottleRate: parseInt((e.target as HTMLInputElement).value, 10) })}
+                onTouchEnd={(e) => handleUpdateSettings({ austerityThrottleRate: parseInt((e.target as HTMLInputElement).value, 10) })}
+                disabled={savingSettings || !systemSettings.emergencyAusterity}
+              />
+              <span>{systemSettings.austerityThrottleRate || 50}%</span>
+            </div>
+          </div>
+
+          <div className={styles.controlRow} style={{ opacity: systemSettings.emergencyAusterity ? 1 : 0.5, pointerEvents: systemSettings.emergencyAusterity ? 'auto' : 'none' }}>
+            <div>
+              <strong>Disable Database Sync</strong>
+              <p>Block all Neon database sync operations (/api/sync) to save connections.</p>
+            </div>
+            <button
+              onClick={() => handleUpdateSettings({ disableSync: !systemSettings.disableSync })}
+              disabled={savingSettings || !systemSettings.emergencyAusterity}
+              className={systemSettings.disableSync ? styles.warningButtonActive : styles.warningButton}
+            >
+              {systemSettings.disableSync ? 'Enable Sync' : 'Disable Sync'}
+            </button>
+          </div>
+        </div>
       </section>
 
       <section className={styles.accessTable} aria-label="Account Management Grid">
