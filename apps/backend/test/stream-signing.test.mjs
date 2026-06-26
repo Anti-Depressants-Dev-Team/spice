@@ -29,9 +29,6 @@ test('STREAM_HMAC_SECRET required in production', () => {
   if (originalAuth !== undefined) process.env.AUTH_SECRET = originalAuth;
   if (originalNext !== undefined) process.env.NEXTAUTH_SECRET = originalNext;
 });
-// import assert from 'node:assert/strict';
-import { verifySignedStream } from '../lib/stream-signing.ts';
-
 
 
 

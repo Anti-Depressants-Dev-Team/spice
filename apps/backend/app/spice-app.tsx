@@ -8658,10 +8658,7 @@ export default function SpiceApp() {
                         {Icons.tool} System Diagnostics & Live Terminal
                       </h3>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        Spice Media Core v1.0.67
-                        Spice Media Core v1.0.65 (Security Fix)
-                        Spice Media Core v1.0.66 (Discord RPC)
-                        Spice Media Core v1.0.66
+                        Spice Media Core v1.0.68
                       </span>
                     </div>
 

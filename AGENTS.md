@@ -95,3 +95,10 @@ This file applies to the whole repository. More specific `AGENTS.md` files in ch
 - Shared files such as routing, changelog parsing, auth/session helpers, database schema, provider clients, and root package config can affect multiple lanes. Edit them carefully and document the affected lanes in `walkthrough.md`.
 - Keep shared changes as small as possible. If shared behavior is only needed by one service, keep the public API narrow and avoid pulling unrelated services into the change.
 - When tests exist for the touched shared area, run the focused tests plus any lane-specific checks that cover the changed behavior.
+
+## Rule For Asynchronous Agents Working In The Same Repo
+- Avoid overlapping file modifications by strictly adhering to branch scoping.
+- If multiple agents are working, only edit files strictly within your assigned lane's directory unless there is an explicit instruction otherwise.
+- Coordinate shared file edits (e.g., `package.json`, root `walkthrough.md`, `AGENTS.md`) using strict string replacements or smaller patches rather than complete file overwrites to reduce merge conflicts.
+- Prefer updating specific blocks or appending instead of relying on exact line numbers.
+- Ensure that you read the latest `main` state before submitting PRs when asynchronous agents are modifying `walkthrough.md` to avoid truncating concurrent changes.

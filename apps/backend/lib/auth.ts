@@ -1,8 +1,6 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { normalizeAccountRole, type AccountRole } from './account';
 
-const JWT_SECRET_STRING = process.env.JWT_SECRET || 'development-secret';
-if (!JWT_SECRET_STRING && process.env.NODE_ENV === 'production') {
 function getJwtSecret() {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
@@ -21,10 +19,6 @@ function getJwtSecret() {
 }
 
 const JWT_SECRET_STRING = getJwtSecret();
-const JWT_SECRET_STRING = process.env.JWT_SECRET;
-if (!JWT_SECRET_STRING) {
-  throw new Error('JWT_SECRET environment variable is not set.');
-}
 const JWT_SECRET = new TextEncoder().encode(JWT_SECRET_STRING);
 
 export interface SpiceSession {
