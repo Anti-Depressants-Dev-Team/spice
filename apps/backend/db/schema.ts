@@ -58,6 +58,7 @@ export const playlists = pgTable('playlists', {
   gradient: text('gradient').notNull().default('linear-gradient(135deg, #a855f7, #ec4899)'),
   coverUrl: text('cover_url'),
   sortIndex: integer('sort_index').notNull().default(0),
+  isPublic: boolean('is_public').notNull().default(true),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
@@ -194,11 +195,25 @@ export const profiles = pgTable(
     joinedAt: text('joined_at').notNull(),
     passcode: text('passcode'),
     avatarUrl: text('avatar_url'),
+    isPrivate: boolean('is_private').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.id] })],
 );
 
+export const profileLikes = pgTable(
+  'profile_likes',
+  {
+    likerUserId: uuid('liker_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    targetUserId: uuid('target_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    likedAt: timestamp('liked_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.likerUserId, t.targetUserId] })],
+);
 export const systemSettings = pgTable('system_settings', {
   id: text('id').primaryKey().default('default'),
   emergencyAusterity: boolean('emergency_austerity').notNull().default(false),
@@ -206,4 +221,33 @@ export const systemSettings = pgTable('system_settings', {
   disableSync: boolean('disable_sync').notNull().default(false),
   emergencyStop: boolean('emergency_stop').notNull().default(false),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const listenTogetherSessions = pgTable('listen_together_sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  hostUserId: uuid('host_user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  currentTrackJson: text('current_track_json'),
+  queueJson: text('queue_json').notNull().default('[]'),
+  queueIndex: integer('queue_index').notNull().default(0),
+  isPlaying: boolean('is_playing').notNull().default(false),
+  progressMs: integer('progress_ms').notNull().default(0),
+  durationMs: integer('duration_ms').notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const listenTogetherInvites = pgTable('listen_together_invites', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sessionId: uuid('session_id')
+    .notNull()
+    .references(() => listenTogetherSessions.id, { onDelete: 'cascade' }),
+  invitedUserId: uuid('invited_user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  invitedByUserId: uuid('invited_by_user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  status: text('status').notNull().default('pending'), // 'pending', 'accepted', 'rejected'
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

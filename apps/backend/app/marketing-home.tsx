@@ -74,7 +74,7 @@ export default function MarketingHome() {
       setNewAvatarUrl('');
 
       window.dispatchEvent(new Event('storage'));
-    } catch (_e) {}
+    } catch {}
   };
 
 
@@ -93,7 +93,7 @@ export default function MarketingHome() {
           setEditAvatarUrl(profile.avatarUrl || '');
         }
       }
-    } catch (_e) {}
+    } catch {}
     });
   }, []);
 
@@ -117,7 +117,7 @@ export default function MarketingHome() {
         // Force a small reload or trigger event so the topbar catches it
         window.dispatchEvent(new Event('storage'));
       }
-    } catch (_e) {}
+    } catch {}
   };
 
   return (

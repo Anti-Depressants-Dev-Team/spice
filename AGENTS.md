@@ -23,6 +23,8 @@ This file applies to the whole repository. More specific `AGENTS.md` files in ch
 - For backend app changes, follow `apps/backend/AGENTS.md`: bump the visible `Spice Media Core v1.0.x` version in `apps/backend/app/spice-app.tsx` and document the same version in `walkthrough.md`.
 - If another visible app version string is changed by the same release, keep it aligned with the walkthrough entry.
 - Walkthrough bullets should name the affected service or lane when the change is scoped, especially for Home, Music, Admin, Anime, and future services.
+- If there are 5 fixes in one version, push it to the next version (increment/bump version).
+- If there is a new feature implementation, push it to the next version (increment/bump version).
 
 ## Worktrees And Branch Scope
 

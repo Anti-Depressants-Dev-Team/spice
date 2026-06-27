@@ -54,17 +54,25 @@ export async function GET(
   };
   let rangeHeader = request.headers.get('range');
 
-  // Optimize Vercel Fluid Compute: chunking
-  const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB
-  if (!rangeHeader) {
-      rangeHeader = `bytes=0-${CHUNK_SIZE - 1}`;
+  const isDownload = request.nextUrl.searchParams.get('download') === 'true';
+
+  if (isDownload) {
+    if (rangeHeader) {
+      headers['Range'] = rangeHeader;
+    }
   } else {
-      const parts = rangeHeader.replace(/bytes=/, "").split("-");
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : start + CHUNK_SIZE - 1;
-      rangeHeader = `bytes=${start}-${Math.min(end, start + CHUNK_SIZE - 1)}`;
+    // Optimize Vercel Fluid Compute: chunking
+    const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB
+    if (!rangeHeader) {
+        rangeHeader = `bytes=0-${CHUNK_SIZE - 1}`;
+    } else {
+        const parts = rangeHeader.replace(/bytes=/, "").split("-");
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : start + CHUNK_SIZE - 1;
+        rangeHeader = `bytes=${start}-${Math.min(end, start + CHUNK_SIZE - 1)}`;
+    }
+    headers['Range'] = rangeHeader;
   }
-  headers['Range'] = rangeHeader;
 
   try {
     let upstream;

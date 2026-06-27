@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
     // Get owner info
     const owner = await db.query.users.findFirst({ where: eq(users.id, playlist.userId) });
     const ownerProfile = await db.query.profiles.findFirst({
-      where: and(eq(profiles.userId, playlist.userId), eq(profiles.id, 'default')),
+      where: eq(profiles.userId, playlist.userId),
     });
 
     // Get members
@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
       const [fetchedUsers, fetchedProfiles] = await Promise.all([
         db.query.users.findMany({ where: inArray(users.id, userIds) }),
         db.query.profiles.findMany({
-          where: and(inArray(profiles.userId, userIds), eq(profiles.id, 'default')),
+          where: inArray(profiles.userId, userIds),
         }),
       ]);
 
@@ -142,7 +142,10 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}));
     const playlistId = typeof body.playlistId === 'string' ? body.playlistId : '';
-    const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
+    let username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
+    if (username.startsWith('@')) {
+      username = username.substring(1);
+    }
 
     if (!uuidPattern.test(playlistId)) {
       return jsonResponse({ error: 'invalid_playlist_id', message: 'Playlist id must be a UUID.' }, { status: 400 });
@@ -208,7 +211,7 @@ export async function POST(request: NextRequest) {
 
     // Fetch target profile for response
     const targetProfile = await db.query.profiles.findFirst({
-      where: and(eq(profiles.userId, targetUser.id), eq(profiles.id, 'default')),
+      where: eq(profiles.userId, targetUser.id),
     });
 
     return jsonResponse({

@@ -28,11 +28,19 @@ export async function GET(request: Request) {
       .from(playlistMembers)
       .innerJoin(playlists, eq(playlistMembers.playlistId, playlists.id))
       .innerJoin(users, eq(playlists.userId, users.id))
-      .leftJoin(profiles, and(eq(users.id, profiles.userId), eq(profiles.id, 'default')))
+      .leftJoin(profiles, eq(users.id, profiles.userId))
       .where(and(eq(playlistMembers.userId, session.userId), eq(playlistMembers.status, 'pending')));
 
+    const inviteMap = new Map<string, (typeof pendingInvites)[number]>();
+    for (const row of pendingInvites) {
+      if (!inviteMap.has(row.playlistId)) {
+        inviteMap.set(row.playlistId, row);
+      }
+    }
+    const deduplicatedInvites = Array.from(inviteMap.values());
+
     return jsonResponse({
-      invites: pendingInvites.map((invite) => ({
+      invites: deduplicatedInvites.map((invite) => ({
         playlistId: invite.playlistId,
         playlistTitle: invite.playlistTitle,
         ownerId: invite.ownerUserId,

@@ -1046,6 +1046,9 @@ h4 { font-size: 1rem; }
 
 .spice-release-dialog {
   width: min(620px, 100%);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
   padding: 24px;
   border: 1px solid rgba(var(--accent-pink-rgb, 236, 72, 153), 0.36);
   border-radius: 20px;
@@ -1065,6 +1068,7 @@ h4 { font-size: 1rem; }
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 18px;
+  flex-shrink: 0;
 }
 
 .spice-release-dialog__header span {
@@ -1082,6 +1086,7 @@ h4 { font-size: 1rem; }
   font-size: clamp(1.65rem, 4vw, 2.5rem);
   line-height: 1.04;
   font-weight: 950;
+  flex-shrink: 0;
 }
 
 .spice-release-dialog__summary {
@@ -1089,11 +1094,32 @@ h4 { font-size: 1rem; }
   color: rgba(255,255,255,0.82);
   font-size: 1rem;
   line-height: 1.55;
+  flex-shrink: 0;
 }
 
 .spice-release-dialog__body {
   display: grid;
   gap: 12px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.spice-release-dialog__body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.spice-release-dialog__body::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.spice-release-dialog__body::-webkit-scrollbar-thumb {
+  background: rgba(var(--accent-pink-rgb, 236, 72, 153), 0.4);
+  border-radius: 4px;
+}
+
+.spice-release-dialog__body::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--accent-pink-rgb, 236, 72, 153), 0.6);
 }
 
 .spice-release-dialog__body p {
@@ -2975,7 +3001,7 @@ h4 { font-size: 1rem; }
 
 .search-provider-select {
   max-width: 142px;
-  padding: 6px 10px;
+  padding: 6px 32px 6px 12px;
   color: var(--text-secondary);
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid var(--border-glass);
@@ -2983,12 +3009,27 @@ h4 { font-size: 1rem; }
   outline: none;
   cursor: pointer;
   transition: all var(--transition-fast);
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 14px;
 }
 
 .search-provider-select:hover,
 .search-provider-select:focus-visible {
+  color: var(--accent-pink);
+  border-color: var(--accent-pink);
+}
+
+.search-provider-select option {
+  background-color: var(--bg-surface);
   color: var(--text-primary);
-  border-color: var(--accent-violet);
+}
+
+.search-provider-select option:checked {
+  color: var(--accent-pink);
 }
 
 /* Genre Cards */

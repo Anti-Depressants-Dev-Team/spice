@@ -87,7 +87,7 @@ export async function GET(
       const [fetchedUsers, fetchedProfiles] = await Promise.all([
         db.query.users.findMany({ where: inArray(users.id, uidsArray) }),
         db.query.profiles.findMany({
-          where: and(inArray(profiles.userId, uidsArray), eq(profiles.id, 'default')),
+          where: inArray(profiles.userId, uidsArray),
         }),
       ]);
 

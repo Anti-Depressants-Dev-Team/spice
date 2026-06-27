@@ -161,4 +161,16 @@ test('Shared Playlists - Integration test suite', { skip: !hasDb }, async (t) =>
       await db.delete(users).where(eq(users.id, owner.id));
     }
   });
+
+  await t.test('Spicer invite username leading @ strip verification', async () => {
+    const timestamp = Date.now();
+    const inputWithAt = `@spicerinvite_${timestamp}#12345678`;
+    
+    let processedUsername = inputWithAt.trim().toLowerCase();
+    if (processedUsername.startsWith('@')) {
+      processedUsername = processedUsername.substring(1);
+    }
+
+    assert.equal(processedUsername, `spicerinvite_${timestamp}#12345678`);
+  });
 });

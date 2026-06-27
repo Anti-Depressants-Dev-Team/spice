@@ -23,7 +23,7 @@ import {
   rankRecommendedTracks,
 } from './recommendations';
 import { isSpiceConnectCommandFresh, SPICE_CONNECT_COMMAND_TTL_MS } from '@/lib/spice-connect';
-import { SPICE_MEDIA_CORE_VERSION, RELEASE_NOTIFICATION_STORAGE_KEY, RELEASE_NOTIFICATIONS, type ReleaseNotification } from '@/lib/release-notifications';
+import { SPICE_MEDIA_CORE_VERSION, RELEASE_NOTIFICATION_STORAGE_KEY, type ReleaseNotification } from '@/lib/release-notifications';
 
 const SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS = 400;
 const SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS = 1500;
@@ -144,6 +144,11 @@ const Icons = {
       <rect x="14" y="3" width="7" height="7" />
       <rect x="3" y="14" width="7" height="7" />
       <rect x="14" y="14" width="7" height="7" />
+    </svg>
+  ),
+  refresh: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+      <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.59-9.21l5.67-5.67" />
     </svg>
   ),
   trash: (
@@ -288,6 +293,14 @@ const Icons = {
       <circle cx="18" cy="19" r="3" />
       <path d="M8.59 13.51 15.42 17.49" />
       <path d="M15.41 6.51 8.59 10.49" />
+    </svg>
+  ),
+  listenTogether: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+      <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+      <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+      <path d="M12 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z" />
+      <path d="M6 21v-1a4 4 0 0 1 8 0v1" />
     </svg>
   ),
   camera: (
@@ -528,6 +541,7 @@ interface Playlist {
   coverUrl?: string;
   createdAt: string;
   shared?: boolean;
+  isPublic?: boolean;
   ownerId?: string;
   ownerUsername?: string | null;
   ownerDisplayName?: string;
@@ -603,6 +617,7 @@ interface UserProfile {
   cloudToken?: string | null;
   cloudUser?: CloudAccount | null;
   cloudUsername?: string | null;
+  isPrivate?: boolean;
 }
 
 interface ProfileSyncProviderResult {
@@ -960,6 +975,7 @@ const normalizePlaylistSnapshot = (playlist: any): Playlist => ({
   tracks: Array.isArray(playlist?.tracks) ? playlist.tracks.map(enrichTrackSnapshot) : [],
   gradient: typeof playlist?.gradient === 'string' && playlist.gradient ? playlist.gradient : PRESET_GRADIENTS[0],
   coverUrl: typeof playlist?.coverUrl === 'string' ? playlist.coverUrl : undefined,
+  isPublic: playlist?.isPublic !== false,
   createdAt: typeof playlist?.createdAt === 'string' && playlist.createdAt
     ? playlist.createdAt
     : new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
@@ -1479,7 +1495,28 @@ export default function SpiceApp() {
   const [editPlDesc, setEditPlDesc] = useState('');
   const [editPlGradient, setEditPlGradient] = useState('');
   const [editPlCoverUrl, setEditPlCoverUrl] = useState('');
+  const [newPlIsPublic, setNewPlIsPublic] = useState(true);
+  const [editPlIsPublic, setEditPlIsPublic] = useState(true);
+  const [searchTab, setSearchTab] = useState<'tracks' | 'users'>('tracks');
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userSearchResults, setUserSearchResults] = useState<any[]>([]);
+  const [isSearchingUsers, setIsSearchingUsers] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [selectedUserProfileData, setSelectedUserProfileData] = useState<any | null>(null);
+  const [myLikesCount, setMyLikesCount] = useState<number>(0);
+  const [isLoadingUserProfile, setIsLoadingUserProfile] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Listen Together State
+  const [listenTogetherSession, setListenTogetherSession] = useState<{ id: string } | null>(null);
+  const [listenTogetherHostSessionId, setListenTogetherHostSessionId] = useState<string | null>(null);
+  const [listenTogetherHostName, setListenTogetherHostName] = useState<string | null>(null);
+  const [pendingListenInvites, setPendingListenInvites] = useState<any[]>([]);
+  const [listenTogetherDialogOpen, setListenTogetherDialogOpen] = useState(false);
+  const [listenTogetherInviteUsername, setListenTogetherInviteUsername] = useState('');
+  const [listenTogetherInvitesList, setListenTogetherInvitesList] = useState<any[]>([]);
+  const [isSendingListenTogetherInvite, setIsSendingListenTogetherInvite] = useState(false);
+  const [isCreatingListenTogetherSession, setIsCreatingListenTogetherSession] = useState(false);
+
   const [sharingPlaylistId, setSharingPlaylistId] = useState<string | null>(null);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [invitePreview, setInvitePreview] = useState<PlaylistInvitePreview | null>(null);
@@ -1501,23 +1538,8 @@ export default function SpiceApp() {
     }
     return null;
   });
-  const [usernameInput, setUsernameInput] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const activeId = localStorage.getItem('spice_active_profile_id') || 'default';
-      const saved = localStorage.getItem('spice_profiles_list');
-      if (saved) {
-        try {
-          const list: UserProfile[] = JSON.parse(saved);
-          const found = list.find(p => p.id === activeId);
-          if (found && found.cloudUsername) return found.cloudUsername;
-        } catch { }
-      }
-    }
-    return '';
-  });
-  const [usernameSaving, setUsernameSaving] = useState(false);
-  const [usernameError, setUsernameError] = useState<string | null>(null);
-  const [usernameSuccess, setUsernameSuccess] = useState(false);
+
+
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
   const [pendingInvitesLoading, setPendingInvitesLoading] = useState(false);
   const [notificationTrayOpen, setNotificationTrayOpen] = useState(false);
@@ -1532,6 +1554,18 @@ export default function SpiceApp() {
       return [];
     }
   });
+  const [releaseNotifications, setReleaseNotifications] = useState<ReleaseNotification[]>([]);
+
+  useEffect(() => {
+    fetch('/api/notifications/release')
+      .then(res => res.json())
+      .then(data => {
+        if (data.notifications && Array.isArray(data.notifications)) {
+          setReleaseNotifications(data.notifications);
+        }
+      })
+      .catch(() => {});
+  }, []);
   const [showMembersPanel, setShowMembersPanel] = useState(false);
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersList, setMembersList] = useState<{ owner: PlaylistMember; members: PlaylistMember[]; maxMembers: number } | null>(null);
@@ -1694,9 +1728,22 @@ export default function SpiceApp() {
     logDebug('profile', `Last.fm linked as ${resolvedUser}.`);
   }, [logDebug]);
 
+  const prevTerminalAutoScrollRef = useRef(terminalAutoScroll);
+
   useEffect(() => {
+    const toggledOn = terminalAutoScroll && !prevTerminalAutoScrollRef.current;
+    prevTerminalAutoScrollRef.current = terminalAutoScroll;
+
     if (terminalAutoScroll && terminalEndRef.current) {
-      terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      const parent = terminalEndRef.current.parentElement;
+      if (parent) {
+        const isNearBottom = parent.scrollHeight - parent.scrollTop - parent.clientHeight < 100;
+        if (isNearBottom || toggledOn) {
+          terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      } else {
+        terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      }
     }
   }, [debugLogs, terminalAutoScroll]);
 
@@ -1867,8 +1914,17 @@ export default function SpiceApp() {
         'Authorization': `Bearer ${cloudToken}`
       },
       body: JSON.stringify({ profiles: updatedProfiles })
-    }).then(res => {
-      if (res.ok) logDebug('database', 'Profiles configuration auto-saved to cloud database.');
+    }).then(async res => {
+      if (res.ok) {
+        logDebug('database', 'Profiles configuration auto-saved to cloud database.');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        if (data.error === 'profile_name_taken') {
+          showSpiceNotice(data.message || 'Profile name is already taken by another user.', 'warning');
+        } else {
+          logDebug('error', `Auto-sync profiles failed: ${data.message || res.statusText}`);
+        }
+      }
     }).catch(err => {
       logDebug('error', `Auto-sync profiles failed: ${err}`);
     });
@@ -1956,6 +2012,93 @@ export default function SpiceApp() {
     }).catch(err => {
       logDebug('error', `Auto-sync likes failed: ${err}`);
     });
+  };
+
+  const handleUserSearch = async (query: string) => {
+    const trimmed = query.trim();
+    setUserSearchQuery(trimmed);
+    if (!trimmed) {
+      setUserSearchResults([]);
+      setIsSearchingUsers(false);
+      return;
+    }
+
+    setIsSearchingUsers(true);
+    try {
+      const res = await fetch(`/api/users/search?q=${encodeURIComponent(trimmed)}`, {
+        headers: cloudToken ? { Authorization: `Bearer ${cloudToken}` } : {},
+      });
+      if (!res.ok) throw new Error('Search failed');
+      const data = await res.json();
+      setUserSearchResults(data.users || []);
+    } catch (err) {
+      console.error(err);
+      showSpiceNotice('Failed to search users.', 'warning');
+    } finally {
+      setIsSearchingUsers(false);
+    }
+  };
+
+  const handleSelectUser = async (user: any) => {
+    setSelectedUser(user);
+    setSelectedUserProfileData(null);
+    setIsLoadingUserProfile(true);
+    setSelectedPlaylist(null);
+    
+    try {
+      const res = await fetch(`/api/users/profile?userId=${user.id}`, {
+        headers: cloudToken ? { Authorization: `Bearer ${cloudToken}` } : {},
+      });
+      if (!res.ok) throw new Error('Failed to load profile');
+      const data = await res.json();
+      setSelectedUserProfileData(data);
+    } catch (err) {
+      console.error(err);
+      showSpiceNotice('Failed to load user profile.', 'warning');
+      setSelectedUser(null);
+    } finally {
+      setIsLoadingUserProfile(false);
+    }
+  };
+
+  const handleToggleProfileLike = async (userId: string) => {
+    if (!cloudToken) {
+      showSpiceNotice('Please sign in to like profiles.', 'info');
+      return;
+    }
+    if (userId === cloudUser?.id) {
+      showSpiceNotice('You cannot like your own profile.', 'info');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/users/like', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cloudToken}`,
+        },
+        body: JSON.stringify({ targetUserId: userId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Failed to toggle like');
+      }
+      const data = await res.json();
+      
+      setSelectedUserProfileData((prev: any) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          likesCount: data.likesCount,
+          isLikedByMe: data.isLiked,
+        };
+      });
+      showSpiceNotice(data.isLiked ? 'Liked profile!' : 'Removed like from profile.', 'success');
+    } catch (err: any) {
+      console.error(err);
+      showSpiceNotice(err.message || 'Failed to toggle like on profile.', 'warning');
+    }
   };
 
   const restoreProfileConnections = useCallback(async (token: string | null = cloudToken) => {
@@ -2220,7 +2363,6 @@ export default function SpiceApp() {
         setCloudToken(nextToken);
         setCloudUser(nextUser);
         setCloudUsername(nextUsername);
-        setUsernameInput(nextUsername || '');
 
         const savedPlayback = getPlaybackState(activeProf.id);
         if (savedPlayback) {
@@ -2934,7 +3076,6 @@ export default function SpiceApp() {
         setCloudToken(token);
         setCloudUser(visibleSessionUser);
         setCloudUsername(visibleSessionUsername);
-        setUsernameInput(visibleSessionUsername || '');
         cloudTokenRef.current = token;
         cloudUserRef.current = visibleSessionUser;
         cloudUsernameRef.current = visibleSessionUsername;
@@ -3024,7 +3165,6 @@ export default function SpiceApp() {
       setCloudToken(data.token);
       setCloudUser(data.user);
       setCloudUsername(null);
-      setUsernameInput('');
       cloudTokenRef.current = data.token;
       cloudUserRef.current = data.user;
       cloudUsernameRef.current = null;
@@ -3057,7 +3197,6 @@ export default function SpiceApp() {
     setCloudToken(null);
     setCloudUser(null);
     setCloudUsername(null);
-    setUsernameInput('');
     cloudTokenRef.current = null;
     cloudUserRef.current = null;
     cloudUsernameRef.current = null;
@@ -3973,7 +4112,7 @@ export default function SpiceApp() {
           currentTrack: device.currentTrack ? enrichTrackSnapshot(device.currentTrack) : null,
           queue: Array.isArray(device.queue) ? device.queue.map(enrichTrackSnapshot) : [],
           lastSeenSeconds: Math.max(0, Math.round((Date.now() - new Date(device.updatedAt).getTime()) / 1000)),
-        }))
+        })).filter((device: any) => device.lastSeenSeconds <= 7200)
         : [];
       setRemoteDevices(devices);
 
@@ -4292,6 +4431,7 @@ export default function SpiceApp() {
 
     setTopbarSearchQuery(trimmedQuery);
     setSelectedPlaylist(null);
+    setSelectedUser(null);
     setTopbarSearchTrayOpen(true);
     setNotificationTrayOpen(false);
     setRecentSearchEntries(getRecentCachedSearches());
@@ -4327,6 +4467,7 @@ export default function SpiceApp() {
 
   const openAccountFromTopbar = () => {
     setSelectedPlaylist(null);
+    setSelectedUser(null);
     setNotificationTrayOpen(false);
     setCurrentPage('account');
   };
@@ -4343,11 +4484,22 @@ export default function SpiceApp() {
     const provider = isSearchProvider(providerIntent) ? providerIntent : searchProvider;
     let consumedIntent = false;
 
-    if (songIntent) {
+    const listenTogetherIntent = params.get('listenTogether');
+    if (listenTogetherIntent) {
+      if (cloudToken) {
+        setListenTogetherHostSessionId(listenTogetherIntent);
+        setListenTogetherSession(null);
+        showSpiceNotice('Connecting to shared Listen Together session...', 'info');
+      } else {
+        showSpiceNotice('Please sign in to join the Listen Together session.', 'warning');
+      }
+      consumedIntent = true;
+    } else if (songIntent) {
       const sharedTrack = decodeSongShareToken(songIntent);
       if (sharedTrack) {
         rememberTrackSnapshots([sharedTrack]);
         setSelectedPlaylist(null);
+        setSelectedUser(null);
         setCurrentPage('search');
         setSearchQuery(`${sharedTrack.title} ${profileArtistName(sharedTrack)}`);
         void playTrack(sharedTrack, [sharedTrack]);
@@ -4359,10 +4511,12 @@ export default function SpiceApp() {
     } else if (authIntent === 'register' || authIntent === 'login') {
       setAuthMode(authIntent === 'register' ? 'register' : 'login');
       setSelectedPlaylist(null);
+      setSelectedUser(null);
       setCurrentPage('account');
       consumedIntent = true;
     } else if (pageIntent === 'account') {
       setSelectedPlaylist(null);
+      setSelectedUser(null);
       setCurrentPage('account');
       consumedIntent = true;
     }
@@ -4371,11 +4525,13 @@ export default function SpiceApp() {
       const trimmedSearch = searchIntent.trim();
       setSearchQuery(trimmedSearch);
       setSelectedPlaylist(null);
+      setSelectedUser(null);
       setCurrentPage('search');
       runTopbarSearch(trimmedSearch, provider);
       consumedIntent = true;
     } else if (pageIntent === 'search') {
       setSelectedPlaylist(null);
+      setSelectedUser(null);
       setCurrentPage('search');
       consumedIntent = true;
     }
@@ -4501,6 +4657,7 @@ export default function SpiceApp() {
       description: newPlDesc || 'Custom Spice compilation.',
       tracks: [],
       gradient: PRESET_GRADIENTS[randomIndex(PRESET_GRADIENTS.length)],
+      isPublic: newPlIsPublic,
       createdAt: new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
     };
 
@@ -4509,6 +4666,7 @@ export default function SpiceApp() {
 
     setNewPlTitle('');
     setNewPlDesc('');
+    setNewPlIsPublic(true);
     setShowCreateDialog(false);
   };
 
@@ -4576,6 +4734,7 @@ export default function SpiceApp() {
       description: editPlDesc.trim(),
       gradient: editPlGradient,
       coverUrl: editPlCoverUrl.trim() || undefined,
+      isPublic: editPlIsPublic,
     };
 
     // Update in customPlaylists state
@@ -4595,6 +4754,7 @@ export default function SpiceApp() {
               description: updatedPl.description,
               gradient: updatedPl.gradient,
               coverUrl: updatedPl.coverUrl || null,
+              isPublic: updatedPl.isPublic,
             })
           });
           const data = await response.json().catch(() => ({}));
@@ -4826,6 +4986,8 @@ export default function SpiceApp() {
     if (!invitePreview) return;
     if (!cloudToken) {
       setInviteStatus('Sign in to your SPICE account first, then accept the invite.');
+      setSelectedPlaylist(null);
+      setSelectedUser(null);
       setCurrentPage('account');
       return;
     }
@@ -4850,6 +5012,7 @@ export default function SpiceApp() {
       rememberTrackSnapshots(acceptedPlaylist.tracks);
       persistCustomPlaylists(updated, false);
       setSelectedPlaylist(acceptedPlaylist);
+      setSelectedUser(null);
       setCurrentPage('library');
       setInvitePreview(null);
       setInviteStatus(null);
@@ -4883,7 +5046,6 @@ export default function SpiceApp() {
         updateProfileData(profileId, { cloudUsername: data.username });
         if (activeProfileIdRef.current === profileId && cloudTokenRef.current === token) {
           setCloudUsername(data.username);
-          setUsernameInput(data.username);
           cloudUsernameRef.current = data.username;
         }
       }
@@ -4916,6 +5078,25 @@ export default function SpiceApp() {
       void fetchPendingInvites();
     }
   }, [currentPage, cloudToken, fetchPendingInvites]);
+
+  const fetchMyLikesCount = useCallback(async () => {
+    if (!cloudToken || !cloudUser?.id) return;
+    try {
+      const res = await fetch(`/api/users/profile?userId=${cloudUser.id}`, {
+        headers: { Authorization: `Bearer ${cloudToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMyLikesCount(data.likesCount || 0);
+      }
+    } catch { /* silent */ }
+  }, [cloudToken, cloudUser]);
+
+  useEffect(() => {
+    if (currentPage === 'account' && cloudToken) {
+      void fetchMyLikesCount();
+    }
+  }, [currentPage, cloudToken, fetchMyLikesCount]);
 
   useEffect(() => {
     if (!cloudToken) {
@@ -4990,41 +5171,331 @@ export default function SpiceApp() {
       setAcceptingInvite(false);
     }
   };
+
+  // ── Listen Together Handlers & Effects ──────────────────────────────
+  const fetchPendingListenInvites = useCallback(async () => {
+    if (!cloudToken) {
+      setPendingListenInvites([]);
+      return;
+    }
+    try {
+      const res = await fetch('/api/listen-together/invite', {
+        headers: { Authorization: `Bearer ${cloudToken}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPendingListenInvites(data.invites || []);
+      }
+    } catch (err) {
+      logDebug('error', `Failed to fetch pending listen invites: ${err}`);
+    }
+  }, [cloudToken, logDebug]);
+
+  const fetchListenTogetherInvitesList = useCallback(async (sessionId: string) => {
+    if (!cloudToken) return;
+    try {
+      const res = await fetch(`/api/listen-together/invite?sessionId=${sessionId}`, {
+        headers: { Authorization: `Bearer ${cloudToken}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setListenTogetherInvitesList(data.invites || []);
+      }
+    } catch { /* silent */ }
+  }, [cloudToken]);
+
+  const handleStartListenTogetherSession = async () => {
+    if (!cloudToken) {
+      showSpiceNotice('Please sign in to use Listen Together.', 'warning');
+      return;
+    }
+    setIsCreatingListenTogetherSession(true);
+    try {
+      const res = await fetch('/api/listen-together/session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cloudToken}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setListenTogetherSession(data.session);
+        setListenTogetherHostSessionId(null);
+        setListenTogetherHostName(null);
+        showSpiceNotice('Listen Together session started!', 'success');
+        void fetchListenTogetherInvitesList(data.session.id);
+      } else {
+        showSpiceNotice('Failed to start session.', 'danger');
+      }
+    } catch {
+      showSpiceNotice('Failed to start session.', 'danger');
+    } finally {
+      setIsCreatingListenTogetherSession(false);
+    }
+  };
+
+  const handleEndListenTogetherSession = async () => {
+    if (!cloudToken) return;
+    try {
+      const res = await fetch('/api/listen-together/session', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${cloudToken}` }
+      });
+      if (res.ok) {
+        setListenTogetherSession(null);
+        setListenTogetherInvitesList([]);
+        showSpiceNotice('Listen Together session ended.', 'success');
+      }
+    } catch {
+      showSpiceNotice('Failed to end session.', 'danger');
+    }
+  };
+
+  const handleSendListenTogetherInvite = async (username = listenTogetherInviteUsername) => {
+    if (!cloudToken || !listenTogetherSession || !username) return;
+    setIsSendingListenTogetherInvite(true);
+    try {
+      const res = await fetch('/api/listen-together/invite', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cloudToken}`
+        },
+        body: JSON.stringify({
+          username,
+          sessionId: listenTogetherSession.id
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showSpiceNotice(`Invite sent to ${username}!`, 'success');
+        setListenTogetherInviteUsername('');
+        void fetchListenTogetherInvitesList(listenTogetherSession.id);
+      } else {
+        showSpiceNotice(data.message || 'Failed to send invite.', 'danger');
+      }
+    } catch {
+      showSpiceNotice('Failed to send invite.', 'danger');
+    } finally {
+      setIsSendingListenTogetherInvite(false);
+    }
+  };
+
+  const handleRespondToListenTogetherInvite = async (inviteId: string, action: 'accept' | 'reject') => {
+    if (!cloudToken) return;
+    try {
+      const res = await fetch('/api/listen-together/invite', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cloudToken}`
+        },
+        body: JSON.stringify({ inviteId, action })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPendingListenInvites(prev => prev.filter(inv => inv.inviteId !== inviteId));
+        if (action === 'accept') {
+          setListenTogetherHostSessionId(data.sessionId);
+          setListenTogetherSession(null);
+          showSpiceNotice('Joined Listen Together session!', 'success');
+        } else {
+          showSpiceNotice('Invitation declined.', 'success');
+        }
+        void fetchPendingListenInvites();
+      } else {
+        showSpiceNotice(data.message || 'Failed to respond to invite.', 'danger');
+      }
+    } catch {
+      showSpiceNotice('Failed to respond to invite.', 'danger');
+    }
+  };
+
+  const handleLeaveListenTogetherSession = () => {
+    setListenTogetherHostSessionId(null);
+    setListenTogetherHostName(null);
+    showSpiceNotice('Left Listen Together session.', 'success');
+  };
+
+  const handleEndOrLeaveListenTogether = () => {
+    if (listenTogetherSession) {
+      void handleEndListenTogetherSession();
+    } else if (listenTogetherHostSessionId) {
+      handleLeaveListenTogetherSession();
+    }
+  };
+
+  const handleInviteUserProfileToListenTogether = async (username: string) => {
+    if (!cloudToken) return;
+    if (listenTogetherSession) {
+      void handleSendListenTogetherInvite(username);
+    } else {
+      setIsCreatingListenTogetherSession(true);
+      try {
+        const res = await fetch('/api/listen-together/session', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${cloudToken}`
+          }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setListenTogetherSession(data.session);
+          setListenTogetherHostSessionId(null);
+          setListenTogetherHostName(null);
+          showSpiceNotice('Listen Together session started!', 'success');
+          
+          const inviteRes = await fetch('/api/listen-together/invite', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${cloudToken}`
+            },
+            body: JSON.stringify({
+              username,
+              sessionId: data.session.id
+            })
+          });
+          const inviteData = await inviteRes.json();
+          if (inviteRes.ok) {
+            showSpiceNotice(`Invite sent to ${username}!`, 'success');
+            void fetchListenTogetherInvitesList(data.session.id);
+          } else {
+            showSpiceNotice(inviteData.message || 'Failed to send invite.', 'danger');
+          }
+        } else {
+          showSpiceNotice('Failed to start session.', 'danger');
+        }
+      } catch {
+        showSpiceNotice('Failed to start session.', 'danger');
+      } finally {
+        setIsCreatingListenTogetherSession(false);
+      }
+    }
+  };
+
+  // Poll for Listen Together Invites
+  useEffect(() => {
+    if (!cloudToken) {
+      setPendingListenInvites([]);
+      return;
+    }
+    void fetchPendingListenInvites();
+    const interval = window.setInterval(() => {
+      void fetchPendingListenInvites();
+    }, 15000);
+    return () => window.clearInterval(interval);
+  }, [cloudToken, fetchPendingListenInvites]);
+
+  // Host Sync Loop
+  useEffect(() => {
+    if (!cloudToken || !listenTogetherSession) return;
+
+    const inviteInterval = window.setInterval(() => {
+      void fetchListenTogetherInvitesList(listenTogetherSession.id);
+    }, 6000);
+
+    const syncInterval = window.setInterval(async () => {
+      const targetTrack = currentTrackRef.current;
+      const currentQueue = queueRef.current || [];
+      try {
+        await fetch('/api/listen-together/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${cloudToken}`
+          },
+          body: JSON.stringify({
+            sessionId: listenTogetherSession.id,
+            currentTrack: targetTrack?.id === 'placeholder' || targetTrack?.id === 'spice-connect-placeholder' ? null : targetTrack,
+            queue: currentQueue.slice(0, 80),
+            queueIndex: queueIndexRef.current,
+            isPlaying: isPlayingRef.current,
+            progressMs: progressRef.current * 1000,
+            durationMs: durationRef.current * 1000
+          })
+        });
+      } catch { /* silent */ }
+    }, 2500);
+
+    return () => {
+      window.clearInterval(inviteInterval);
+      window.clearInterval(syncInterval);
+    };
+  }, [cloudToken, listenTogetherSession, fetchListenTogetherInvitesList]);
+
+  // Listener Sync Loop
+  useEffect(() => {
+    if (!cloudToken || !listenTogetherHostSessionId) return;
+
+    const syncInterval = window.setInterval(async () => {
+      try {
+        const res = await fetch(`/api/listen-together/sync?sessionId=${listenTogetherHostSessionId}`);
+        if (!res.ok) {
+          if (res.status === 404) {
+            setListenTogetherHostSessionId(null);
+            setListenTogetherHostName(null);
+            showSpiceNotice('Listen Together session ended by host.', 'info');
+          }
+          return;
+        }
+        const data = await res.json();
+        if (!data.isActive) {
+          setListenTogetherHostSessionId(null);
+          setListenTogetherHostName(null);
+          showSpiceNotice('Listen Together session is inactive.', 'info');
+          return;
+        }
+
+        setListenTogetherHostName(data.hostName);
+
+        const hostTrack = data.currentTrack;
+        const hostIsPlaying = data.isPlaying;
+        const hostProgress = data.progressMs / 1000;
+        const hostQueue = data.queue || [];
+
+        const localTrack = currentTrackRef.current;
+        const localIsPlaying = isPlayingRef.current;
+        const localProgress = progressRef.current;
+
+        if (hostTrack && (!localTrack || localTrack.id !== hostTrack.id)) {
+          const hydratedQueue = hostQueue.length > 0 ? hostQueue : [hostTrack];
+          void playTrack(enrichTrackSnapshot(hostTrack), hydratedQueue.map(enrichTrackSnapshot));
+          return;
+        }
+
+        if (!hostTrack && localTrack && localTrack.id !== 'placeholder') {
+          pauseCurrentPlayback();
+          return;
+        }
+
+        if (!hostTrack) return;
+
+        if (hostIsPlaying !== localIsPlaying) {
+          if (hostIsPlaying) {
+            resumeCurrentPlayback();
+          } else {
+            pauseCurrentPlayback();
+          }
+        }
+
+        const progressDiff = Math.abs(hostProgress - localProgress);
+        if (progressDiff > 3 && hostProgress >= 0) {
+          seekToPosition(hostProgress);
+        }
+      } catch { /* silent */ }
+    }, 2500);
+
+    return () => window.clearInterval(syncInterval);
+  }, [cloudToken, listenTogetherHostSessionId, playTrack, resumeCurrentPlayback, pauseCurrentPlayback, seekToPosition, enrichTrackSnapshot]);
+
   useEffect(() => {
     if (cloudToken) {
       void fetchUsername(cloudToken, activeProfileId);
     }
   }, [cloudToken, activeProfileId, fetchUsername]);
-
-  const saveUsername = async () => {
-    if (!cloudToken || !usernameInput.trim()) return;
-    const usernameProfileId = activeProfileIdRef.current;
-    const usernameToken = cloudToken;
-    setUsernameSaving(true);
-    setUsernameError(null);
-    setUsernameSuccess(false);
-    try {
-      const response = await fetch('/api/account/username', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cloudToken}` },
-        body: JSON.stringify({ username: usernameInput.trim() }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'Failed to save username.');
-      updateProfileData(usernameProfileId, { cloudUsername: data.username });
-      if (activeProfileIdRef.current === usernameProfileId && cloudTokenRef.current === usernameToken) {
-        setCloudUsername(data.username);
-        setUsernameInput(data.username);
-        cloudUsernameRef.current = data.username;
-      }
-      setUsernameSuccess(true);
-      setTimeout(() => setUsernameSuccess(false), 3000);
-    } catch (error) {
-      setUsernameError(error instanceof Error ? error.message : 'Failed to save username.');
-    } finally {
-      setUsernameSaving(false);
-    }
-  };
 
   // ── Shared Playlist Member Management ───────────────────────────
   const fetchPlaylistMembers = async (playlistId: string) => {
@@ -5179,6 +5650,7 @@ export default function SpiceApp() {
       const updated = [...customPlaylists, resolvedPlaylist];
       persistCustomPlaylists(updated, false);
       setSelectedPlaylist(resolvedPlaylist);
+      setSelectedUser(null);
       setCurrentPage('library');
 
       // Auto-generate invite link
@@ -5203,6 +5675,7 @@ export default function SpiceApp() {
       // Fallback: add locally without backend sync
       const updated = [...customPlaylists, newPlaylist];
       persistCustomPlaylists(updated, false);
+      setSelectedUser(null);
       setCurrentPage('library');
       setShareStatus(error instanceof Error ? error.message : 'Created locally. Sign in to sync.');
     }
@@ -5258,6 +5731,7 @@ export default function SpiceApp() {
     const safeDeviceId = deviceId === remoteDeviceId ? '' : deviceId;
     setSelectedRemoteDeviceId(safeDeviceId);
     if (safeDeviceId) {
+      pauseCurrentPlayback();
       localStorage.setItem('spice_connect_receiver_id', safeDeviceId);
       const device = remoteTargetDevices.find((entry) => entry.deviceId === safeDeviceId);
       setRemoteStatus(`Player controls now target ${device?.displayName || 'selected Spice Connect device'}.`);
@@ -5379,7 +5853,8 @@ export default function SpiceApp() {
     if (!device) return 'Local playback';
     if (device.lastSeenSeconds === undefined) return 'Remote ready';
     if (device.lastSeenSeconds <= 5) return device.isPlaying ? 'Live now' : 'Online now';
-    return `Last seen ${device.lastSeenSeconds}s ago`;
+    const minutes = Math.floor(device.lastSeenSeconds / 60);
+    return `Last seen ${minutes === 0 ? '<1' : minutes}m ago`;
   };
 
   const renderSpiceConnectReceiverOption = (
@@ -5545,7 +6020,6 @@ export default function SpiceApp() {
     setCloudToken(nextToken);
     setCloudUser(nextUser);
     setCloudUsername(nextUsername);
-    setUsernameInput(nextUsername || '');
     activeProfileIdRef.current = profileId;
     cloudTokenRef.current = nextToken;
     cloudUserRef.current = nextUser;
@@ -6247,8 +6721,8 @@ export default function SpiceApp() {
   const shouldShowTopbarSearchTray =
     topbarSearchTrayOpen
     && (Boolean(topbarSearchQuery.trim()) || topbarRecentSuggestions.length > 0 || topbarTrayResults.length > 0 || isSearching);
-  const unreadReleaseNotifications = RELEASE_NOTIFICATIONS.filter((notification) => !readReleaseNotificationIds.includes(notification.id));
-  const notificationCount = unreadReleaseNotifications.length + pendingInvites.length;
+  const unreadReleaseNotifications = releaseNotifications.filter((notification) => !readReleaseNotificationIds.includes(notification.id));
+  const notificationCount = unreadReleaseNotifications.length + pendingInvites.length + pendingListenInvites.length;
   const notificationCountLabel = notificationCount > 99 ? '99+' : String(notificationCount);
 
   const isPlaylistOwner = selectedPlaylist
@@ -6259,6 +6733,57 @@ export default function SpiceApp() {
     <div className={`app ${sidebarHidden ? 'app--sidebar-hidden' : ''}`}>
       <style dangerouslySetInnerHTML={{ __html: getAccentStyles() }} />
 
+      {(listenTogetherSession || listenTogetherHostSessionId) && (
+        <div style={{
+          position: 'fixed',
+          bottom: 'calc(var(--now-playing-height) + 16px)',
+          right: '16px',
+          background: 'rgba(20, 10, 15, 0.75)',
+          border: '1px solid rgba(236, 72, 153, 0.25)',
+          padding: '12px 20px',
+          borderRadius: '12px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          fontSize: '0.85rem',
+          color: '#fff',
+          zIndex: 9999,
+          backdropFilter: 'blur(16px)',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+          width: '280px',
+          transition: 'all 0.3s ease',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className="pulse-pink" style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--accent-pink)', display: 'inline-block' }} />
+            <span style={{ fontWeight: 600, fontFamily: 'Outfit, sans-serif', letterSpacing: '0.5px' }}>
+              {listenTogetherSession ? 'Hosting Session' : 'Listening Together'}
+            </span>
+          </div>
+
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
+            {listenTogetherSession 
+              ? `ID: ${listenTogetherSession.id.slice(0, 8)}...`
+              : `Host: ${listenTogetherHostName || 'Friend'}`
+            }
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px', marginTop: '4px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px' }}>
+            <button 
+              onClick={() => setListenTogetherDialogOpen(true)}
+              style={{ background: 'none', border: 'none', color: 'var(--accent-pink)', fontWeight: 700, cursor: 'pointer', outline: 'none', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px', padding: '4px 0' }}
+            >
+              Manage
+            </button>
+            <span style={{ opacity: 0.2, alignSelf: 'center' }}>|</span>
+            <button 
+              onClick={handleEndOrLeaveListenTogether}
+              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', outline: 'none', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px', padding: '4px 0' }}
+            >
+              {listenTogetherSession ? 'End' : 'Leave'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {spiceNotices.length > 0 && (
         <div className="spice-notices-container">
@@ -6359,6 +6884,172 @@ export default function SpiceApp() {
                 {Icons.globe} Source
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* ── Listen Together Dialog ── */}
+      {listenTogetherDialogOpen && (
+        <div className="spice-dialog-backdrop" role="presentation" onClick={() => setListenTogetherDialogOpen(false)}>
+          <div
+            className="spice-share-dialog"
+            style={{
+              padding: '28px',
+              maxWidth: '460px',
+              background: 'rgba(15, 12, 22, 0.85)',
+              border: '1px solid rgba(236, 72, 153, 0.2)',
+              borderRadius: '28px',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.8), 0 0 30px rgba(236, 72, 153, 0.15)',
+              backdropFilter: 'blur(30px)'
+            }}
+            role="dialog"
+            aria-modal="true"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ color: 'var(--accent-pink)', display: 'inline-flex', transform: 'scale(1.3)' }}>{Icons.listenTogether}</span>
+                <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, fontFamily: 'Outfit, sans-serif' }}>Listen Together</h2>
+              </div>
+              <button
+                type="button"
+                className="spice-share-dialog__close"
+                onClick={() => setListenTogetherDialogOpen(false)}
+                aria-label="Close"
+                style={{ background: 'rgba(255,255,255,0.05)', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}
+              >
+                {Icons.close}
+              </button>
+            </div>
+
+            {listenTogetherSession ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ background: 'rgba(236,72,153,0.06)', border: '1px solid rgba(236,72,153,0.2)', padding: '16px', borderRadius: '16px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--accent-pink)', fontWeight: 700 }}>Session Active</span>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700, marginTop: '4px', wordBreak: 'break-all' }}>{listenTogetherSession.id}</div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Share session link</label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="text"
+                      readOnly
+                      value={`${window.location.origin}/?listenTogether=${listenTogetherSession.id}`}
+                      style={{ flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '8px 12px', color: '#e4e4e7', fontSize: '0.85rem', outline: 'none' }}
+                      onClick={(e) => (e.target as HTMLInputElement).select()}
+                    />
+                    <button
+                      type="button"
+                      className="btn"
+                      style={{ background: 'var(--accent-pink)', color: '#fff', borderRadius: '10px', padding: '0 16px', fontSize: '0.85rem', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: '6px' }}
+                      onClick={async () => {
+                        const shareUrl = `${window.location.origin}/?listenTogether=${listenTogetherSession.id}`;
+                        const copied = await copyTextToClipboard(shareUrl);
+                        if (copied) showSpiceNotice('Session link copied to clipboard!', 'success');
+                      }}
+                    >
+                      {Icons.clipboard} Copy
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '16px' }}>
+                  <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Invite a Spicer</label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="text"
+                      placeholder="ex @username#00000"
+                      value={listenTogetherInviteUsername}
+                      onChange={(e) => setListenTogetherInviteUsername(e.target.value)}
+                      style={{ flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '8px 12px', color: '#fff', fontSize: '0.85rem', outline: 'none' }}
+                      onKeyDown={(e) => e.key === 'Enter' && handleSendListenTogetherInvite()}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn--primary"
+                      disabled={isSendingListenTogetherInvite || !listenTogetherInviteUsername.trim()}
+                      style={{ minHeight: 'auto', padding: '0 16px', borderRadius: '10px', fontSize: '0.85rem' }}
+                      onClick={() => handleSendListenTogetherInvite()}
+                    >
+                      {isSendingListenTogetherInvite ? 'Sending...' : 'Invite'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Invited user list status */}
+                {listenTogetherInvitesList.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '16px', maxHeight: '180px', overflowY: 'auto' }} className="custom-scrollbar">
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Invited Listeners</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {listenTogetherInvitesList.map((inv) => (
+                        <div key={inv.inviteId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', padding: '8px 12px', borderRadius: '8px', fontSize: '0.82rem' }}>
+                          <span style={{ fontWeight: 600 }}>{inv.invitedDisplayName} <span style={{ opacity: 0.5 }}>@{inv.invitedUsername}</span></span>
+                          <span style={{
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            color: inv.status === 'accepted' ? '#22c55e' : inv.status === 'rejected' ? '#ef4444' : '#a1a1aa',
+                            textTransform: 'uppercase',
+                            background: inv.status === 'accepted' ? 'rgba(34,197,94,0.1)' : inv.status === 'rejected' ? 'rgba(239,68,68,0.1)' : 'rgba(161,161,170,0.1)',
+                            padding: '2px 8px',
+                            borderRadius: '20px'
+                          }}>
+                            {inv.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  style={{ width: '100%', marginTop: '10px', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}
+                  onClick={handleEndListenTogetherSession}
+                >
+                  End Session
+                </button>
+              </div>
+            ) : listenTogetherHostSessionId ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center', textAlign: 'center', padding: '10px 0' }}>
+                <div className="pulse-pink" style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'rgba(236,72,153,0.1)', border: '1px solid var(--accent-pink)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-pink)', fontSize: '1.8rem' }}>
+                  🎧
+                </div>
+                <div>
+                  <h3 style={{ margin: '0 0 4px 0', fontSize: '1.15rem' }}>Listening with {listenTogetherHostName || 'Host'}</h3>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Your player is synchronized with their playback.</p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  style={{ width: '100%', marginTop: '10px', background: 'var(--accent-pink)' }}
+                  onClick={handleLeaveListenTogetherSession}
+                >
+                  Leave Session
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center', textAlign: 'center', padding: '10px 0' }}>
+                <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.6)', fontSize: '1.8rem' }}>
+                  👥
+                </div>
+                <div>
+                  <h3 style={{ margin: '0 0 6px 0', fontSize: '1.15rem' }}>Share the Vibe</h3>
+                  <p style={{ margin: 0, fontSize: '0.86rem', color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                    Start a Listen Together session to broadcast your music to friends in real-time, or join a friend&apos;s active session.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  style={{ width: '100%', marginTop: '10px', background: 'linear-gradient(135deg, var(--accent-pink), #ec4899)', boxShadow: '0 8px 24px rgba(236,72,153,0.3)', border: 'none' }}
+                  disabled={isCreatingListenTogetherSession}
+                  onClick={handleStartListenTogetherSession}
+                >
+                  {isCreatingListenTogetherSession ? 'Starting...' : 'Start a Session'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -6537,7 +7228,7 @@ export default function SpiceApp() {
             <button
               type="button"
               className="sidebar__brand"
-              onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); }}
+              onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); setSelectedUser(null); }}
               aria-label="Go to SPICE home"
             >
               <div
@@ -6563,7 +7254,7 @@ export default function SpiceApp() {
           <nav className="sidebar__nav">
             <button
               className={`sidebar__nav-item ${currentPage === 'home' && !selectedPlaylist ? 'active' : ''}`}
-              onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); }}
+              onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); setSelectedUser(null); }}
             >
               {Icons.home}
               <span className="sidebar__nav-label">Home</span>
@@ -6571,7 +7262,7 @@ export default function SpiceApp() {
             {sidebarSearchEnabled && (
               <button
                 className={`sidebar__nav-item ${currentPage === 'search' && !selectedPlaylist ? 'active' : ''}`}
-                onClick={() => { setCurrentPage('search'); setSelectedPlaylist(null); }}
+                onClick={() => { setCurrentPage('search'); setSelectedPlaylist(null); setSelectedUser(null); }}
               >
                 {Icons.search}
                 <span className="sidebar__nav-label">Search</span>
@@ -6579,7 +7270,7 @@ export default function SpiceApp() {
             )}
             <button
               className={`sidebar__nav-item ${currentPage === 'library' && !selectedPlaylist ? 'active' : ''}`}
-              onClick={() => { setCurrentPage('library'); setSelectedPlaylist(null); }}
+              onClick={() => { setCurrentPage('library'); setSelectedPlaylist(null); setSelectedUser(null); }}
             >
               {Icons.library}
               <span className="sidebar__nav-label">Library</span>
@@ -6587,7 +7278,7 @@ export default function SpiceApp() {
             {sidebarProfileEnabled && (
               <button
                 className={`sidebar__nav-item ${currentPage === 'account' && !selectedPlaylist ? 'active' : ''}`}
-                onClick={() => { setCurrentPage('account'); setSelectedPlaylist(null); }}
+                onClick={() => { setCurrentPage('account'); setSelectedPlaylist(null); setSelectedUser(null); }}
               >
                 {Icons.account}
                 <span className="sidebar__nav-label">Profile</span>
@@ -6595,7 +7286,7 @@ export default function SpiceApp() {
             )}
             <button
               className={`sidebar__nav-item ${currentPage === 'settings' && !selectedPlaylist ? 'active' : ''}`}
-              onClick={() => { setCurrentPage('settings'); setSelectedPlaylist(null); }}
+              onClick={() => { setCurrentPage('settings'); setSelectedPlaylist(null); setSelectedUser(null); }}
             >
               {Icons.settings}
               <span className="sidebar__nav-label">Settings</span>
@@ -6620,6 +7311,7 @@ export default function SpiceApp() {
                   className={`sidebar__playlist-item ${selectedPlaylist?.id === pl.id ? 'active' : ''}`}
                   onClick={() => {
                     setSelectedPlaylist(pl);
+                    setSelectedUser(null);
                     setCurrentPage('library');
                   }}
                 >
@@ -6774,7 +7466,7 @@ export default function SpiceApp() {
                 </span>
                 <span className="app-topbar__profile-copy">
                   <strong>{activeProfile.displayName}</strong>
-                  <small>{cloudUser?.accountRole ? `${cloudUser.accountRole} account` : 'Local profile'}</small>
+                  <small>{isMounted && cloudUser?.accountRole ? `${cloudUser.accountRole} account` : 'Local profile'}</small>
                 </span>
               </button>
               <div className="app-topbar__notification-shell">
@@ -6814,7 +7506,7 @@ export default function SpiceApp() {
 
                     <div className="app-topbar__notification-section">
                       <span className="app-topbar__notification-section-title">Version updates</span>
-                      {RELEASE_NOTIFICATIONS.map((notification) => {
+                      {releaseNotifications.map((notification) => {
                         const isUnread = !readReleaseNotificationIds.includes(notification.id);
                         return (
                           <div key={notification.id} className={`app-topbar__notification-item ${isUnread ? 'is-unread' : ''}`}>
@@ -6873,6 +7565,44 @@ export default function SpiceApp() {
                         </p>
                       )}
                     </div>
+
+                    <div className="app-topbar__notification-section">
+                      <span className="app-topbar__notification-section-title">Listen Together requests</span>
+                      {pendingListenInvites.length > 0 ? (
+                        pendingListenInvites.map((invite) => (
+                          <div key={invite.inviteId} className="app-topbar__notification-item app-topbar__notification-item--request">
+                            <div className="app-topbar__notification-copy">
+                              <span>Listen together request</span>
+                              <strong>Invite from {invite.hostDisplayName || 'User'}</strong>
+                              <p>@{invite.hostUsername} invited you to listen together in a real-time session.</p>
+                            </div>
+                            <div className="app-topbar__notification-actions">
+                              <button
+                                type="button"
+                                className="app-topbar__notification-action"
+                                onClick={() => handleRespondToListenTogetherInvite(invite.inviteId, 'reject')}
+                              >
+                                Reject
+                              </button>
+                              <button
+                                type="button"
+                                className="app-topbar__notification-action app-topbar__notification-action--primary"
+                                onClick={() => {
+                                  void handleRespondToListenTogetherInvite(invite.inviteId, 'accept');
+                                  setNotificationTrayOpen(false);
+                                }}
+                              >
+                                Accept
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="app-topbar__notification-empty">
+                          No pending Listen Together invitations.
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -6893,7 +7623,7 @@ export default function SpiceApp() {
                 onClick={() => setSelectedPlaylist(null)}
                 className="playlist-back-btn"
               >
-                {Icons.back} Back to Library
+                {Icons.back} {selectedUser ? 'Back to Profile' : 'Back to Library'}
               </button>
 
               {/* Hero banner */}
@@ -6988,7 +7718,7 @@ export default function SpiceApp() {
                         if (!showMembersPanel) fetchPlaylistMembers(selectedPlaylist.id);
                       }}
                     >
-                      {Icons.account} Collaborators
+                      {Icons.account} Spicers
                     </button>
                   )}
                   {!isPlaylistOwner && (
@@ -7018,18 +7748,33 @@ export default function SpiceApp() {
                 </div>
               )}
 
-              {/* Collaborators Panel */}
+              {/* Spicers Panel */}
               {showMembersPanel && (
                 <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '20px', margin: '24px auto', maxWidth: '800px' }} className="animate-in">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontFamily: 'Outfit, sans-serif' }}>Playlist Collaborators</h3>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <h3 style={{ margin: 0, fontSize: '1.1rem', fontFamily: 'Outfit, sans-serif' }}>Playlist Spicers</h3>
+                      {selectedPlaylist && (
+                        <button
+                          className="btn btn--ghost"
+                          style={{ padding: '6px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          onClick={() => fetchPlaylistMembers(selectedPlaylist.id)}
+                          title="Refresh Spicers"
+                          disabled={membersLoading}
+                        >
+                          <div style={{ display: 'flex', animation: membersLoading ? 'spin 1s linear infinite' : 'none' }}>
+                            {Icons.refresh}
+                          </div>
+                        </button>
+                      )}
+                    </div>
                     <button className="btn btn--ghost" style={{ padding: '4px 8px', fontSize: '0.8rem' }} onClick={() => setShowMembersPanel(false)}>
                       Close
                     </button>
                   </div>
 
                   {membersLoading ? (
-                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Loading collaborators...</div>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Loading spicers...</div>
                   ) : (
                     <div>
                       {membersList && (
@@ -7054,7 +7799,7 @@ export default function SpiceApp() {
                               <div style={{ flex: 1 }}>
                                 <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{m.displayName}</div>
                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                  {m.status === 'pending' ? `Join request pending (${m.role})` : `Collaborator (${m.role})`}
+                                  {m.status === 'pending' ? `Join request pending (${m.role})` : `Spicer (${m.role})`}
                                 </div>
                               </div>
                               {/* Kick option if caller is owner */}
@@ -7074,11 +7819,11 @@ export default function SpiceApp() {
                       {/* Invite section if caller is owner */}
                       {isPlaylistOwner && (
                         <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-                          <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Invite Collaborator (by Username)</label>
+                          <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Add a Spicer (by Username)</label>
                           <div style={{ display: 'flex', gap: '8px' }}>
                             <input
                               type="text"
-                              placeholder="e.g. music_buddy"
+                              placeholder="e.g. @username#000000"
                               value={inviteUsername}
                               onChange={(e) => setInviteUsername(e.target.value)}
                               style={{ flex: 1, background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '6px 12px', fontSize: '0.85rem', color: '#fff' }}
@@ -7111,7 +7856,7 @@ export default function SpiceApp() {
                     <p style={{ fontSize: '0.9rem', marginBottom: '16px' }}>
                       Search and add your favorite tracks
                     </p>
-                    <button className="btn btn--primary" onClick={() => { setSelectedPlaylist(null); setCurrentPage('search'); }}>
+                    <button className="btn btn--primary" onClick={() => { setSelectedPlaylist(null); setSelectedUser(null); setCurrentPage('search'); }}>
                       Search Tracks
                     </button>
                   </div>
@@ -7163,6 +7908,207 @@ export default function SpiceApp() {
                 )}
               </section>
             </div>
+          ) : selectedUser ? (
+            <div className="animate-in">
+              <button
+                onClick={() => setSelectedUser(null)}
+                className="playlist-back-btn"
+                style={{ marginBottom: '24px' }}
+              >
+                {Icons.back} Back to Search
+              </button>
+
+              {isLoadingUserProfile || !selectedUserProfileData ? (
+                <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--text-secondary)' }}>
+                  <div className="loader-glow" style={{ fontSize: '1.2rem', marginBottom: '8px' }}>Loading profile...</div>
+                </div>
+              ) : (
+                <>
+                  {/* Premium Profile Header Card */}
+                  <div className="playlist-hero" style={{ '--pl-gradient': selectedUserProfileData.profile.gradient || 'linear-gradient(135deg, #a855f7, #ec4899)' } as React.CSSProperties}>
+                    <div className="playlist-hero__bg" />
+                    
+                    {/* Like and Invite buttons in header */}
+                    <div style={{ position: 'absolute', top: '24px', right: '24px', zIndex: 10, display: 'flex', gap: '12px' }}>
+                      {selectedUser.id !== cloudUser?.id && (
+                        <button
+                          onClick={() => handleInviteUserProfileToListenTogether(selectedUserProfileData.profile.username)}
+                          disabled={!cloudToken || isCreatingListenTogetherSession}
+                          className="btn"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            background: 'rgba(0, 0, 0, 0.4)',
+                            backdropFilter: 'blur(8px)',
+                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            borderRadius: '50px',
+                            padding: '8px 16px',
+                            color: '#fff',
+                            fontSize: '0.9rem',
+                            fontWeight: 600,
+                            transition: 'all 0.2s ease',
+                            cursor: 'pointer',
+                          }}
+                          title="Invite user to Listen Together"
+                        >
+                          <span style={{ display: 'inline-flex', color: 'var(--accent-pink)' }}>{Icons.listenTogether}</span>
+                          <span>Invite to Listen</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleToggleProfileLike(selectedUser.id)}
+                        disabled={selectedUser.id === cloudUser?.id}
+                        className="btn"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          background: 'rgba(0, 0, 0, 0.4)',
+                          backdropFilter: 'blur(8px)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          borderRadius: '50px',
+                          padding: '8px 16px',
+                          color: selectedUserProfileData.isLikedByMe ? '#ef4444' : '#fff',
+                          cursor: selectedUser.id === cloudUser?.id ? 'default' : 'pointer',
+                          fontSize: '0.9rem',
+                          fontWeight: 600,
+                          transition: 'all 0.2s ease',
+                        }}
+                      >
+                        {selectedUserProfileData.isLikedByMe ? Icons.heartFilled : Icons.heart}
+                        <span>{selectedUserProfileData.likesCount.toLocaleString()} {selectedUserProfileData.likesCount === 1 ? 'Like' : 'Likes'}</span>
+                      </button>
+                    </div>
+
+                    <div className="playlist-hero__body" style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+                      {selectedUserProfileData.profile.avatarUrl ? (
+                        <img
+                          src={selectedUserProfileData.profile.avatarUrl}
+                          alt={selectedUserProfileData.profile.displayName}
+                          style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', border: '4px solid rgba(255,255,255,0.1)', boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            width: '120px',
+                            height: '120px',
+                            borderRadius: '50%',
+                            background: 'rgba(255,255,255,0.1)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '3rem',
+                            fontWeight: 800,
+                            color: '#fff',
+                            border: '4px solid rgba(255,255,255,0.1)',
+                            boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+                          }}
+                        >
+                          {selectedUserProfileData.profile.displayName.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <div>
+                        <h1 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '2.5rem', fontWeight: 800, margin: 0, color: '#fff', textShadow: '0 2px 10px rgba(0,0,0,0.4)' }}>
+                          {selectedUserProfileData.profile.displayName}
+                        </h1>
+                        <p style={{ margin: '4px 0 12px 0', fontSize: '1rem', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+                          {(() => {
+                            const parts = selectedUserProfileData.profile.username.split('#');
+                            if (parts.length === 2) {
+                              return (
+                                <>
+                                  @{parts[0]}
+                                  <span style={{ opacity: 0.5 }}>#{parts[1]}</span>
+                                </>
+                              );
+                            }
+                            return `@${selectedUserProfileData.profile.username}`;
+                          })()}
+                        </p>
+                        {!selectedUserProfileData.profile.isPrivate && (
+                          <p style={{ margin: '0 0 16px 0', fontSize: '1rem', color: '#e4e4e7', maxWidth: '500px', lineHeight: '1.4' }}>
+                            {selectedUserProfileData.profile.bio}
+                          </p>
+                        )}
+                        <span style={{ fontSize: '0.8rem', background: 'rgba(255,255,255,0.12)', padding: '6px 12px', borderRadius: '50px', color: '#fff', fontWeight: 500, backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                          Listener since {selectedUserProfileData.profile.joinedAt}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Restricted/Private profile message */}
+                  {selectedUserProfileData.profile.isPrivate ? (
+                    <div style={{ textAlign: 'center', padding: '80px 0', color: 'var(--text-secondary)', background: 'var(--card-bg)', borderRadius: '16px', border: '1px solid var(--border-color)', marginTop: '24px' }}>
+                      <div style={{ fontSize: '3rem', marginBottom: '16px' }}>🔒</div>
+                      <h3 style={{ color: '#fff', fontSize: '1.3rem', marginBottom: '8px' }}>This profile is private</h3>
+                      <p style={{ fontSize: '0.9rem', maxWidth: '320px', margin: '0 auto' }}>
+                        Stats and custom playlists are hidden by this listener.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Stats Cards Section */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginTop: '24px' }}>
+                        <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '24px', textAlign: 'center', transition: 'transform 0.2s ease' }}>
+                          <div style={{ fontSize: '2rem', fontWeight: 800, color: '#ef4444', marginBottom: '4px', fontFamily: 'Outfit, sans-serif' }}>
+                            {selectedUserProfileData.stats?.songsPlayed.toLocaleString() ?? 0}
+                          </div>
+                          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+                            Songs Streamed
+                          </div>
+                        </div>
+                        <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '24px', textAlign: 'center', transition: 'transform 0.2s ease' }}>
+                          <div style={{ fontSize: '2rem', fontWeight: 800, color: '#ef4444', marginBottom: '4px', fontFamily: 'Outfit, sans-serif' }}>
+                            {selectedUserProfileData.stats?.likedCount.toLocaleString() ?? 0}
+                          </div>
+                          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+                            Liked Songs
+                          </div>
+                        </div>
+                        <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '24px', textAlign: 'center', transition: 'transform 0.2s ease' }}>
+                          <div style={{ fontSize: '2rem', fontWeight: 800, color: '#f59e0b', marginBottom: '4px', fontFamily: 'Outfit, sans-serif' }}>
+                            {selectedUserProfileData.stats?.playlistsCount ?? 0}
+                          </div>
+                          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+                            Playlists
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Playlists grid */}
+                      <section className="section" style={{ marginTop: '36px' }}>
+                        <div className="section__header">
+                          <h2 className="section__title">Playlists</h2>
+                        </div>
+                        {selectedUserProfileData.playlists.length === 0 ? (
+                          <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px dashed var(--border-color)' }}>
+                            <p>No public playlists created by this listener yet.</p>
+                          </div>
+                        ) : (
+                          <div className="genre-grid">
+                            {selectedUserProfileData.playlists.map((pl: Playlist) => (
+                              <div
+                                key={pl.id}
+                                className="genre-card animate-in"
+                                style={{ background: pl.gradient || 'var(--accent-gradient)', cursor: 'pointer' }}
+                                onClick={() => setSelectedPlaylist(pl)}
+                              >
+                                <span className="genre-card__title" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{pl.title}</span>
+                                <span className="genre-card__icon" style={{ fontSize: '0.85rem', background: 'rgba(0,0,0,0.2)', padding: '4px 8px', borderRadius: '4px' }}>
+                                  {pl.tracks.length} tracks
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </section>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
           ) : (
             <>
               {/* ── Home Page ── */}
@@ -7192,7 +8138,7 @@ export default function SpiceApp() {
                     <section className="section animate-in">
                       <div className="section__header">
                         <h2 className="section__title">Your Playlists</h2>
-                        <button onClick={() => setCurrentPage('library')} style={{ background: 'none', border: 'none', color: 'var(--accent-pink)', fontSize: '0.85rem', cursor: 'pointer' }}>View All</button>
+                        <button onClick={() => { setCurrentPage('library'); setSelectedPlaylist(null); setSelectedUser(null); }} style={{ background: 'none', border: 'none', color: 'var(--accent-pink)', fontSize: '0.85rem', cursor: 'pointer' }}>View All</button>
                       </div>
                       <div className="carousel-wrapper">
                         <div className="carousel">
@@ -7285,6 +8231,8 @@ export default function SpiceApp() {
                           <button
                             onClick={() => {
                               setCurrentPage('search');
+                              setSelectedPlaylist(null);
+                              setSelectedUser(null);
                               setSearchQuery(homeRecommendationSeed.query);
                               queueSearch(homeRecommendationSeed.query);
                             }}
@@ -7402,163 +8350,248 @@ export default function SpiceApp() {
                 <>
                   <h1 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '2rem', fontWeight: 800, marginBottom: '24px' }}>Search</h1>
 
-                  <div className="search-container">
-                    <div className="search-bar">
-                      {Icons.search}
-                      <input
-                        type="text"
-                        placeholder={`Search ${SEARCH_PROVIDER_LABELS[searchProvider]}...`}
-                        value={searchQuery}
-                        onChange={handleSearchInput}
-                        autoComplete="off"
-                        autoFocus
-                      />
-                      {isSearching && <span className="loader-glow" style={{ fontSize: '0.85rem' }}>Searching...</span>}
-                      <select
-                        className="search-provider-select"
-                        value={searchProvider}
-                        onChange={handleSearchProviderChange}
-                        aria-label="Search provider"
-                      >
-                        <option value="hybrid">Hybrid</option>
-                        <option value="youtube_music">YouTube Music</option>
-                        <option value="youtube_videos">YouTube Videos</option>
-                        <option value="soundcloud">SoundCloud</option>
-                      </select>
-                    </div>
+                  {/* Sub-tabs for Tracks vs Users */}
+                  <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                    <button
+                      onClick={() => setSearchTab('tracks')}
+                      style={{ background: 'none', border: 'none', color: searchTab === 'tracks' ? 'var(--accent-pink)' : 'var(--text-secondary)', fontWeight: 600, fontSize: '1rem', cursor: 'pointer', paddingBottom: '4px', borderBottom: searchTab === 'tracks' ? '2px solid var(--accent-pink)' : '2px solid transparent', transition: 'all 0.15s ease', outline: 'none' }}
+                    >
+                      Tracks
+                    </button>
+                    <button
+                      onClick={() => setSearchTab('users')}
+                      style={{ background: 'none', border: 'none', color: searchTab === 'users' ? 'var(--accent-pink)' : 'var(--text-secondary)', fontWeight: 600, fontSize: '1rem', cursor: 'pointer', paddingBottom: '4px', borderBottom: searchTab === 'users' ? '2px solid var(--accent-pink)' : '2px solid transparent', transition: 'all 0.15s ease', outline: 'none' }}
+                    >
+                      Users
+                    </button>
                   </div>
 
-                  {searchResults.length > 0 ? (
-                    <section className="section animate-in">
-                      <div className="section__header">
-                        <h2 className="section__title">
-                          Search Results{searchResultsSource === 'cache' ? ' (saved locally)' : ''}
-                        </h2>
-                      </div>
-                      <div className="library-list">
-                        {searchResults.map((song) => {
-                          const isLiked = likedTracks.has(song.id);
-                          const isPlayingCurrent = playerTrack.id === song.id;
-                          return (
-                            <div key={song.id} className="library-item animate-in">
-                              <img className="library-item__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} onClick={() => startTrackOnActiveReceiver(song, searchResults)} />
-                              <div className="library-item__info" onClick={() => startTrackOnActiveReceiver(song, searchResults)}>
-                                <span className="library-item__title" style={isPlayingCurrent ? { color: 'var(--accent-pink)' } : {}}>
-                                  {song.title}
-                                </span>
-                                <span className="library-item__subtitle">
-                                  {song.artists.map(a => a.name).join(', ')} {song.durationMs ? `· ${formatTime(song.durationMs / 1000)}` : ''}
-                                  <span className="track-source-badge">{trackSourceLabel(song)}</span>
-                                </span>
-                              </div>
-
-                              {/* Custom Playlist Selector */}
-                              {allEditablePlaylists.length > 0 && (
-                                <select
-                                  onChange={async (e) => {
-                                    if (e.target.value) {
-                                      const added = await addTrackToPlaylist(song, e.target.value);
-                                      e.target.value = '';
-                                      if (added) {
-                                        showSpiceNotice('Added track to playlist.', 'success');
-                                      } else {
-                                        showSpiceNotice('Song already in playlist.', 'info');
-                                      }
-                                    }
-                                  }}
-                                  style={{ background: 'var(--card-bg)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.8rem', padding: '6px 10px', cursor: 'pointer', outline: 'none', marginRight: '8px' }}
-                                >
-                                  <option value="">+ Add Playlist</option>
-                                  {allEditablePlaylists.map(pl => (
-                                    <option key={pl.id} value={pl.id}>{pl.title}</option>
-                                  ))}
-                                </select>
-                              )}
-
-                              <button
-                                className="library-item__action"
-                                style={{ opacity: 1, color: isLiked ? 'var(--accent-pink)' : 'var(--text-muted)' }}
-                                onClick={() => toggleLike(song)}
-                              >
-                                {isLiked ? Icons.heartFilled : Icons.heart}
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </section>
-                  ) : (
+                  {searchTab === 'tracks' ? (
                     <>
-                      {!searchQuery.trim() && (isLoadingRecommendations || homeRecommended.length > 0) && (
+                      <div className="search-container">
+                        <div className="search-bar">
+                          {Icons.search}
+                          <input
+                            type="text"
+                            placeholder={`Search ${SEARCH_PROVIDER_LABELS[searchProvider]}...`}
+                            value={searchQuery}
+                            onChange={handleSearchInput}
+                            autoComplete="off"
+                            autoFocus
+                          />
+                          {isSearching && <span className="loader-glow" style={{ fontSize: '0.85rem' }}>Searching...</span>}
+                          <select
+                            className="search-provider-select"
+                            value={searchProvider}
+                            onChange={handleSearchProviderChange}
+                            aria-label="Search provider"
+                          >
+                            <option value="hybrid">Hybrid</option>
+                            <option value="youtube_music">YouTube Music</option>
+                            <option value="youtube_videos">YouTube Videos</option>
+                            <option value="soundcloud">SoundCloud</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {searchResults.length > 0 ? (
                         <section className="section animate-in">
                           <div className="section__header">
-                            <div>
-                              <h2 className="section__title">Recommended Searches</h2>
-                              <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '6px 0 0' }}>
-                                {homeRecommendationSeed?.reason || 'Suggestions are scored on this device from your local profile.'}
-                              </p>
-                            </div>
+                            <h2 className="section__title">
+                              Search Results{searchResultsSource === 'cache' ? ' (saved locally)' : ''}
+                            </h2>
                           </div>
-                          {isLoadingRecommendations && homeRecommended.length === 0 ? (
-                            <div className="library-list">
-                              {[...Array(3)].map((_, i) => (
-                                <div key={i} className="library-item animate-in">
-                                  <div className="library-item__art" style={{ background: 'var(--card-bg)' }} />
-                                  <div className="library-item__info">
-                                    <span className="library-item__title">Finding private picks...</span>
-                                    <span className="library-item__subtitle">Local taste profile, no raw history upload</span>
+                          <div className="library-list">
+                            {searchResults.map((song) => {
+                              const isLiked = likedTracks.has(song.id);
+                              const isPlayingCurrent = playerTrack.id === song.id;
+                              return (
+                                <div key={song.id} className="library-item animate-in">
+                                  <img className="library-item__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} onClick={() => startTrackOnActiveReceiver(song, searchResults)} />
+                                  <div className="library-item__info" onClick={() => startTrackOnActiveReceiver(song, searchResults)}>
+                                    <span className="library-item__title" style={isPlayingCurrent ? { color: 'var(--accent-pink)' } : {}}>
+                                      {song.title}
+                                    </span>
+                                    <span className="library-item__subtitle">
+                                      {song.artists.map(a => a.name).join(', ')} {song.durationMs ? `· ${formatTime(song.durationMs / 1000)}` : ''}
+                                      <span className="track-source-badge">{trackSourceLabel(song)}</span>
+                                    </span>
                                   </div>
+
+                                  {/* Custom Playlist Selector */}
+                                  {allEditablePlaylists.length > 0 && (
+                                    <select
+                                      onChange={async (e) => {
+                                        if (e.target.value) {
+                                          const added = await addTrackToPlaylist(song, e.target.value);
+                                          e.target.value = '';
+                                          if (added) {
+                                            showSpiceNotice('Added track to playlist.', 'success');
+                                          } else {
+                                            showSpiceNotice('Song already in playlist.', 'info');
+                                          }
+                                        }
+                                      }}
+                                      style={{ background: 'var(--card-bg)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.8rem', padding: '6px 10px', cursor: 'pointer', outline: 'none', marginRight: '8px' }}
+                                    >
+                                      <option value="">+ Add Playlist</option>
+                                      {allEditablePlaylists.map(pl => (
+                                        <option key={pl.id} value={pl.id}>{pl.title}</option>
+                                      ))}
+                                    </select>
+                                  )}
+
+                                  <button
+                                    className="library-item__action"
+                                    style={{ opacity: 1, color: isLiked ? 'var(--accent-pink)' : 'var(--text-muted)' }}
+                                    onClick={() => toggleLike(song)}
+                                  >
+                                    {isLiked ? Icons.heartFilled : Icons.heart}
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      ) : (
+                        <>
+                          {!searchQuery.trim() && (isLoadingRecommendations || homeRecommended.length > 0) && (
+                            <section className="section animate-in">
+                              <div className="section__header">
+                                <div>
+                                  <h2 className="section__title">Recommended Searches</h2>
+                                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '6px 0 0' }}>
+                                    {homeRecommendationSeed?.reason || 'Suggestions are scored on this device from your local profile.'}
+                                  </p>
+                                </div>
+                              </div>
+                              {isLoadingRecommendations && homeRecommended.length === 0 ? (
+                                <div className="library-list">
+                                  {[...Array(3)].map((_, i) => (
+                                    <div key={i} className="library-item animate-in">
+                                      <div className="library-item__art" style={{ background: 'var(--card-bg)' }} />
+                                      <div className="library-item__info">
+                                        <span className="library-item__title">Finding private picks...</span>
+                                        <span className="library-item__subtitle">Local taste profile, no raw history upload</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="library-list">
+                                  {homeRecommended.slice(0, 8).map((song) => {
+                                    const isLiked = likedTracks.has(song.id);
+                                    const isPlayingCurrent = playerTrack.id === song.id;
+                                    return (
+                                      <div key={`${song.sourceId || 'youtube_music'}:${song.id}`} className="library-item animate-in">
+                                        <img className="library-item__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} onClick={() => startTrackOnActiveReceiver(song, homeRecommended)} />
+                                        <div className="library-item__info" onClick={() => startTrackOnActiveReceiver(song, homeRecommended)}>
+                                          <span className="library-item__title" style={isPlayingCurrent ? { color: 'var(--accent-pink)' } : {}}>
+                                            {song.title}
+                                          </span>
+                                          <span className="library-item__subtitle">
+                                            {song.artists.map(a => a.name).join(', ')} {song.durationMs ? `| ${formatTime(song.durationMs / 1000)}` : ''}
+                                            <span className="track-source-badge">{trackSourceLabel(song)}</span>
+                                          </span>
+                                        </div>
+                                        <button
+                                          className="library-item__action"
+                                          style={{ opacity: 1, color: isLiked ? 'var(--accent-pink)' : 'var(--text-muted)' }}
+                                          onClick={() => toggleLike(song)}
+                                        >
+                                          {isLiked ? Icons.heartFilled : Icons.heart}
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </section>
+                          )}
+
+                          <section className="section animate-in">
+                            <div className="section__header">
+                              <h2 className="section__title">Browse All Categories</h2>
+                            </div>
+                            <div className="genre-grid">
+                              {genres.map((g, i) => (
+                                <div key={i} className="genre-card animate-in" style={{ background: g.gradient }} onClick={() => {
+                                  setSearchQuery(g.name);
+                                  handleSearchInput({ target: { value: g.name } } as any);
+                                }}>
+                                  <span className="genre-card__title">{g.name}</span>
+                                  <span className="genre-card__icon">{g.icon}</span>
                                 </div>
                               ))}
                             </div>
-                          ) : (
-                            <div className="library-list">
-                              {homeRecommended.slice(0, 8).map((song) => {
-                                const isLiked = likedTracks.has(song.id);
-                                const isPlayingCurrent = playerTrack.id === song.id;
-                                return (
-                                  <div key={`${song.sourceId || 'youtube_music'}:${song.id}`} className="library-item animate-in">
-                                    <img className="library-item__art" src={song.artworkUrl || '/icon.svg'} alt={song.title} onClick={() => startTrackOnActiveReceiver(song, homeRecommended)} />
-                                    <div className="library-item__info" onClick={() => startTrackOnActiveReceiver(song, homeRecommended)}>
-                                      <span className="library-item__title" style={isPlayingCurrent ? { color: 'var(--accent-pink)' } : {}}>
-                                        {song.title}
-                                      </span>
-                                      <span className="library-item__subtitle">
-                                        {song.artists.map(a => a.name).join(', ')} {song.durationMs ? `| ${formatTime(song.durationMs / 1000)}` : ''}
-                                        <span className="track-source-badge">{trackSourceLabel(song)}</span>
-                                      </span>
-                                    </div>
-                                    <button
-                                      className="library-item__action"
-                                      style={{ opacity: 1, color: isLiked ? 'var(--accent-pink)' : 'var(--text-muted)' }}
-                                      onClick={() => toggleLike(song)}
-                                    >
-                                      {isLiked ? Icons.heartFilled : Icons.heart}
-                                    </button>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </section>
+                          </section>
+                        </>
                       )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="search-container animate-in">
+                        <div className="search-bar">
+                          {Icons.search}
+                          <input
+                            type="text"
+                            placeholder="Search users by username or display name..."
+                            value={userSearchQuery}
+                            onChange={(e) => handleUserSearch(e.target.value)}
+                            autoComplete="off"
+                            autoFocus
+                          />
+                          {isSearchingUsers && <span className="loader-glow" style={{ fontSize: '0.85rem' }}>Searching...</span>}
+                        </div>
+                      </div>
 
-                      <section className="section animate-in">
-                        <div className="section__header">
-                          <h2 className="section__title">Browse All Categories</h2>
+                      {userSearchResults.length > 0 ? (
+                        <section className="section animate-in" style={{ marginTop: '24px' }}>
+                          <div className="section__header">
+                            <h2 className="section__title">User Results</h2>
+                          </div>
+                          <div className="library-list">
+                            {userSearchResults.map((user) => {
+                              const hasAvatar = !!user.avatarUrl;
+                              const isSelf = user.id === cloudUser?.id;
+                              return (
+                                <div key={user.id} className="library-item animate-in" onClick={() => handleSelectUser(user)}>
+                                  {hasAvatar ? (
+                                    <img className="library-item__art library-item__art--round" src={user.avatarUrl} alt={user.displayName} />
+                                  ) : (
+                                    <div className="library-item__art library-item__art--round" style={{ background: user.gradient || 'var(--accent-gradient)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, color: '#fff', fontSize: '1.2rem' }}>
+                                      {user.displayName.charAt(0).toUpperCase()}
+                                    </div>
+                                  )}
+                                  <div className="library-item__info">
+                                    <span className="library-item__title">
+                                      {user.displayName} {isSelf && <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: '4px', marginLeft: '6px', color: 'var(--accent-pink)' }}>You</span>}
+                                    </span>
+                                    <span className="library-item__subtitle">
+                                      @{user.username} {user.isPrivate ? '· 🔒 Private Profile' : `· 🎵 ${user.songsPlayed.toLocaleString()} songs`}
+                                    </span>
+                                  </div>
+                                  <button className="btn btn--ghost" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+                                    View Profile
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      ) : userSearchQuery.trim() && !isSearchingUsers ? (
+                        <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-secondary)' }}>
+                          <p>No users found matching &quot;{userSearchQuery}&quot;</p>
                         </div>
-                        <div className="genre-grid">
-                          {genres.map((g, i) => (
-                            <div key={i} className="genre-card animate-in" style={{ background: g.gradient }} onClick={() => {
-                              setSearchQuery(g.name);
-                              handleSearchInput({ target: { value: g.name } } as any);
-                            }}>
-                              <span className="genre-card__title">{g.name}</span>
-                              <span className="genre-card__icon">{g.icon}</span>
-                            </div>
-                          ))}
+                      ) : (
+                        <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--text-secondary)' }}>
+                          <div style={{ fontSize: '2.5rem', marginBottom: '16px', opacity: 0.5 }}>👥</div>
+                          <p style={{ fontSize: '1.1rem', color: '#fff', marginBottom: '8px' }}>Find other Spice Listeners</p>
+                          <p style={{ fontSize: '0.9rem', maxWidth: '360px', margin: '0 auto' }}>
+                            Search up your friends by their username or display name to check out their profiles and playlists.
+                          </p>
                         </div>
-                      </section>
+                      )}
                     </>
                   )}
                 </>
@@ -7575,6 +8608,8 @@ export default function SpiceApp() {
                         style={{ padding: '8px 16px', fontSize: '0.8rem', marginRight: '8px', background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border-color)', color: '#fff', cursor: 'pointer', borderRadius: '6px' }}
                         onClick={() => {
                           if (!cloudToken) {
+                            setSelectedPlaylist(null);
+                            setSelectedUser(null);
                             setCurrentPage('account');
                             setShareStatus('Sign in to your SPICE account to create shared playlists.');
                           } else {
@@ -7820,11 +8855,50 @@ export default function SpiceApp() {
                         <span className="truncate">{activeProfile.displayName}</span>
                         {activeProfile.passcode && <span title="Profile locked" style={{ color: 'var(--accent-pink)', display: 'inline-flex' }}>{Icons.lock}</span>}
                       </h2>
+                      {cloudUsername && (
+                        <p style={{ margin: '-2px 0 8px 0', fontSize: '0.95rem', color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>
+                          {(() => {
+                            const parts = cloudUsername.split('#');
+                            if (parts.length === 2) {
+                              return (
+                                <>
+                                  @{parts[0]}
+                                  <span style={{ opacity: 0.5 }}>#{parts[1]}</span>
+                                </>
+                              );
+                            }
+                            return `@${cloudUsername}`;
+                          })()}
+                        </p>
+                      )}
                       <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: '0 0 12px 0' }}>{activeProfile.bio}</p>
                       <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '12px' }}>
                         Listener since {activeProfile.joinedAt}
                       </span>
                     </div>
+
+                    {cloudToken && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          background: 'rgba(255, 255, 255, 0.08)',
+                          border: '1px solid rgba(255, 255, 255, 0.06)',
+                          padding: '8px 16px',
+                          borderRadius: '30px',
+                          fontSize: '0.85rem',
+                          color: '#fff',
+                          fontWeight: 600,
+                          backdropFilter: 'blur(8px)',
+                          alignSelf: 'center',
+                          marginLeft: 'auto',
+                        }}
+                      >
+                        <span style={{ color: '#ef4444', display: 'inline-flex' }}>{Icons.heartFilled}</span>
+                        <span>{myLikesCount} {myLikesCount === 1 ? 'Like' : 'Likes'}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Stats Grid */}
@@ -7957,56 +9031,6 @@ export default function SpiceApp() {
                           )}
                         </div>
 
-                        {/* Collaborative Username Section */}
-                        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '20px', marginTop: '20px' }}>
-                          <h4 style={{ fontSize: '0.95rem', fontWeight: 600, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {Icons.account} Collaborative Username
-                          </h4>
-                          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0 0 12px 0', lineHeight: 1.4 }}>
-                            Claim a unique username to allow other SPICE users to invite you to collaborative playlists. Only lowercase letters, numbers, and underscores are allowed (3-20 chars).
-                          </p>
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            <input
-                              type="text"
-                              placeholder="e.g. sound_lover"
-                              value={usernameInput}
-                              onChange={(e) => setUsernameInput(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                              disabled={usernameSaving}
-                              style={{
-                                flex: 1,
-                                background: 'rgba(0,0,0,0.2)',
-                                border: '1px solid var(--border-color)',
-                                borderRadius: '8px',
-                                padding: '8px 12px',
-                                color: '#fff',
-                                fontSize: '0.9rem',
-                              }}
-                            />
-                            <button
-                              className="btn btn--primary"
-                              onClick={saveUsername}
-                              disabled={usernameSaving || !usernameInput.trim() || usernameInput === cloudUsername}
-                              style={{ padding: '8px 16px', fontSize: '0.85rem' }}
-                            >
-                              {usernameSaving ? 'Saving...' : 'Save Username'}
-                            </button>
-                          </div>
-                          {usernameError && (
-                            <div style={{ color: '#f87171', fontSize: '0.8rem', marginTop: '8px' }}>
-                              {usernameError}
-                            </div>
-                          )}
-                          {usernameSuccess && (
-                            <div style={{ color: '#34d399', fontSize: '0.8rem', marginTop: '8px' }}>
-                              Username successfully updated!
-                            </div>
-                          )}
-                          {cloudUsername && (
-                            <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '8px' }}>
-                              Your active username: <strong style={{ color: 'var(--accent-pink)' }}>@{cloudUsername}</strong>
-                            </div>
-                          )}
-                        </div>
 
                         {/* Pending Playlist Requests */}
                         {cloudUsername && pendingInvites.length > 0 && (
@@ -8515,6 +9539,31 @@ export default function SpiceApp() {
                     </div>
                   </div>
 
+                  {/* Profile Privacy Settings */}
+                  <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
+                    <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: '#fff', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>👤 Profile Privacy</h3>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 20px 0', lineHeight: 1.4 }}>
+                      Control how other listeners see your SPICE profile. Private profiles hide your bio, streaming counts, liked tracks, and custom playlists from search results and profiles.
+                    </p>
+
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '14px', background: '#070707', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={activeProfile.isPrivate === true}
+                        onChange={(e) => {
+                          updateActiveProfileData({ isPrivate: e.target.checked });
+                        }}
+                        style={{ accentColor: 'var(--accent-pink)', marginTop: '3px' }}
+                      />
+                      <span>
+                        <span style={{ display: 'block', color: '#fff', fontWeight: 800, fontSize: '0.9rem' }}>Private Profile</span>
+                        <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '0.74rem', lineHeight: 1.4, marginTop: '4px' }}>
+                          When enabled, other users can only see your avatar, username, and join date. Your bio, stats, and playlists will be hidden.
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+
                   {/* Sidebar Controls */}
                   <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
                     <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: '#fff', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>{Icons.library} Sidebar Controls</h3>
@@ -8896,7 +9945,7 @@ export default function SpiceApp() {
                                   {selectedRemoteDevice.currentTrack?.artists?.map((artist) => artist.name).join(', ') || selectedRemoteDevice.displayName}
                                 </div>
                                 <div style={{ color: 'var(--text-muted)', fontSize: '0.68rem', marginTop: '4px' }}>
-                                  Last seen {selectedRemoteDevice.lastSeenSeconds ?? 0}s ago
+                                  Last seen {Math.floor((selectedRemoteDevice.lastSeenSeconds ?? 0) / 60) === 0 ? '<1' : Math.floor((selectedRemoteDevice.lastSeenSeconds ?? 0) / 60)}m ago
                                 </div>
                               </div>
                             </div>
@@ -9327,7 +10376,7 @@ export default function SpiceApp() {
                 type="button"
                 className="btn btn--primary"
                 style={{ padding: '8px 16px' }}
-                onClick={cloudToken ? acceptSharedPlaylistInvite : () => { setCurrentPage('account'); setInviteStatus('Sign in to SPICE, then accept this playlist invite.'); }}
+                onClick={cloudToken ? acceptSharedPlaylistInvite : () => { setSelectedPlaylist(null); setSelectedUser(null); setCurrentPage('account'); setInviteStatus('Sign in to SPICE, then accept this playlist invite.'); }}
                 disabled={acceptingInvite}
               >
                 {acceptingInvite ? 'Accepting' : cloudToken ? 'Accept Playlist' : 'Sign In First'}
@@ -9413,6 +10462,15 @@ export default function SpiceApp() {
                   </div>
                 )}
               </div>
+              <label style={{ fontSize: '0.8rem', color: '#a1a1aa', display: 'block', marginBottom: '6px', marginTop: '12px' }}>Visibility</label>
+              <select
+                value={editPlIsPublic ? 'public' : 'private'}
+                onChange={(e) => setEditPlIsPublic(e.target.value === 'public')}
+                style={{ width: '100%', background: 'var(--card-bg)', color: '#fff', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '8px', outline: 'none', cursor: 'pointer' }}
+              >
+                <option value="public">Public (visible to everyone via search)</option>
+                <option value="private">Private (only visible to you)</option>
+              </select>
 
               <div className="dialog-box__actions" style={{ justifyContent: 'space-between', marginTop: '24px' }}>
                 <button
@@ -9494,7 +10552,16 @@ export default function SpiceApp() {
                 onChange={(e) => setNewPlDesc(e.target.value)}
                 placeholder="Late night vibe compiles..."
               />
-              <div className="dialog-box__actions">
+              <label style={{ fontSize: '0.8rem', color: '#a1a1aa', marginTop: '12px', display: 'block' }}>Visibility</label>
+              <select
+                value={newPlIsPublic ? 'public' : 'private'}
+                onChange={(e) => setNewPlIsPublic(e.target.value === 'public')}
+                style={{ width: '100%', background: 'var(--card-bg)', color: '#fff', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '8px', marginTop: '4px', outline: 'none', cursor: 'pointer' }}
+              >
+                <option value="public">Public (visible to everyone via search)</option>
+                <option value="private">Private (only visible to you)</option>
+              </select>
+              <div className="dialog-box__actions" style={{ marginTop: '16px' }}>
                 <button type="button" className="btn btn--ghost" style={{ padding: '8px 16px' }} onClick={() => setShowCreateDialog(false)}>
                   Cancel
                 </button>
@@ -9893,6 +10960,17 @@ export default function SpiceApp() {
 
           {renderSongShareButton(playerTrack, 'now-playing__btn now-playing__share')}
 
+          <button
+            onClick={() => setListenTogetherDialogOpen(true)}
+            disabled={!cloudToken}
+            className="now-playing__btn"
+            title={!cloudToken ? "Sign in to use Listen Together" : "Listen Together"}
+            aria-label="Listen Together"
+            style={listenTogetherSession || listenTogetherHostSessionId ? { color: 'var(--accent-pink)', borderColor: 'var(--accent-pink)', background: 'rgba(236,72,153,0.1)' } : {}}
+          >
+            {Icons.listenTogether}
+          </button>
+
           <div className="now-playing__seek">
             <span>{formatTime(playerProgress)}</span>
             <div className="now-playing__seek-track" onClick={handleReceiverSeek}>
@@ -10276,6 +11354,17 @@ export default function SpiceApp() {
                           {Icons.share}
                         </button>
 
+                        <button
+                          className="expanded-player__round-action"
+                          onClick={() => setListenTogetherDialogOpen(true)}
+                          disabled={!cloudToken}
+                          title={!cloudToken ? "Sign in to use Listen Together" : "Listen Together"}
+                          aria-label="Listen Together"
+                          style={listenTogetherSession || listenTogetherHostSessionId ? { color: 'var(--accent-pink)', borderColor: 'var(--accent-pink)', background: 'rgba(236,72,153,0.1)' } : {}}
+                        >
+                          {Icons.listenTogether}
+                        </button>
+
                       </div>
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '180px' }}>
@@ -10501,7 +11590,7 @@ export default function SpiceApp() {
           <div style={{ opacity: 0.3, fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span>Spice Premium Audio Resolution Engine</span>
             <span>•</span>
-            <span>PWA v1.0.75</span>
+            <span>PWA v1.0.79</span>
           </div>
 
         </div>
@@ -10521,7 +11610,7 @@ export default function SpiceApp() {
             right: miniPlayerPos ? 'auto' : '24px',
             bottom: miniPlayerPos ? 'auto' : '24px',
             width: '340px',
-            height: showMiniLyrics ? '160px' : '108px',
+            height: showMiniLyrics ? '176px' : '124px',
             background: 'rgba(10, 10, 10, 0.88)',
             backgroundImage: `radial-gradient(circle at 10% 10%, rgba(var(--accent-pink-rgb, 236, 72, 153), 0.12), transparent 70%)`,
             border: '1px solid var(--border-color)',
@@ -10626,6 +11715,17 @@ export default function SpiceApp() {
                     aria-label={`Share ${playerTrack.title}`}
                   >
                     {Icons.share}
+                  </button>
+
+                  <button
+                    onClick={() => setListenTogetherDialogOpen(true)}
+                    disabled={!cloudToken}
+                    className="mini-player__action-btn"
+                    title={!cloudToken ? "Sign in to use Listen Together" : "Listen Together"}
+                    aria-label="Listen Together"
+                    style={listenTogetherSession || listenTogetherHostSessionId ? { color: 'var(--accent-pink)', borderColor: 'var(--accent-pink)', background: 'rgba(236,72,153,0.1)', cursor: 'pointer' } : { cursor: 'pointer' }}
+                  >
+                    {Icons.listenTogether}
                   </button>
 
                   <button
@@ -10897,6 +11997,7 @@ export default function SpiceApp() {
               onClick={() => {
                 setCurrentPage(tab.id as any);
                 setSelectedPlaylist(null);
+                setSelectedUser(null);
               }}
               style={{
                 display: 'flex',

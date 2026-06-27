@@ -75,6 +75,7 @@ export async function POST(request: Request) {
         joinedAt: p.joinedAt,
         passcode: p.passcode || null,
         avatarUrl: p.avatarUrl || null,
+        isPrivate: p.isPrivate === true,
       }));
       batch.push(db.insert(profiles).values(payload));
     }

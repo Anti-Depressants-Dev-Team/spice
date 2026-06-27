@@ -64,12 +64,30 @@ export async function POST(request: Request) {
       );
     }
 
+    // Generate a default unique username with an 8-digit suffix
+    const baseName = 'spice_listener';
+    let defaultUsername = '';
+    let isUnique = false;
+    let attempts = 0;
+    while (!isUnique && attempts < 10) {
+      const digits = Math.floor(10000000 + Math.random() * 90000000).toString();
+      defaultUsername = `${baseName}#${digits}`;
+      const existing = await db.query.users.findFirst({
+        where: eq(users.username, defaultUsername),
+      });
+      if (!existing) {
+        isUnique = true;
+      }
+      attempts++;
+    }
+
     const passwordHash = hashPassword(password);
     const accountRole = getInitialAccountRoleForEmail(normEmail);
     const [newUser] = await db.insert(users).values({
       email: normEmail,
       passwordHash,
       accountRole,
+      username: defaultUsername,
     }).returning();
 
     const account = serializeAccount(newUser);

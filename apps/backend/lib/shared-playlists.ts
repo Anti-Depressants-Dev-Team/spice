@@ -26,7 +26,7 @@ export async function getUsersInfo(userIds: string[]): Promise<Record<string, { 
   const [fetchedUsers, fetchedProfiles] = await Promise.all([
     db.query.users.findMany({ where: inArray(users.id, uniqueIds) }),
     db.query.profiles.findMany({
-      where: and(inArray(profiles.userId, uniqueIds), eq(profiles.id, 'default')),
+      where: inArray(profiles.userId, uniqueIds),
     }),
   ]);
 
@@ -54,7 +54,7 @@ type UserInfo = { username: string | null; displayName: string; avatarUrl: strin
 async function _getUserInfo(userId: string): Promise<UserInfo> {
   const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
   const profile = await db.query.profiles.findFirst({
-    where: and(eq(profiles.userId, userId), eq(profiles.id, 'default')),
+    where: eq(profiles.userId, userId),
   });
   return {
     username: user?.username || null,
@@ -68,7 +68,7 @@ async function _getBatchUserInfo(userIds: string[]): Promise<Record<string, User
 
   const fetchedUsers = await db.query.users.findMany({ where: inArray(users.id, userIds) });
   const fetchedProfiles = await db.query.profiles.findMany({
-    where: and(inArray(profiles.userId, userIds), eq(profiles.id, 'default')),
+    where: inArray(profiles.userId, userIds),
   });
 
   const profileMap = new Map(fetchedProfiles.map(p => [p.userId, p]));
@@ -167,6 +167,7 @@ export async function getPlaylistSnapshot(playlistId: string, options: SharedPla
     createdAt: playlist.updatedAt.toISOString(),
     gradient: playlist.gradient,
     coverUrl: playlist.coverUrl || null,
+    isPublic: playlist.isPublic,
     tracks,
     ownerId: playlist.userId,
     ownerUsername: ownerInfo?.username || null,

@@ -17,6 +17,7 @@ interface ClientPlaylistPayload {
   coverUrl?: string;
   tracks?: TrackSnapshotInput[];
   shared?: boolean;
+  isPublic?: boolean;
 }
 
 export function OPTIONS() {
@@ -159,6 +160,7 @@ export async function POST(request: Request) {
         gradient: clientPl.gradient || 'linear-gradient(135deg, #a855f7, #ec4899)',
         coverUrl: clientPl.coverUrl || null,
         sortIndex: i,
+        isPublic: clientPl.isPublic !== false,
       }));
 
       if (Array.isArray(clientPl.tracks) && clientPl.tracks.length > 0) {

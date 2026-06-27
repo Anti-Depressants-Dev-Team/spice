@@ -73,21 +73,47 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Check uniqueness (case-insensitive)
-    const existing = await db.query.users.findFirst({
-      where: eq(users.username, username.toLowerCase()),
+    // Fetch current username to check if the base name changed
+    const currentUser = await db.query.users.findFirst({
+      where: eq(users.id, session.userId),
     });
 
-    if (existing && existing.id !== session.userId) {
+    let fullUsername = '';
+    let isUnique = false;
+    let attempts = 0;
+
+    if (currentUser?.username) {
+      const parts = currentUser.username.split('#');
+      if (parts[0] === username.toLowerCase()) {
+        fullUsername = currentUser.username;
+        isUnique = true;
+      }
+    }
+
+    while (!isUnique && attempts < 10) {
+      const digits = Math.floor(10000000 + Math.random() * 90000000).toString();
+      fullUsername = `${username.toLowerCase()}#${digits}`;
+
+      const existing = await db.query.users.findFirst({
+        where: eq(users.username, fullUsername),
+      });
+
+      if (!existing || existing.id === session.userId) {
+        isUnique = true;
+      }
+      attempts++;
+    }
+
+    if (!isUnique) {
       return jsonResponse(
-        { error: 'username_taken', message: 'This username is already taken.' },
-        { status: 409 },
+        { error: 'username_generation_failed', message: 'Failed to generate a unique username tag. Please try again.' },
+        { status: 500 }
       );
     }
 
-    await db.update(users).set({ username: username.toLowerCase() }).where(eq(users.id, session.userId));
+    await db.update(users).set({ username: fullUsername }).where(eq(users.id, session.userId));
 
-    return jsonResponse({ success: true, username: username.toLowerCase() });
+    return jsonResponse({ success: true, username: fullUsername });
   } catch (error) {
     return jsonResponse(
       {

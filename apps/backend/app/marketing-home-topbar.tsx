@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
-import { RELEASE_NOTIFICATIONS, RELEASE_NOTIFICATION_STORAGE_KEY, type ReleaseNotification } from '@/lib/release-notifications';
+import { RELEASE_NOTIFICATION_STORAGE_KEY, type ReleaseNotification } from '@/lib/release-notifications';
 
 import styles from './marketing-home.module.css';
 
@@ -72,6 +72,18 @@ export default function MarketingHomeTopbar({ onProfileClick }: { onProfileClick
   const [pendingInvites, setPendingInvites] = useState<{ playlistId: string; playlistTitle: string; ownerDisplayName: string; ownerUsername: string | null }[]>([]);
   const [pendingInvitesLoading, _setPendingInvitesLoading] = useState(false);
   const [acceptingInvite, setAcceptingInvite] = useState(false);
+  const [releaseNotifications, setReleaseNotifications] = useState<ReleaseNotification[]>([]);
+
+  useEffect(() => {
+    fetch('/api/notifications/release')
+      .then(res => res.json())
+      .then(data => {
+        if (data.notifications && Array.isArray(data.notifications)) {
+          setReleaseNotifications(data.notifications);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -185,7 +197,7 @@ export default function MarketingHomeTopbar({ onProfileClick }: { onProfileClick
   const avatarLetter = (displayName || 'S').charAt(0).toUpperCase();
 
 
-  const unreadReleaseNotifications = RELEASE_NOTIFICATIONS.filter((notification) => !readReleaseNotificationIds.includes(notification.id));
+  const unreadReleaseNotifications = releaseNotifications.filter((notification) => !readReleaseNotificationIds.includes(notification.id));
   const notificationCount = unreadReleaseNotifications.length + pendingInvites.length;
   const notificationCountLabel = notificationCount > 99 ? '99+' : String(notificationCount);
 
@@ -377,7 +389,7 @@ export default function MarketingHomeTopbar({ onProfileClick }: { onProfileClick
 
               <div className="app-topbar__notification-section">
                 <span className="app-topbar__notification-section-title">Version updates</span>
-                {RELEASE_NOTIFICATIONS.map((notification) => {
+                {releaseNotifications.map((notification) => {
                   const isUnread = !readReleaseNotificationIds.includes(notification.id);
                   return (
                     <div key={notification.id} className={`app-topbar__notification-item ${isUnread ? 'is-unread' : ''}`}>

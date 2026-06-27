@@ -3,7 +3,6 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import type { AccountSnapshot } from '@/lib/account';
 import styles from './admin-dashboard.module.css';
 
 const services = [
