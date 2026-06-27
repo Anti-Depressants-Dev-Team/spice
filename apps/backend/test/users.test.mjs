@@ -226,6 +226,31 @@ test('User Profile, Privacy, Likes, and Search - Integration Tests', { skip: !ha
       assert.ok(!checkUser2.username.includes('#'));
       assert.equal(checkUser2.username, 'callmeryan_space_name'.substring(0, 15));
 
+      const checkUser2Profile = await db.query.profiles.findFirst({
+        where: and(eq(profiles.userId, user2.id), eq(profiles.id, 'default')),
+      });
+      assert.ok(checkUser2Profile);
+      assert.equal(checkUser2Profile.username, 'callmeryan_space_name'.substring(0, 15));
+
+      // Create a second profile for User 2
+      const altUsername = `alt_${timestamp}`.toLowerCase().substring(0, 20);
+      await db.insert(profiles).values({
+        id: 'profile_alt',
+        userId: user2.id,
+        displayName: 'CallMeRyan ALT',
+        username: altUsername,
+        bio: 'Alt account',
+        gradient: 'linear-gradient(135deg, #a855f7, #ec4899)',
+        joinedAt: 'June 2026',
+      });
+
+      const checkUser2AltProfile = await db.query.profiles.findFirst({
+        where: and(eq(profiles.userId, user2.id), eq(profiles.id, 'profile_alt')),
+      });
+      assert.ok(checkUser2AltProfile);
+      assert.equal(checkUser2AltProfile.username, altUsername);
+      assert.notEqual(checkUser2Profile.username, checkUser2AltProfile.username);
+
       // 5. Update User 1 username to "newname"
       const newUsername = 'newname';
       await db.update(users).set({ username: newUsername }).where(eq(users.id, user1.id));

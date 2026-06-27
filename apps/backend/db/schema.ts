@@ -189,6 +189,7 @@ export const profiles = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     displayName: text('display_name').notNull(),
+    username: text('username').unique(),
     bio: text('bio').notNull().default(''),
     gradient: text('gradient').notNull(),
     songsPlayed: integer('songs_played').notNull().default(0),

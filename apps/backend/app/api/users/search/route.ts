@@ -34,11 +34,12 @@ export async function GET(request: Request) {
       return jsonResponse({ users: [] });
     }
 
-    // Search users by username or profile display name
+    // Search profiles by display name or username
     const results = await db
       .select({
         id: users.id,
         username: users.username,
+        profileUsername: profiles.username,
         displayName: profiles.displayName,
         bio: profiles.bio,
         avatarUrl: profiles.avatarUrl,
@@ -46,29 +47,35 @@ export async function GET(request: Request) {
         isPrivate: profiles.isPrivate,
         songsPlayed: profiles.songsPlayed,
         joinedAt: profiles.joinedAt,
+        profileId: profiles.id,
       })
       .from(users)
       .leftJoin(profiles, eq(profiles.userId, users.id))
       .where(
         or(
           ilike(users.username, `%${query}%`),
+          ilike(profiles.username, `%${query}%`),
           ilike(profiles.displayName, `%${query}%`)
         )
       )
       .limit(100);
 
-    const userMap = new Map<string, (typeof results)[number]>();
+    const profileMap = new Map<string, (typeof results)[number]>();
     for (const row of results) {
-      if (!userMap.has(row.id)) {
-        userMap.set(row.id, row);
+      if (row.profileId) {
+        const key = `${row.id}:${row.profileId}`;
+        if (!profileMap.has(key)) {
+          profileMap.set(key, row);
+        }
       }
     }
-    const deduplicated = Array.from(userMap.values()).slice(0, 30);
+    const deduplicated = Array.from(profileMap.values()).slice(0, 30);
 
     const formattedUsers = deduplicated.map(u => ({
       id: u.id,
-      username: u.username || 'unknown',
-      displayName: u.displayName || u.username || 'Spice Listener',
+      profileId: u.profileId,
+      username: u.profileUsername || u.username || 'unknown',
+      displayName: u.displayName || u.profileUsername || u.username || 'Spice Listener',
       bio: u.bio || 'A fresh Spice listener.',
       avatarUrl: u.avatarUrl || null,
       gradient: u.gradient || 'linear-gradient(135deg, #a855f7, #ec4899)',

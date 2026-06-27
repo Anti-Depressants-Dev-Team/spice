@@ -69,6 +69,7 @@ export async function POST(request: Request) {
         id: p.id,
         userId: session.userId,
         displayName: p.displayName,
+        username: p.cloudUsername || null,
         bio: p.bio || '',
         gradient: p.gradient,
         songsPlayed: p.songsPlayed ?? 0,

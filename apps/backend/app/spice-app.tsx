@@ -794,7 +794,7 @@ const encodeSongShareToken = (track: Track) => {
   const sId = track.sourceId || 'youtube_music';
   const isYouTube = sId === 'youtube_music' || sId === 'youtube_video';
   const artwork = isYouTube ? '' : (track.artworkUrl || '');
-  
+
   const tuple = [
     track.id,
     track.title,
@@ -811,16 +811,16 @@ const encodeSongShareToken = (track: Track) => {
 const decodeSongShareToken = (token: string): Track | null => {
   try {
     const payload = JSON.parse(decodeBase64Url(token));
-    
+
     // Support the new compact tuple format
     if (Array.isArray(payload)) {
       const [id, title, artistName, sourceId, artworkUrl] = payload;
       if (!id) return null;
-      
+
       const sId = safeSharedString(sourceId, 'youtube_music');
       const isYouTube = sId === 'youtube_music' || sId === 'youtube_video';
-      
-      const resolvedArtwork = artworkUrl 
+
+      const resolvedArtwork = artworkUrl
         ? safeSharedString(artworkUrl)
         : (isYouTube ? `https://i.ytimg.com/vi/${id}/mqdefault.jpg` : undefined);
 
@@ -1173,7 +1173,7 @@ function saveProfilesToStorage(profiles: UserProfile[]) {
 export default function SpiceApp() {
   const [volumeBoosterAccepted, setVolumeBoosterAccepted] = useState(false);
   const [isVolumeHovered, setIsVolumeHovered] = useState(false);
-    const [currentPage, setCurrentPage] = useState<AppPage>('home');
+  const [currentPage, setCurrentPage] = useState<AppPage>('home');
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
 
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
@@ -1344,12 +1344,12 @@ export default function SpiceApp() {
 
       if (streamUrl) {
         const downloadTitle = sanitizeDownloadName(track);
-        
+
         // Convert relative URL to absolute URL to parse/append params
         const finalUrl = new URL(streamUrl, typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
         finalUrl.searchParams.set('download', 'true');
         finalUrl.searchParams.set('title', downloadTitle);
-        
+
         // This will trigger the browser's download manager safely without unloading
         const link = document.createElement('a');
         link.href = finalUrl.toString();
@@ -1567,7 +1567,7 @@ export default function SpiceApp() {
           setReleaseNotifications(data.notifications);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
   const [showMembersPanel, setShowMembersPanel] = useState(false);
   const [membersLoading, setMembersLoading] = useState(false);
@@ -2048,7 +2048,7 @@ export default function SpiceApp() {
     setSelectedUserProfileData(null);
     setIsLoadingUserProfile(true);
     setSelectedPlaylist(null);
-    
+
     try {
       const res = await fetch(`/api/users/profile?userId=${user.id}`, {
         headers: cloudToken ? { Authorization: `Bearer ${cloudToken}` } : {},
@@ -2089,7 +2089,7 @@ export default function SpiceApp() {
         throw new Error(data.message || 'Failed to toggle like');
       }
       const data = await res.json();
-      
+
       setSelectedUserProfileData((prev: any) => {
         if (!prev) return prev;
         return {
@@ -3173,14 +3173,15 @@ export default function SpiceApp() {
       localStorage.setItem('spice_cloud_user', JSON.stringify(data.user));
       setCloudToken(data.token);
       setCloudUser(data.user);
-      setCloudUsername(null);
+      const registeredUsername = authMode === 'register' ? authUsername.trim().toLowerCase() : null;
+      setCloudUsername(registeredUsername);
       cloudTokenRef.current = data.token;
       cloudUserRef.current = data.user;
-      cloudUsernameRef.current = null;
+      cloudUsernameRef.current = registeredUsername;
       updateProfileData(authProfileId, {
         cloudToken: data.token,
         cloudUser: data.user,
-        cloudUsername: null,
+        cloudUsername: registeredUsername,
       });
       setAuthEmail('');
       setAuthPassword('');
@@ -3188,7 +3189,7 @@ export default function SpiceApp() {
       logDebug('auth', `User "${data.user.email}" authenticated successfully via ${authMode}. Token generated.`);
 
       // Auto sync after login
-      await syncWithCloud(data.token, authProfileId, { cloudUser: data.user, cloudUsername: null });
+      await syncWithCloud(data.token, authProfileId, { cloudUser: data.user, cloudUsername: registeredUsername });
       await restoreProfileConnections(data.token);
       void fetchUsername(data.token, authProfileId);
     } catch (err: any) {
@@ -5048,7 +5049,7 @@ export default function SpiceApp() {
   const fetchUsername = useCallback(async (token: string | null = cloudToken, profileId: string = activeProfileId) => {
     if (!token) return;
     try {
-      const response = await fetch('/api/account/username', {
+      const response = await fetch(`/api/account/username?profileId=${profileId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await response.json().catch(() => ({}));
@@ -5356,7 +5357,7 @@ export default function SpiceApp() {
           setListenTogetherHostSessionId(null);
           setListenTogetherHostName(null);
           showSpiceNotice('Listen Together session started!', 'success');
-          
+
           const inviteRes = await fetch('/api/listen-together/invite', {
             method: 'POST',
             headers: {
@@ -6225,7 +6226,7 @@ export default function SpiceApp() {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${cloudToken}`,
             },
-            body: JSON.stringify({ username: cleanUsername }),
+            body: JSON.stringify({ username: cleanUsername, profileId: activeProfileId }),
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
@@ -6807,21 +6808,21 @@ export default function SpiceApp() {
           </div>
 
           <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
-            {listenTogetherSession 
+            {listenTogetherSession
               ? `ID: ${listenTogetherSession.id.slice(0, 8)}...`
               : `Host: ${listenTogetherHostName || 'Friend'}`
             }
           </div>
 
           <div style={{ display: 'flex', gap: '12px', marginTop: '4px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '8px' }}>
-            <button 
+            <button
               onClick={() => setListenTogetherDialogOpen(true)}
               style={{ background: 'none', border: 'none', color: 'var(--accent-pink)', fontWeight: 700, cursor: 'pointer', outline: 'none', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px', padding: '4px 0' }}
             >
               Manage
             </button>
             <span style={{ opacity: 0.2, alignSelf: 'center' }}>|</span>
-            <button 
+            <button
               onClick={handleEndOrLeaveListenTogether}
               style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', outline: 'none', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px', padding: '4px 0' }}
             >
@@ -7973,7 +7974,7 @@ export default function SpiceApp() {
                   {/* Premium Profile Header Card */}
                   <div className="playlist-hero" style={{ '--pl-gradient': selectedUserProfileData.profile.gradient || 'linear-gradient(135deg, #a855f7, #ec4899)' } as React.CSSProperties}>
                     <div className="playlist-hero__bg" />
-                    
+
                     {/* Like and Invite buttons in header */}
                     <div style={{ position: 'absolute', top: '24px', right: '24px', zIndex: 10, display: 'flex', gap: '12px' }}>
                       {selectedUser.id !== cloudUser?.id && (

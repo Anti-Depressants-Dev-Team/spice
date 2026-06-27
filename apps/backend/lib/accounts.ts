@@ -2,7 +2,7 @@ import { db } from '../db/index.ts';
 import { accountSubscriptions, users, profiles } from '../db/schema.ts';
 import { serializeAccount, isAdminAccount, type AccountSnapshot } from './account.ts';
 import type { SpiceSession } from './auth.ts';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 
 export class AccountAuthorizationError extends Error {
   public readonly code: 'account_not_found' | 'admin_required';
@@ -74,6 +74,10 @@ export async function getAccountSnapshotForUserId(userId: string): Promise<Accou
 
     if (isUnique) {
       await db.update(users).set({ username: defaultUsername }).where(eq(users.id, userId));
+      await db
+        .update(profiles)
+        .set({ username: defaultUsername })
+        .where(and(eq(profiles.userId, userId), eq(profiles.id, 'default')));
       user.username = defaultUsername;
     }
   }

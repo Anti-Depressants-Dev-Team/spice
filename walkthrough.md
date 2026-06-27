@@ -1,5 +1,13 @@
 # SPICE Walkthrough
 
+## v1.0.85
+
+- [Spice.Music main] Moved Spicer username logic from user account level to profile level, allowing independent unique spicer usernames for different local profiles under the same account.
+- [Spice.Music main] Added `username` column to `profiles` table and backfilled existing default profile usernames.
+- [Spice.Music main] Updated user profile details, user search, profile sync, and username endpoints to fetch and update `profiles.username` instead of `users.username`.
+- [Spice.Music main] Fixed the stale double username string from localStorage profiles by saving the registered username during client auth success payload initialization.
+- [Spice.Music main] Bump the visible diagnostics version to `PWA v1.0.85`.
+
 ## v1.0.84
 
 - [Spice.Music main] Fixed duplicate `@username` rendering in settings profile header by removing legacy tag-splitting fallback code.

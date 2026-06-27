@@ -77,8 +77,9 @@ export async function POST(request: Request) {
     }
 
     // Check if username already exists
-    const existingUsername = await db.query.users.findFirst({
-      where: eq(users.username, cleanUsername),
+    const { profiles } = await import('@/db/schema');
+    const existingUsername = await db.query.profiles.findFirst({
+      where: eq(profiles.username, cleanUsername),
     });
 
     if (existingUsername) {

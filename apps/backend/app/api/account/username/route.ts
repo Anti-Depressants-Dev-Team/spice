@@ -29,6 +29,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const { searchParams } = new URL(request.url);
+    const profileId = searchParams.get('profileId') || 'default';
+
+    const { profiles } = await import('@/db/schema');
+    const { and, eq } = await import('drizzle-orm');
+
+    const profile = await db.query.profiles.findFirst({
+      where: and(eq(profiles.userId, session.userId), eq(profiles.id, profileId)),
+    });
+
+    if (profile && profile.username) {
+      return jsonResponse({ username: profile.username });
+    }
+
     const user = await db.query.users.findFirst({
       where: eq(users.id, session.userId),
     });
@@ -62,6 +76,7 @@ export async function PUT(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}));
     const username = typeof body.username === 'string' ? body.username.trim() : '';
+    const profileId = typeof body.profileId === 'string' ? body.profileId.trim() : 'default';
 
     if (!usernamePattern.test(username)) {
       return jsonResponse(
@@ -75,18 +90,29 @@ export async function PUT(request: NextRequest) {
 
     const cleanUsername = username.trim().toLowerCase();
 
-    const existing = await db.query.users.findFirst({
-      where: eq(users.username, cleanUsername),
+    const { profiles } = await import('@/db/schema');
+    const { and, eq } = await import('drizzle-orm');
+
+    const existing = await db.query.profiles.findFirst({
+      where: eq(profiles.username, cleanUsername),
     });
 
-    if (existing && existing.id !== session.userId) {
+    if (existing && (existing.userId !== session.userId || existing.id !== profileId)) {
       return jsonResponse(
         { error: 'username_taken', message: 'This username is already taken.' },
         { status: 409 }
       );
     }
 
-    await db.update(users).set({ username: cleanUsername }).where(eq(users.id, session.userId));
+    // Also update users.username if it's the default profile, for backward compatibility
+    if (profileId === 'default') {
+      await db.update(users).set({ username: cleanUsername }).where(eq(users.id, session.userId));
+    }
+
+    await db
+      .update(profiles)
+      .set({ username: cleanUsername })
+      .where(and(eq(profiles.userId, session.userId), eq(profiles.id, profileId)));
 
     return jsonResponse({ success: true, username: cleanUsername });
   } catch (error) {

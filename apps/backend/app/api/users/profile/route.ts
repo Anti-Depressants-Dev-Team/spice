@@ -40,8 +40,10 @@ export async function GET(request: Request) {
       return jsonResponse({ error: 'user_not_found', message: 'User not found.' }, { status: 404 });
     }
 
+    const targetProfileId = searchParams.get('profileId') || 'default';
+
     const targetProfile = await db.query.profiles.findFirst({
-      where: eq(profiles.userId, targetUserId)
+      where: and(eq(profiles.userId, targetUserId), eq(profiles.id, targetProfileId))
     });
 
     const profileLikesRows = await db
@@ -58,9 +60,9 @@ export async function GET(request: Request) {
     if (isPrivate && !isSelf) {
       return jsonResponse({
         profile: {
-          id: 'default',
-          displayName: targetProfile?.displayName || targetUser.username || 'Spice Listener',
-          username: targetUser.username || 'unknown',
+          id: targetProfileId,
+          displayName: targetProfile?.displayName || targetProfile?.username || targetUser.username || 'Spice Listener',
+          username: targetProfile?.username || targetUser.username || 'unknown',
           avatarUrl: targetProfile?.avatarUrl || null,
           joinedAt: targetProfile?.joinedAt || 'June 2026',
           isPrivate: true,
@@ -77,8 +79,6 @@ export async function GET(request: Request) {
       .from(likes)
       .where(eq(likes.userId, targetUserId));
     const likedCount = likedSongsResult.length;
-
-    const targetProfileId = targetProfile ? targetProfile.id : 'default';
 
     const dbPlaylists = await db.query.playlists.findMany({
       where: and(
@@ -106,9 +106,9 @@ export async function GET(request: Request) {
 
     return jsonResponse({
       profile: {
-        id: 'default',
-        displayName: targetProfile?.displayName || targetUser.username || 'Spice Listener',
-        username: targetUser.username || 'unknown',
+        id: targetProfileId,
+        displayName: targetProfile?.displayName || targetProfile?.username || targetUser.username || 'Spice Listener',
+        username: targetProfile?.username || targetUser.username || 'unknown',
         avatarUrl: targetProfile?.avatarUrl || null,
         bio: targetProfile?.bio || 'A fresh Spice listener.',
         gradient: targetProfile?.gradient || 'linear-gradient(135deg, #a855f7, #ec4899)',
