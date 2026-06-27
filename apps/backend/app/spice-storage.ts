@@ -223,6 +223,23 @@ export function getRecentCachedSearches(limit = 6): SearchCacheEntry[] {
   }));
 }
 
+export function clearSearchCache() {
+  const storage = getStorage();
+  if (!storage) return;
+  try {
+    storage.removeItem(SEARCH_CACHE_KEY);
+  } catch (error) {
+    console.warn(`Could not clear search cache:`, error);
+  }
+}
+
+export function deleteRecentSearchEntry(query: string, sourceId = 'youtube_music') {
+  const normalized = normalizeQuery(query);
+  const entries = readJson<SearchCacheEntry[]>(SEARCH_CACHE_KEY, [])
+    .filter((entry) => normalizeQuery(entry.query) !== normalized || (entry.sourceId ?? 'youtube_music') !== sourceId);
+  writeJson(SEARCH_CACHE_KEY, entries);
+}
+
 export function savePlaybackState(profileId: string, state: PlaybackSaveState) {
   if (!profileId || !isUsefulTrack(state.currentTrack)) return;
   rememberTrackSnapshots([state.currentTrack, ...state.queue]);

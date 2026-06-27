@@ -16,6 +16,8 @@ import {
   rememberSearchResults,
   rememberTrackSnapshots,
   savePlaybackState,
+  clearSearchCache,
+  deleteRecentSearchEntry,
 } from './spice-storage';
 import {
   buildPrivateTasteProfile,
@@ -42,6 +44,18 @@ const Icons = {
   pause: (
     <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
       <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+    </svg>
+  ),
+  eye: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+  eyeOff: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.5 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+      <line x1="1" y1="1" x2="23" y2="23" />
     </svg>
   ),
   prev: (
@@ -1670,6 +1684,9 @@ export default function SpiceApp() {
   const lyricsContainerRef = useRef<HTMLDivElement | null>(null);
   const [showBarLyrics, setShowBarLyrics] = useState(false);
   const [showMiniLyrics, setShowMiniLyrics] = useState(false);
+  const [showMiniQueue, setShowMiniQueue] = useState(false);
+  const [showSyncEmail, setShowSyncEmail] = useState(false);
+  const lastUnlockedProfileIdRef = useRef<string>('default');
 
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
@@ -2349,6 +2366,9 @@ export default function SpiceApp() {
           ...hydratedPlaylists.flatMap((playlist) => playlist.tracks),
         ]);
 
+        if (!activeProf.passcode) {
+          lastUnlockedProfileIdRef.current = activeProf.id;
+        }
         setActiveProfileId(activeProf.id);
         setLikedTracks(new Set(activeProf.likedTracks));
         setLikedTrackDetails(hydratedLikedDetails);
@@ -2438,6 +2458,39 @@ export default function SpiceApp() {
       void loadPlaylistInvite(inviteToken);
     }
   }, [isMounted, loadPlaylistInvite]);
+
+  useEffect(() => {
+    if (!isMounted || typeof window === 'undefined') return;
+    const themeColors: Record<AccentTheme, string> = {
+      pink: '#ec4899',
+      blue: '#3b82f6',
+      orange: '#f97316',
+      green: '#10b981',
+      gold: '#eab308',
+      crimson: '#e11d48',
+      deeppurple: '#7c3aed'
+    };
+    const color = themeColors[accentTheme] || '#ec4899';
+    const svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+      <rect width="128" height="128" rx="32" fill="${color}" />
+      <text x="64" y="96" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="86" fill="#ffffff" text-anchor="middle">S</text>
+    </svg>`;
+    const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svgString)}`;
+    
+    let link = document.querySelector("link[rel*='icon']") as HTMLLinkElement;
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      document.getElementsByTagName('head')[0].appendChild(link);
+    }
+    link.href = dataUrl;
+    link.type = 'image/svg+xml';
+
+    const appleLink = document.querySelector("link[rel='apple-touch-icon']") as HTMLLinkElement;
+    if (appleLink) {
+      appleLink.href = dataUrl;
+    }
+  }, [isMounted, accentTheme]);
 
   // ── YouTube Embedded Player Fallback API Integration ──────────────
   useEffect(() => {
@@ -6027,7 +6080,18 @@ export default function SpiceApp() {
   };
 
   // Profile switching, locking and passcode validations
+const getMaskedEmail = (email: string) => {
+  const parts = email.split('@');
+  if (parts.length !== 2) return '••••••••';
+  const [username, domain] = parts;
+  if (username.length <= 2) {
+    return '•'.repeat(username.length) + '@' + domain;
+  }
+  return username.charAt(0) + '•'.repeat(username.length - 2) + username.charAt(username.length - 1) + '@' + domain;
+};
+
   const switchProfile = (profileId: string, profileOverride?: UserProfile) => {
+    pauseCurrentPlayback();
     let latestProfiles = profiles;
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('spice_profiles_list');
@@ -6140,6 +6204,7 @@ export default function SpiceApp() {
       setPasscodeError(null);
     } else {
       setIsLocked(false);
+      lastUnlockedProfileIdRef.current = target.id;
     }
   };
 
@@ -6219,6 +6284,7 @@ export default function SpiceApp() {
       // Validate
       if (nextVal === activeProfile.passcode) {
         setIsLocked(false);
+        lastUnlockedProfileIdRef.current = activeProfile.id;
         setPasscodeInput('');
       } else {
         setPasscodeError('Incorrect Passcode. Access Denied.');
@@ -6233,6 +6299,21 @@ export default function SpiceApp() {
   const clearPasscode = () => {
     setPasscodeInput('');
     setPasscodeError(null);
+  };
+
+  const handleCancelPasscode = () => {
+    const lastId = lastUnlockedProfileIdRef.current;
+    const lastProfile = profiles.find(p => p.id === lastId);
+    if (lastProfile && lastId !== activeProfileId) {
+      switchProfile(lastId);
+    } else {
+      const unlocked = profiles.find(p => !p.passcode);
+      if (unlocked && unlocked.id !== activeProfileId) {
+        switchProfile(unlocked.id);
+      } else {
+        showSpiceNotice('No other unlocked profiles to revert to.', 'warning');
+      }
+    }
   };
 
   const removePasscodeFromActive = () => {
@@ -7235,18 +7316,12 @@ export default function SpiceApp() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  // Switch to default profile or other profiles if they aren't locked
-                  const unlocked = profiles.find(p => !p.passcode);
-                  if (unlocked) {
-                    switchProfile(unlocked.id);
-                  } else {
-                    showSpiceNotice('All profiles are locked. Please enter correct credentials.', 'warning');
-                  }
-                }}
+                onClick={handleCancelPasscode}
                 style={{ height: '56px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#fff'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
               >
-                Switch
+                Cancel
               </button>
             </div>
           </div>
@@ -7295,124 +7370,120 @@ export default function SpiceApp() {
         />
       </div>
 
-      {sidebarHidden && (
-        <button
-          type="button"
-          className="sidebar-restore-btn"
-          onClick={() => updateSidebarHiddenPreference(false)}
-          aria-label="Show sidebar"
-          title="Show sidebar"
-        >
-          {Icons.chevronRight}
-          <span>Sidebar</span>
-        </button>
-      )}
+      <button
+        type="button"
+        className={`sidebar-restore-btn ${sidebarHidden ? 'visible' : 'hidden'}`}
+        onClick={() => updateSidebarHiddenPreference(false)}
+        aria-label="Show sidebar"
+        title="Show sidebar"
+      >
+        {Icons.chevronRight}
+        <span>Sidebar</span>
+      </button>
 
       {/* ═══ Sidebar Panel ═══ */}
-      {!sidebarHidden && (
-        <aside className="sidebar">
-          <div className="sidebar__logo">
-            <button
-              type="button"
-              className="sidebar__brand"
-              onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); setSelectedUser(null); }}
-              aria-label="Go to SPICE home"
+      <aside className={`sidebar ${sidebarHidden ? 'sidebar--hidden' : 'sidebar--visible'}`}>
+        <div className="sidebar__logo">
+          <button
+            type="button"
+            className="sidebar__brand"
+            onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); setSelectedUser(null); }}
+            aria-label="Go to SPICE home"
+          >
+            <div
+              className="sidebar__logo-icon"
             >
-              <div
-                className="sidebar__logo-icon"
-              >
-                <span style={{ fontSize: '1rem', fontWeight: 900, color: '#fff' }}>S</span>
-              </div>
-              <span className="sidebar__logo-text">
-                Spice
-              </span>
-            </button>
-            <button
-              type="button"
-              className="sidebar__hide-btn"
-              onClick={() => updateSidebarHiddenPreference(true)}
-              aria-label="Hide sidebar"
-              title="Hide sidebar"
-            >
-              {Icons.chevronLeft}
-            </button>
-          </div>
+              <span style={{ fontSize: '1rem', fontWeight: 900, color: '#fff' }}>S</span>
+            </div>
+            <span className="sidebar__logo-text">
+              Spice
+            </span>
+          </button>
+          <button
+            type="button"
+            className="sidebar__hide-btn"
+            onClick={() => updateSidebarHiddenPreference(true)}
+            aria-label="Hide sidebar"
+            title="Hide sidebar"
+          >
+            {Icons.chevronLeft}
+          </button>
+        </div>
 
-          <nav className="sidebar__nav">
+        <nav className="sidebar__nav">
+          <button
+            className={`sidebar__nav-item ${currentPage === 'home' && !selectedPlaylist ? 'active' : ''}`}
+            onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); setSelectedUser(null); }}
+          >
+            {Icons.home}
+            <span className="sidebar__nav-label">Home</span>
+          </button>
+          {sidebarSearchEnabled && (
             <button
-              className={`sidebar__nav-item ${currentPage === 'home' && !selectedPlaylist ? 'active' : ''}`}
-              onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); setSelectedUser(null); }}
+              className={`sidebar__nav-item ${currentPage === 'search' && !selectedPlaylist ? 'active' : ''}`}
+              onClick={() => { setCurrentPage('search'); setSelectedPlaylist(null); setSelectedUser(null); }}
             >
-              {Icons.home}
-              <span className="sidebar__nav-label">Home</span>
+              {Icons.search}
+              <span className="sidebar__nav-label">Search</span>
             </button>
-            {sidebarSearchEnabled && (
+          )}
+          <button
+            className={`sidebar__nav-item ${currentPage === 'library' && !selectedPlaylist ? 'active' : ''}`}
+            onClick={() => { setCurrentPage('library'); setSelectedPlaylist(null); setSelectedUser(null); }}
+          >
+            {Icons.library}
+            <span className="sidebar__nav-label">Library</span>
+          </button>
+          {sidebarProfileEnabled && (
+            <button
+              className={`sidebar__nav-item ${currentPage === 'account' && !selectedPlaylist ? 'active' : ''}`}
+              onClick={() => { setCurrentPage('account'); setSelectedPlaylist(null); setSelectedUser(null); }}
+            >
+              {Icons.account}
+              <span className="sidebar__nav-label">Profile</span>
+            </button>
+          )}
+          <button
+            className={`sidebar__nav-item ${currentPage === 'settings' && !selectedPlaylist ? 'active' : ''}`}
+            onClick={() => { setCurrentPage('settings'); setSelectedPlaylist(null); setSelectedUser(null); }}
+          >
+            {Icons.settings}
+            <span className="sidebar__nav-label">Settings</span>
+          </button>
+        </nav>
+
+        <div className="sidebar__divider"></div>
+        <div className="sidebar__header-row">
+          <div className="sidebar__section-title">Playlists</div>
+          <button className="sidebar__add-btn" onClick={() => setShowCreateDialog(true)} title="Create Playlist" aria-label="Create Playlist">
+            {Icons.plus}
+          </button>
+        </div>
+
+        <div className="sidebar__playlists">
+          {!isMounted || customPlaylists.length === 0 ? (
+            <div className="sidebar__empty">No playlists yet</div>
+          ) : (
+            customPlaylists.map(pl => (
               <button
-                className={`sidebar__nav-item ${currentPage === 'search' && !selectedPlaylist ? 'active' : ''}`}
-                onClick={() => { setCurrentPage('search'); setSelectedPlaylist(null); setSelectedUser(null); }}
+                key={pl.id}
+                className={`sidebar__playlist-item ${selectedPlaylist?.id === pl.id ? 'active' : ''}`}
+                onClick={() => {
+                  setSelectedPlaylist(pl);
+                  setSelectedUser(null);
+                  setCurrentPage('library');
+                }}
               >
-                {Icons.search}
-                <span className="sidebar__nav-label">Search</span>
+                {Icons.playlist}
+                <span className="sidebar__playlist-title">
+                  <span className="truncate">{pl.title}</span>
+                  {pl.shared && <span className="playlist-shared-pill">Shared</span>}
+                </span>
               </button>
-            )}
-            <button
-              className={`sidebar__nav-item ${currentPage === 'library' && !selectedPlaylist ? 'active' : ''}`}
-              onClick={() => { setCurrentPage('library'); setSelectedPlaylist(null); setSelectedUser(null); }}
-            >
-              {Icons.library}
-              <span className="sidebar__nav-label">Library</span>
-            </button>
-            {sidebarProfileEnabled && (
-              <button
-                className={`sidebar__nav-item ${currentPage === 'account' && !selectedPlaylist ? 'active' : ''}`}
-                onClick={() => { setCurrentPage('account'); setSelectedPlaylist(null); setSelectedUser(null); }}
-              >
-                {Icons.account}
-                <span className="sidebar__nav-label">Profile</span>
-              </button>
-            )}
-            <button
-              className={`sidebar__nav-item ${currentPage === 'settings' && !selectedPlaylist ? 'active' : ''}`}
-              onClick={() => { setCurrentPage('settings'); setSelectedPlaylist(null); setSelectedUser(null); }}
-            >
-              {Icons.settings}
-              <span className="sidebar__nav-label">Settings</span>
-            </button>
-          </nav>
-
-          <div className="sidebar__divider"></div>
-          <div className="sidebar__header-row">
-            <div className="sidebar__section-title">Playlists</div>
-            <button className="sidebar__add-btn" onClick={() => setShowCreateDialog(true)} title="Create Playlist" aria-label="Create Playlist">
-              {Icons.plus}
-            </button>
-          </div>
-
-          <div className="sidebar__playlists">
-            {!isMounted || customPlaylists.length === 0 ? (
-              <div className="sidebar__empty">No playlists yet</div>
-            ) : (
-              customPlaylists.map(pl => (
-                <button
-                  key={pl.id}
-                  className={`sidebar__playlist-item ${selectedPlaylist?.id === pl.id ? 'active' : ''}`}
-                  onClick={() => {
-                    setSelectedPlaylist(pl);
-                    setSelectedUser(null);
-                    setCurrentPage('library');
-                  }}
-                >
-                  {Icons.playlist}
-                  <span className="sidebar__playlist-title">
-                    <span className="truncate">{pl.title}</span>
-                    {pl.shared && <span className="playlist-shared-pill">Shared</span>}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-        </aside>
-      )}
+            ))
+          )}
+        </div>
+      </aside>
 
       {/* ═══ Main Content Area ═══ */}
       <main className="main" id="main">
@@ -7470,18 +7541,97 @@ export default function SpiceApp() {
 
                   {topbarRecentSuggestions.length > 0 && (
                     <div className="app-topbar__recent-searches">
-                      <span>Previous queries</span>
+                      <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                        <span>Previous queries</span>
+                        <button
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            clearSearchCache();
+                            setRecentSearchEntries([]);
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--text-secondary)',
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            transition: 'all 0.15s ease'
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(239, 68, 68, 0.08)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'none'; }}
+                          title="Clear search history"
+                        >
+                          Clear All
+                        </button>
+                      </span>
                       <div>
                         {topbarRecentSuggestions.map((entry) => (
-                          <button
+                          <div
                             key={`${entry.sourceId ?? 'unknown'}:${entry.query}`}
-                            type="button"
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => runRecentTopbarSearch(entry)}
-                            title={`Search ${entry.query}`}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '2px 8px 2px 10px',
+                              border: '1px solid rgba(255, 255, 255, 0.08)',
+                              borderRadius: '999px',
+                              background: 'rgba(255, 255, 255, 0.045)',
+                              transition: 'all 0.15s ease'
+                            }}
                           >
-                            {entry.query}
-                          </button>
+                            <button
+                              type="button"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => runRecentTopbarSearch(entry)}
+                              title={`Search ${entry.query}`}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: 'var(--text-secondary)',
+                                fontSize: '0.76rem',
+                                fontWeight: 800,
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                cursor: 'pointer',
+                                padding: 0,
+                                outline: 'none'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.color = '#fff'}
+                              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}
+                            >
+                              {entry.query}
+                            </button>
+                            <button
+                              type="button"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => {
+                                deleteRecentSearchEntry(entry.query, entry.sourceId);
+                                setRecentSearchEntries(getRecentCachedSearches());
+                              }}
+                              title="Delete query"
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: 'rgba(255,255,255,0.4)',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: '2px',
+                                borderRadius: '50%',
+                                outline: 'none'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.color = '#f87171'}
+                              onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255,255,255,0.4)'}
+                            >
+                              {Icons.close}
+                            </button>
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -8220,7 +8370,7 @@ export default function SpiceApp() {
                         Welcome back, {activeProfile.displayName}!
                       </h1>
                       <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', margin: 0 }}>
-                        Discover, stream, and sync your favorite music on the ultimate closed-source player.
+                        Discover, stream, and sync your favorite music across all your devices.
                       </p>
                     </div>
                     <div className="home-greeting__avatar" style={{ width: '96px', height: '96px', borderRadius: '50%', background: activeProfile.avatarUrl ? 'none' : activeProfile.gradient, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', fontWeight: 900, color: '#fff', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', textShadow: activeProfile.avatarUrl ? 'none' : '0 2px 8px rgba(0,0,0,0.3)', flexShrink: 0, overflow: 'hidden', border: '3px solid rgba(255, 255, 255, 0.1)' }}>
@@ -9070,7 +9220,30 @@ export default function SpiceApp() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                           <div>
                             <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Logged in as</div>
-                            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>{cloudUser.email}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>
+                              <span>{showSyncEmail ? cloudUser.email : getMaskedEmail(cloudUser.email)}</span>
+                              <button
+                                type="button"
+                                onClick={() => setShowSyncEmail(!showSyncEmail)}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: 'var(--text-secondary)',
+                                  cursor: 'pointer',
+                                  padding: '4px',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  outline: 'none',
+                                  transition: 'color 0.15s ease'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.color = '#fff'}
+                                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}
+                                title={showSyncEmail ? "Hide email" : "Show email"}
+                              >
+                                {showSyncEmail ? Icons.eyeOff : Icons.eye}
+                              </button>
+                            </div>
                             <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
                               <span style={{ fontSize: '0.72rem', background: cloudUser.isAdmin ? 'rgba(250, 204, 21, 0.12)' : 'rgba(255,255,255,0.06)', color: cloudUser.isAdmin ? '#facc15' : 'var(--text-secondary)', padding: '3px 8px', borderRadius: '999px', border: cloudUser.isAdmin ? '1px solid rgba(250, 204, 21, 0.25)' : '1px solid rgba(255,255,255,0.08)', textTransform: 'capitalize' }}>
                                 {cloudUser.accountRole || 'user'} account
@@ -11772,8 +11945,8 @@ export default function SpiceApp() {
             top: miniPlayerPos ? `${miniPlayerPos.y}px` : 'auto',
             right: miniPlayerPos ? 'auto' : '24px',
             bottom: miniPlayerPos ? 'auto' : '24px',
-            width: '340px',
-            height: showMiniLyrics ? '176px' : '124px',
+            width: '360px',
+            height: (showMiniLyrics && showMiniQueue) ? '302px' : showMiniLyrics ? '172px' : showMiniQueue ? '254px' : '124px',
             background: 'rgba(10, 10, 10, 0.88)',
             backgroundImage: `radial-gradient(circle at 10% 10%, rgba(var(--accent-pink-rgb, 236, 72, 153), 0.12), transparent 70%)`,
             border: '1px solid var(--border-color)',
@@ -11795,14 +11968,14 @@ export default function SpiceApp() {
             transition: 'height 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
           }}
         >
-          <div style={{ display: 'flex', width: '100%', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', width: '100%', alignItems: 'center', gap: '12px', minWidth: 0 }}>
             {/* Artwork */}
             <div
               style={{
                 position: 'relative',
-                width: '68px',
-                height: '68px',
-                borderRadius: '16px',
+                width: '60px',
+                height: '60px',
+                borderRadius: '12px',
                 overflow: 'hidden',
                 flexShrink: 0,
                 border: '1px solid rgba(255,255,255,0.08)',
@@ -11836,228 +12009,285 @@ export default function SpiceApp() {
               </div>
             </div>
 
-            {/* Details & Controls Column */}
-            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {/* Top Row: Song Details & Compact Actions */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fff', lineHeight: 1.2 }} className="truncate">
-                    {playerTrack.title}
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }} className="truncate">
-                    {isControllingRemoteReceiver ? `${receiverLabel} - ` : ''}{playerTrack.artists.map(a => a.name).join(', ')}
-                  </div>
-                  {renderSpiceConnectReceiverSelect('mini')}
-                </div>
-
-                {/* Action Buttons */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    onClick={() => !playerIsPlaceholder && toggleLike(playerTrack)}
-                    disabled={playerIsPlaceholder}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: likedTracks.has(playerTrack.id) ? 'var(--accent-pink)' : 'rgba(255,255,255,0.4)',
-                      cursor: playerIsPlaceholder ? 'not-allowed' : 'pointer',
-                      outline: 'none',
-                      padding: '4px',
-                      fontSize: '0.95rem',
-                      transition: 'all 0.15s ease'
-                    }}
-                    title={likedTracks.has(playerTrack.id) ? 'Unlike' : 'Like'}
-                  >
-                    {likedTracks.has(playerTrack.id) ? Icons.heartFilled : Icons.heart}
-                  </button>
-
-                  <button
-                    onClick={(event) => shareSongLink(playerTrack, event)}
-                    disabled={playerIsPlaceholder}
-                    className="mini-player__action-btn"
-                    title={`Share "${playerTrack.title}"`}
-                    aria-label={`Share ${playerTrack.title}`}
-                  >
-                    {Icons.share}
-                  </button>
-
-                  <button
-                    onClick={() => setListenTogetherDialogOpen(true)}
-                    disabled={!cloudToken}
-                    className="mini-player__action-btn"
-                    title={!cloudToken ? "Sign in to use Listen Together" : "Listen Together"}
-                    aria-label="Listen Together"
-                    style={listenTogetherSession || listenTogetherHostSessionId ? { color: 'var(--accent-pink)', borderColor: 'var(--accent-pink)', background: 'rgba(236,72,153,0.1)', cursor: 'pointer' } : { cursor: 'pointer' }}
-                  >
-                    {Icons.listenTogether}
-                  </button>
-
-                  <button
-                    onClick={() => setReceiverVolume(playerVolume === 0 ? 70 : 0)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'rgba(255,255,255,0.4)',
-                      cursor: 'pointer',
-                      outline: 'none',
-                      padding: '4px',
-                      fontSize: '0.95rem',
-                      transition: 'all 0.15s ease'
-                    }}
-                    title={playerVolume === 0 ? 'Unmute' : 'Mute'}
-                  >
-                    {playerVolume === 0 ? Icons.volumeMuted : Icons.volume}
-                  </button>
-                </div>
+            {/* Details */}
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+              <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#fff', lineHeight: 1.2 }} className="truncate">
+                {playerTrack.title}
               </div>
-
-              {/* Bottom Row: Transport controls & view switches */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <button
-                    onClick={handleReceiverPrev}
-                    disabled={!!listenTogetherHostSessionId}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'rgba(255,255,255,0.6)',
-                      cursor: listenTogetherHostSessionId ? 'not-allowed' : 'pointer',
-                      fontSize: '1rem',
-                      padding: '4px',
-                      outline: 'none',
-                      transition: 'color 0.15s',
-                      opacity: listenTogetherHostSessionId ? 0.35 : 1
-                    }}
-                    title="Previous"
-                  >
-                    {Icons.prev}
-                  </button>
-
-                  <button
-                    onClick={toggleReceiverPlayPause}
-                    disabled={!!listenTogetherHostSessionId}
-                    style={{
-                      width: '30px',
-                      height: '30px',
-                      borderRadius: '50%',
-                      background: 'var(--accent-pink)',
-                      border: 'none',
-                      color: '#fff',
-                      cursor: listenTogetherHostSessionId ? 'not-allowed' : 'pointer',
-                      outline: 'none',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      boxShadow: '0 4px 12px rgba(var(--accent-pink-rgb, 236, 72, 153), 0.3)',
-                      transition: 'transform 0.15s ease',
-                      opacity: listenTogetherHostSessionId ? 0.5 : 1
-                    }}
-                    onMouseEnter={(e) => !listenTogetherHostSessionId && (e.currentTarget.style.transform = 'scale(1.1)')}
-                    onMouseLeave={(e) => !listenTogetherHostSessionId && (e.currentTarget.style.transform = 'scale(1)')}
-                  >
-                    <span style={{ display: 'inline-flex' }}>
-                      {playerIsPlaying ? Icons.pause : Icons.play}
-                    </span>
-                  </button>
-
-                  <button
-                    onClick={handleReceiverNext}
-                    disabled={!!listenTogetherHostSessionId}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'rgba(255,255,255,0.6)',
-                      cursor: listenTogetherHostSessionId ? 'not-allowed' : 'pointer',
-                      fontSize: '1rem',
-                      padding: '4px',
-                      outline: 'none',
-                      transition: 'color 0.15s',
-                      opacity: listenTogetherHostSessionId ? 0.35 : 1
-                    }}
-                    title="Next"
-                  >
-                    {Icons.next}
-                  </button>
-                </div>
-
-                {/* View Switches */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    onClick={() => !isControllingRemoteReceiver && setShowMiniLyrics(!showMiniLyrics)}
-                    disabled={isControllingRemoteReceiver}
-                    style={{
-                      background: showMiniLyrics ? 'var(--accent-pink)' : 'rgba(255,255,255,0.05)',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      color: '#fff',
-                      width: '28px',
-                      height: '28px',
-                      borderRadius: '8px',
-                      cursor: isControllingRemoteReceiver ? 'not-allowed' : 'pointer',
-                      opacity: isControllingRemoteReceiver ? 0.35 : 1,
-                      outline: 'none',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '0.8rem',
-                      transition: 'all 0.15s ease',
-                      boxShadow: showMiniLyrics ? '0 0 8px rgba(236, 72, 153, 0.4)' : 'none'
-                    }}
-                    title="Toggle Lyrics View"
-                  >
-                    {Icons.microphone}
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setPlayerViewMode('expanded');
-                      localStorage.setItem('spice_player_view_mode', 'expanded');
-                    }}
-                    style={{
-                      background: 'rgba(255,255,255,0.05)',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      color: 'rgba(255,255,255,0.7)',
-                      width: '28px',
-                      height: '28px',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      outline: 'none',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '0.8rem',
-                      transition: 'all 0.15s ease'
-                    }}
-                    title="Expand Player"
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#fff'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'rgba(255,255,255,0.7)'; }}
-                  >
-                    {Icons.expand}
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setPlayerViewMode('bar');
-                      localStorage.setItem('spice_player_view_mode', 'bar');
-                    }}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'rgba(255,255,255,0.4)',
-                      cursor: 'pointer',
-                      fontSize: '0.95rem',
-                      padding: '4px',
-                      outline: 'none',
-                      transition: 'color 0.15s'
-                    }}
-                    title="Minimize to Bar"
-                    onMouseEnter={(e) => e.currentTarget.style.color = '#f87171'}
-                    onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255,255,255,0.4)'}
-                  >
-                    {Icons.close}
-                  </button>
-                </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '2px' }} className="truncate">
+                {isControllingRemoteReceiver ? `${receiverLabel} - ` : ''}{playerTrack.artists.map(a => a.name).join(', ')}
               </div>
+              {renderSpiceConnectReceiverSelect('mini')}
             </div>
 
+            {/* Playback Controls (compact) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+              <button
+                onClick={handleReceiverPrev}
+                disabled={!!listenTogetherHostSessionId}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'rgba(255,255,255,0.6)',
+                  cursor: listenTogetherHostSessionId ? 'not-allowed' : 'pointer',
+                  fontSize: '0.9rem',
+                  padding: '4px',
+                  outline: 'none',
+                  transition: 'color 0.15s',
+                  opacity: listenTogetherHostSessionId ? 0.35 : 1
+                }}
+                title="Previous"
+              >
+                {Icons.prev}
+              </button>
+
+              <button
+                onClick={toggleReceiverPlayPause}
+                disabled={!!listenTogetherHostSessionId}
+                style={{
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: '50%',
+                  background: 'var(--accent-pink)',
+                  border: 'none',
+                  color: '#fff',
+                  cursor: listenTogetherHostSessionId ? 'not-allowed' : 'pointer',
+                  outline: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 4px 10px rgba(var(--accent-pink-rgb, 236, 72, 153), 0.3)',
+                  transition: 'transform 0.15s ease',
+                  opacity: listenTogetherHostSessionId ? 0.5 : 1
+                }}
+                onMouseEnter={(e) => !listenTogetherHostSessionId && (e.currentTarget.style.transform = 'scale(1.1)')}
+                onMouseLeave={(e) => !listenTogetherHostSessionId && (e.currentTarget.style.transform = 'scale(1)')}
+              >
+                <span style={{ display: 'inline-flex', transform: 'scale(0.85)' }}>
+                  {playerIsPlaying ? Icons.pause : Icons.play}
+                </span>
+              </button>
+
+              <button
+                onClick={handleReceiverNext}
+                disabled={!!listenTogetherHostSessionId}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'rgba(255,255,255,0.6)',
+                  cursor: listenTogetherHostSessionId ? 'not-allowed' : 'pointer',
+                  fontSize: '0.9rem',
+                  padding: '4px',
+                  outline: 'none',
+                  transition: 'color 0.15s',
+                  opacity: listenTogetherHostSessionId ? 0.35 : 1
+                }}
+                title="Next"
+              >
+                {Icons.next}
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '8px', marginTop: '2px' }}>
+            {/* Custom Volume Slider */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1, minWidth: 0 }}>
+              <button
+                onClick={() => setReceiverVolume(playerVolume === 0 ? 70 : 0)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'rgba(255,255,255,0.4)',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  fontSize: '0.85rem',
+                  transition: 'all 0.15s ease'
+                }}
+                title={playerVolume === 0 ? 'Unmute' : 'Mute'}
+              >
+                {playerVolume === 0 ? Icons.volumeMuted : Icons.volume}
+              </button>
+              <input
+                type="range"
+                className="mini-player__volume-slider"
+                min="0"
+                max="100"
+                value={playerVolume}
+                onChange={(e) => {
+                  const newVol = Number(e.target.value);
+                  setReceiverVolume(newVol);
+                }}
+                style={{
+                  width: '64px',
+                  height: '4px',
+                  borderRadius: '2px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  WebkitAppearance: 'none',
+                  background: `linear-gradient(to right, var(--accent-pink) 0%, var(--accent-pink) ${playerVolume}%, rgba(255,255,255,0.1) ${playerVolume}%, rgba(255,255,255,0.1) 100%)`
+                }}
+              />
+              <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', width: '22px', textAlign: 'right', display: 'inline-block', flexShrink: 0 }}>
+                {playerVolume}%
+              </span>
+            </div>
+
+            {/* Action buttons */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <button
+                onClick={() => !playerIsPlaceholder && toggleLike(playerTrack)}
+                disabled={playerIsPlaceholder}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: likedTracks.has(playerTrack.id) ? 'var(--accent-pink)' : 'rgba(255,255,255,0.4)',
+                  cursor: playerIsPlaceholder ? 'not-allowed' : 'pointer',
+                  outline: 'none',
+                  padding: '4px',
+                  fontSize: '0.9rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  transition: 'all 0.15s ease'
+                }}
+                title={likedTracks.has(playerTrack.id) ? 'Unlike' : 'Like'}
+              >
+                {likedTracks.has(playerTrack.id) ? Icons.heartFilled : Icons.heart}
+              </button>
+
+              <button
+                onClick={(event) => shareSongLink(playerTrack, event)}
+                disabled={playerIsPlaceholder}
+                className="mini-player__action-btn"
+                title={`Share "${playerTrack.title}"`}
+                aria-label={`Share ${playerTrack.title}`}
+                style={{ width: '26px', height: '26px' }}
+              >
+                <span style={{ transform: 'scale(0.85)', display: 'inline-flex' }}>{Icons.share}</span>
+              </button>
+
+              <button
+                onClick={() => setListenTogetherDialogOpen(true)}
+                disabled={!cloudToken}
+                className="mini-player__action-btn"
+                title={!cloudToken ? "Sign in to use Listen Together" : "Listen Together"}
+                aria-label="Listen Together"
+                style={{
+                  width: '26px',
+                  height: '26px',
+                  ...(listenTogetherSession || listenTogetherHostSessionId ? { color: 'var(--accent-pink)', borderColor: 'var(--accent-pink)', background: 'rgba(236,72,153,0.1)', cursor: 'pointer' } : { cursor: 'pointer' })
+                }}
+              >
+                <span style={{ transform: 'scale(0.85)', display: 'inline-flex' }}>{Icons.listenTogether}</span>
+              </button>
+
+              {/* Mini Queue Toggle */}
+              <button
+                onClick={() => setShowMiniQueue(!showMiniQueue)}
+                style={{
+                  background: showMiniQueue ? 'var(--accent-pink)' : 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  color: '#fff',
+                  width: '26px',
+                  height: '26px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.15s ease',
+                  boxShadow: showMiniQueue ? '0 0 8px rgba(236, 72, 153, 0.4)' : 'none'
+                }}
+                title="Toggle Mini Queue"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="13" height="13">
+                  <line x1="8" y1="6" x2="21" y2="6"></line>
+                  <line x1="8" y1="12" x2="21" y2="12"></line>
+                  <line x1="8" y1="18" x2="21" y2="18"></line>
+                  <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                  <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                  <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                </svg>
+              </button>
+
+              {/* Lyrics Toggle */}
+              <button
+                onClick={() => !isControllingRemoteReceiver && setShowMiniLyrics(!showMiniLyrics)}
+                disabled={isControllingRemoteReceiver}
+                style={{
+                  background: showMiniLyrics ? 'var(--accent-pink)' : 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  color: '#fff',
+                  width: '26px',
+                  height: '26px',
+                  borderRadius: '8px',
+                  cursor: isControllingRemoteReceiver ? 'not-allowed' : 'pointer',
+                  opacity: isControllingRemoteReceiver ? 0.35 : 1,
+                  outline: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.15s ease',
+                  boxShadow: showMiniLyrics ? '0 0 8px rgba(236, 72, 153, 0.4)' : 'none'
+                }}
+                title="Toggle Lyrics View"
+              >
+                <span style={{ transform: 'scale(0.85)', display: 'inline-flex' }}>{Icons.microphone}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setPlayerViewMode('expanded');
+                  localStorage.setItem('spice_player_view_mode', 'expanded');
+                }}
+                style={{
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  color: 'rgba(255,255,255,0.7)',
+                  width: '26px',
+                  height: '26px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Expand Player"
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#fff'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'rgba(255,255,255,0.7)'; }}
+              >
+                <span style={{ transform: 'scale(0.85)', display: 'inline-flex' }}>{Icons.expand}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setPlayerViewMode('bar');
+                  localStorage.setItem('spice_player_view_mode', 'bar');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'rgba(255,255,255,0.4)',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem',
+                  padding: '4px',
+                  outline: 'none',
+                  transition: 'color 0.15s',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+                title="Minimize to Bar"
+                onMouseEnter={(e) => e.currentTarget.style.color = '#f87171'}
+                onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255,255,255,0.4)'}
+              >
+                {Icons.close}
+              </button>
+            </div>
           </div>
 
           {/* Mini Player Synced Lyrics Strip */}
@@ -12068,7 +12298,8 @@ export default function SpiceApp() {
               paddingTop: '8px',
               marginTop: '4px',
               textAlign: 'center',
-              minHeight: '34px',
+              minHeight: '38px',
+              maxHeight: '44px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -12077,15 +12308,15 @@ export default function SpiceApp() {
               fontWeight: 600,
               color: 'var(--accent-pink)',
               textShadow: '0 0 8px rgba(236,72,153,0.3)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
+              overflowY: 'auto',
+              whiteSpace: 'normal',
               paddingLeft: '4px',
               paddingRight: '4px',
               zIndex: 1,
               userSelect: 'text',
-              cursor: 'default'
-            }}>
+              cursor: 'default',
+              lineHeight: 1.3
+            }} className="custom-scrollbar">
               {lyricsLoading ? (
                 <span style={{ color: 'rgba(255,255,255,0.4)' }}>Tuning...</span>
               ) : activeLineIdx >= 0 && lyricsData ? (
@@ -12096,6 +12327,57 @@ export default function SpiceApp() {
                 <span style={{ color: 'rgba(255,255,255,0.3)' }}>
                   {lyricsData && !lyricsData.isSynced && lyricsData.lines.length > 0 ? 'Lyrics are not time-synced' : '(Instrumental)'}
                 </span>
+              )}
+            </div>
+          )}
+
+          {/* Mini Player Queue List */}
+          {showMiniQueue && (
+            <div style={{
+              width: '100%',
+              borderTop: '1px solid rgba(255,255,255,0.06)',
+              paddingTop: '8px',
+              marginTop: '4px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              maxHeight: '120px',
+              overflowY: 'auto',
+              textAlign: 'left'
+            }} className="custom-scrollbar">
+              {playerQueue.slice(playerQueueIndex + 1, playerQueueIndex + 6).map((song, idx) => {
+                const actualIdx = playerQueueIndex + 1 + idx;
+                return (
+                  <div
+                    key={`${song.id}-${actualIdx}`}
+                    onClick={() => startTrackOnActiveReceiver(song, playerQueue)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '4px 8px',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px solid transparent',
+                      transition: 'all 0.15s ease',
+                      textAlign: 'left'
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'; e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)'; e.currentTarget.style.borderColor = 'transparent'; }}
+                  >
+                    <img src={song.artworkUrl || '/icon.svg'} alt="" style={{ width: '24px', height: '24px', borderRadius: '4px', objectFit: 'cover' }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#fff' }} className="truncate">{song.title}</div>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }} className="truncate">{song.artists.map(a => a.name).join(', ')}</div>
+                    </div>
+                  </div>
+                );
+              })}
+              {playerQueue.length <= playerQueueIndex + 1 && (
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '10px 0' }}>
+                  No upcoming tracks in queue
+                </div>
               )}
             </div>
           )}

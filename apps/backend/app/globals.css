@@ -197,15 +197,15 @@ h4 { font-size: 1rem; }
   height: 100vh;
   width: 100vw;
   overflow: hidden;
-  transition: grid-template-columns var(--transition-slow);
+  transition: grid-template-columns var(--transition-slow) cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .app.app--sidebar-hidden {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 0px 1fr;
 }
 
 .app.app--sidebar-hidden .main {
-  grid-column: 1 / 2;
+  grid-column: 2 / 3;
 }
 
 /* ── Sidebar ─────────────────────────────────────────────────── */
@@ -218,7 +218,19 @@ h4 { font-size: 1rem; }
   flex-direction: column;
   overflow: hidden;
   z-index: 100;
-  transition: width var(--transition-slow), transform var(--transition-slow);
+  width: var(--sidebar-width);
+  transition: transform var(--transition-slow) cubic-bezier(0.4, 0, 0.2, 1), opacity var(--transition-slow) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar.sidebar--hidden {
+  transform: translateX(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sidebar.sidebar--visible {
+  transform: translateX(0);
+  opacity: 1;
 }
 
 .sidebar__logo {
@@ -311,6 +323,18 @@ h4 { font-size: 1rem; }
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   box-shadow: var(--shadow-md);
+  transition: transform var(--transition-slow) cubic-bezier(0.4, 0, 0.2, 1), opacity var(--transition-slow) cubic-bezier(0.4, 0, 0.2, 1), background var(--transition-normal), color var(--transition-normal), border-color var(--transition-normal), box-shadow var(--transition-normal);
+}
+
+.sidebar-restore-btn.hidden {
+  transform: translateX(-40px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sidebar-restore-btn.visible {
+  transform: translateX(0);
+  opacity: 1;
 }
 
 .sidebar-restore-btn span {
@@ -2341,6 +2365,32 @@ h4 { font-size: 1rem; }
   width: min(230px, 78vw);
 }
 
+.spice-connect-receiver--bar .spice-connect-receiver__button {
+  min-height: 28px;
+  min-width: 120px;
+  grid-template-columns: 14px minmax(0, 1fr) 14px;
+  gap: 4px;
+  padding: 3px 6px 3px 8px;
+}
+
+.spice-connect-receiver--bar .spice-connect-receiver__icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.spice-connect-receiver--bar .spice-connect-receiver__copy strong {
+  font-size: 0.72rem;
+}
+
+.spice-connect-receiver--bar .spice-connect-receiver__copy small {
+  font-size: 0.6rem;
+}
+
+.spice-connect-receiver--bar .spice-connect-receiver__chevron svg {
+  width: 12px;
+  height: 12px;
+}
+
 .now-playing__volume {
   display: flex;
   align-items: center;
@@ -2391,6 +2441,22 @@ h4 { font-size: 1rem; }
 
 .now-playing__volume:hover .now-playing__volume-slider::-webkit-slider-thumb {
   opacity: 1;
+}
+
+.mini-player__volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  background: var(--accent-pink);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s ease;
+}
+
+.mini-player__volume-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
 }
 
 .now-playing__extra-btn {

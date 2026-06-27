@@ -1,5 +1,18 @@
 # SPICE Walkthrough
 
+## v1.0.88
+
+- [Spice.Music main] Masked cloud account email in Settings panel with a toggleable show/hide eye icon to safeguard privacy.
+- [Spice.Music main] Added dynamic theme-based SVG favicon generator in React that automatically updates browser tab icon with the selected accent theme.
+- [Spice.Music main] Added a "Cancel" button to passcode lock screen overlay that reverts the profile switch to the last successfully unlocked profile.
+- [Spice.Music main] Stopped playback completely before switching profiles (clearing active audio states).
+- [Spice.Music main] Enhanced the floating mini player: expanded width to 360px, added range-based custom volume slider, added collapsible mini queue panel, and optimized lyrics wrapping.
+- [Spice.Music main] Rephrased welcome greeting subtitle to remove closed-source player reference.
+- [Spice.Music main] Added sidebar sliding open/close transition animations using CSS transforms and grid column transitions.
+- [Spice.Music main] Reduced size of the playback device selection button inside the player bar.
+- [Spice.Music main] Added individual search history query deletion and clear-all capabilities to search suggestions tray.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.88`.
+
 ## v1.0.87
 
 - [Spice.Music main] Fixed duplicate Listen Together invites by matching on the host's active profile in the database and deduplicating session invites on the backend.
