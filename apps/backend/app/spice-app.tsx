@@ -34,6 +34,69 @@ const SPICE_CONNECT_STALE_DEVICE_SECONDS = 20;
 const MAX_LOCAL_PROFILES = 6;
 const SPICE_MEDIA_CORE_LABEL = `Spice Media Core v${SPICE_MEDIA_CORE_VERSION}`;
 
+type SpiceApiLane = 'local' | 'cloud';
+const SPICE_RUNTIME_TARGET = process.env.NEXT_PUBLIC_SPICE_RUNTIME_TARGET === 'vercel' ? 'vercel' : 'local';
+const SPICE_CLOUD_API_ORIGIN = normalizeApiOrigin(
+  process.env.NEXT_PUBLIC_SPICE_CLOUD_API_ORIGIN || 'https://music.spice-app.xyz',
+);
+const SPICE_LOCAL_API_ORIGIN = normalizeApiOrigin(
+  process.env.NEXT_PUBLIC_SPICE_LOCAL_API_ORIGIN || 'http://127.0.0.1:3939',
+);
+
+function spiceApiUrl(
+  lane: SpiceApiLane,
+  path: string,
+  query?: URLSearchParams | Record<string, string | number | boolean | null | undefined>,
+) {
+  const [rawPath, rawQuery = ''] = path.startsWith('/') ? path.split('?') : `/${path}`.split('?');
+  const origin = spiceApiOrigin(lane);
+  const url = new URL(`/api/${lane}${rawPath}`, origin || 'http://spice.local');
+
+  if (rawQuery) {
+    const existing = new URLSearchParams(rawQuery);
+    existing.forEach((value, key) => url.searchParams.set(key, value));
+  }
+
+  if (query instanceof URLSearchParams) {
+    query.forEach((value, key) => url.searchParams.set(key, value));
+  } else if (query) {
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== null && value !== undefined) {
+        url.searchParams.set(key, String(value));
+      }
+    }
+  }
+
+  return origin ? url.toString() : `${url.pathname}${url.search}`;
+}
+
+function spiceFetch(
+  lane: SpiceApiLane,
+  path: string,
+  init?: RequestInit,
+  query?: URLSearchParams | Record<string, string | number | boolean | null | undefined>,
+) {
+  return fetch(spiceApiUrl(lane, path, query), init);
+}
+
+function spiceApiResponseUrl(lane: SpiceApiLane, url: string) {
+  if (/^(?:https?:|blob:|data:)/i.test(url)) return url;
+  const origin = spiceApiOrigin(lane);
+  return origin ? new URL(url, origin).toString() : url;
+}
+
+function spiceApiOrigin(lane: SpiceApiLane) {
+  if (lane === 'cloud') {
+    return SPICE_RUNTIME_TARGET === 'local' ? SPICE_CLOUD_API_ORIGIN : '';
+  }
+
+  return SPICE_RUNTIME_TARGET === 'vercel' ? SPICE_LOCAL_API_ORIGIN : '';
+}
+
+function normalizeApiOrigin(origin: string) {
+  return origin.replace(/\/+$/, '');
+}
+
 // ── Icons ──────────────────────────────────────────────────────────
 const Icons = {
   play: (
@@ -1187,7 +1250,7 @@ function saveProfilesToStorage(profiles: UserProfile[]) {
 export default function SpiceApp() {
   const [volumeBoosterAccepted, setVolumeBoosterAccepted] = useState(false);
   const [isVolumeHovered, setIsVolumeHovered] = useState(false);
-  const [currentPage, setCurrentPage] = useState<AppPage>('home');
+  const [currentPage, setCurrentPage] = useState<AppPage>('search');
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
 
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
@@ -1338,8 +1401,8 @@ export default function SpiceApp() {
 
     try {
       const trackEndpoint = isSoundCloud
-        ? `/api/sc/track/${encodeURIComponent(soundCloudTrackId(track))}?quality=${audioQuality}`
-        : `/api/yt/track/${encodeURIComponent(track.id)}`;
+        ? spiceApiUrl('local', `/sc/track/${encodeURIComponent(soundCloudTrackId(track))}`, { quality: audioQuality })
+        : spiceApiUrl('local', `/yt/track/${encodeURIComponent(track.id)}`);
 
       const res = await fetch(trackEndpoint);
       if (!res.ok) {
@@ -1360,7 +1423,7 @@ export default function SpiceApp() {
         const downloadTitle = sanitizeDownloadName(track);
 
         // Convert relative URL to absolute URL to parse/append params
-        const finalUrl = new URL(streamUrl, typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
+        const finalUrl = new URL(spiceApiResponseUrl('local', streamUrl), typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
         finalUrl.searchParams.set('download', 'true');
         finalUrl.searchParams.set('title', downloadTitle);
 
@@ -1422,6 +1485,15 @@ export default function SpiceApp() {
     activeNoticeTimersRef.current.forEach((timer) => clearTimeout(timer));
     activeNoticeTimersRef.current.clear();
   }, []);
+
+  // Feedback System states
+  const [feedbackCategory, setFeedbackCategory] = useState('general');
+  const [feedbackRating, setFeedbackRating] = useState(5);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [feedbackStatus, setFeedbackStatus] = useState('');
+  const [playedTracksCount, setPlayedTracksCount] = useState(0);
+  const [showFeedbackPopup, setShowFeedbackPopup] = useState(false);
 
   // ── Multi-Profile Accounts Setup ──────────────────────────────────
   const [profiles, setProfiles] = useState<UserProfile[]>([initialDefaultProfile]);
@@ -1574,7 +1646,7 @@ export default function SpiceApp() {
   const [releaseNotifications, setReleaseNotifications] = useState<ReleaseNotification[]>([]);
 
   useEffect(() => {
-    fetch('/api/notifications/release')
+    spiceFetch('cloud', '/notifications/release')
       .then(res => res.json())
       .then(data => {
         if (data.notifications && Array.isArray(data.notifications)) {
@@ -1817,7 +1889,7 @@ export default function SpiceApp() {
 
     try {
       logDebug('diagnostics', 'Pinging YouTube InnerTube search endpoint...');
-      const apiPing = await fetch(`/api/yt/search?q=Top%20Hits&limit=1`);
+      const apiPing = await spiceFetch('local', '/yt/search', undefined, { q: 'Top Hits', limit: 1 });
       if (apiPing.ok) {
         apiStatus = 'passed';
         logDebug('diagnostics', 'InnerTube API ping successful!');
@@ -1834,7 +1906,7 @@ export default function SpiceApp() {
       if (cloudToken) {
         headers['Authorization'] = `Bearer ${cloudToken}`;
       }
-      const dbPing = await fetch(`/api/sync/likes`, { headers });
+      const dbPing = await spiceFetch('cloud', '/sync/likes', { headers });
       if (dbPing.status === 501) {
         dbStatus = 'disabled';
         logDebug('diagnostics', 'Cloud database bypassed: server is running in offline LocalStorage mode.');
@@ -1931,7 +2003,7 @@ export default function SpiceApp() {
 
   const autoSyncProfiles = (updatedProfiles: UserProfile[]) => {
     if (!cloudToken) return;
-    fetch('/api/sync/profiles', {
+    spiceFetch('cloud', '/sync/profiles', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1988,7 +2060,7 @@ export default function SpiceApp() {
 
   const autoSyncHistory = (updatedHistory: Track[]) => {
     if (!cloudToken) return;
-    fetch('/api/sync/history', {
+    spiceFetch('cloud', '/sync/history', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2004,7 +2076,7 @@ export default function SpiceApp() {
 
   const autoSyncPlaylists = (updatedPlaylists: Playlist[]) => {
     if (!cloudToken) return;
-    fetch('/api/sync/playlists', {
+    spiceFetch('cloud', '/sync/playlists', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2020,7 +2092,7 @@ export default function SpiceApp() {
 
   const autoSyncLikes = (updatedLikes: string[], updatedDetails: Record<string, Track>) => {
     if (!cloudToken) return;
-    fetch('/api/sync/likes', {
+    spiceFetch('cloud', '/sync/likes', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2049,9 +2121,9 @@ export default function SpiceApp() {
 
     setIsSearchingUsers(true);
     try {
-      const res = await fetch(`/api/users/search?q=${encodeURIComponent(trimmed)}`, {
+      const res = await spiceFetch('cloud', '/users/search', {
         headers: cloudToken ? { Authorization: `Bearer ${cloudToken}` } : {},
-      });
+      }, { q: trimmed });
       if (!res.ok) throw new Error('Search failed');
       const data = await res.json();
       setUserSearchResults(data.users || []);
@@ -2070,9 +2142,9 @@ export default function SpiceApp() {
     setSelectedPlaylist(null);
 
     try {
-      const res = await fetch(`/api/users/profile?userId=${user.id}`, {
+      const res = await spiceFetch('cloud', '/users/profile', {
         headers: cloudToken ? { Authorization: `Bearer ${cloudToken}` } : {},
-      });
+      }, { userId: user.id });
       if (!res.ok) throw new Error('Failed to load profile');
       const data = await res.json();
       setSelectedUserProfileData(data);
@@ -2096,7 +2168,7 @@ export default function SpiceApp() {
     }
 
     try {
-      const res = await fetch('/api/users/like', {
+      const res = await spiceFetch('cloud', '/users/like', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2134,7 +2206,7 @@ export default function SpiceApp() {
     }
 
     try {
-      const response = await fetch('/api/profile/connections', {
+      const response = await spiceFetch('cloud', '/profile/connections', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await response.json().catch(() => ({})) as {
@@ -2199,7 +2271,7 @@ export default function SpiceApp() {
 
     setListenBrainzLinkStatus('Saving ListenBrainz token to your SPICE account...');
     try {
-      const response = await fetch('/api/profile/connections', {
+      const response = await spiceFetch('cloud', '/profile/connections', {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${cloudToken}`,
@@ -2433,7 +2505,7 @@ export default function SpiceApp() {
   const loadPlaylistInvite = useCallback(async (token: string) => {
     setInviteStatus('Loading shared playlist invite...');
     try {
-      const response = await fetch(`/api/playlists/invites/${encodeURIComponent(token)}`);
+      const response = await spiceFetch('cloud', `/playlists/invites/${encodeURIComponent(token)}`);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(data.message || 'This shared playlist invite is not available.');
@@ -2479,7 +2551,7 @@ export default function SpiceApp() {
       <text x="64" y="96" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="86" fill="#ffffff" text-anchor="middle">S</text>
     </svg>`;
     const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svgString)}`;
-    
+
     let link = document.querySelector("link[rel*='icon']") as HTMLLinkElement;
     if (!link) {
       link = document.createElement('link');
@@ -2622,7 +2694,7 @@ export default function SpiceApp() {
       if (isFetching) return;
       isFetching = true;
       try {
-        const response = await fetch('/api/version');
+        const response = await spiceFetch('cloud', '/version');
         if (!response.ok) return;
 
         const data = await response.json();
@@ -2715,12 +2787,17 @@ export default function SpiceApp() {
 
   // Fetch dynamic content on mount
   useEffect(() => {
+    if (currentPage !== 'home') {
+      setIsLoadingHome(false);
+      return;
+    }
+
     async function loadHomeContent() {
       setIsLoadingHome(true);
       try {
-        const trendRes = await fetch(`/api/yt/search?q=${encodeURIComponent('Top Hits 2026')}&limit=8`);
-        const chillRes = await fetch(`/api/yt/search?q=${encodeURIComponent('Chill Study Lofi Beats')}&limit=8`);
-        const energyRes = await fetch(`/api/yt/search?q=${encodeURIComponent('Workout Gym Power')}&limit=8`);
+        const trendRes = await spiceFetch('local', '/yt/search', undefined, { q: 'Top Hits 2026', limit: 8 });
+        const chillRes = await spiceFetch('local', '/yt/search', undefined, { q: 'Chill Study Lofi Beats', limit: 8 });
+        const energyRes = await spiceFetch('local', '/yt/search', undefined, { q: 'Workout Gym Power', limit: 8 });
 
         const trendData = trendRes.ok ? await trendRes.json() : { tracks: [] };
         const chillData = chillRes.ok ? await chillRes.json() : { tracks: [] };
@@ -2766,7 +2843,7 @@ export default function SpiceApp() {
         .then((reg) => console.log('Spice Service Worker registered:', reg.scope))
         .catch((err) => console.error('Spice SW registration failed:', err));
     }
-  }, []);
+  }, [currentPage]);
 
   // Sync volume
   useEffect(() => {
@@ -2894,7 +2971,7 @@ export default function SpiceApp() {
       const localPlaylists = activeProf.customPlaylists || [];
 
       // 1. Pull profiles list
-      const profRes = await fetchWithRetry('/api/sync/profiles', {
+      const profRes = await fetchWithRetry(spiceApiUrl('cloud', '/sync/profiles'), {
         headers: { 'Authorization': `Bearer ${token}` }
       }, 'Profiles pull');
       if (!profRes.ok) {
@@ -2917,7 +2994,7 @@ export default function SpiceApp() {
       let serverLikes: string[] = [];
       let serverLikedDetails: Record<string, Track> = {};
       try {
-        const likesRes = await fetchWithRetry(`/api/sync/likes?profileId=${encodeURIComponent(activeProf.id)}`, {
+        const likesRes = await fetchWithRetry(spiceApiUrl('cloud', '/sync/likes', { profileId: activeProf.id }), {
           headers: { 'Authorization': `Bearer ${token}` }
         }, 'Likes pull');
         if (likesRes.ok) {
@@ -2935,7 +3012,7 @@ export default function SpiceApp() {
       // 3. Pull active profile history
       let serverHistory: Track[] = [];
       try {
-        const histRes = await fetchWithRetry(`/api/sync/history?profileId=${encodeURIComponent(activeProf.id)}`, {
+        const histRes = await fetchWithRetry(spiceApiUrl('cloud', '/sync/history', { profileId: activeProf.id }), {
           headers: { 'Authorization': `Bearer ${token}` }
         }, 'History pull');
         if (histRes.ok) {
@@ -2953,7 +3030,7 @@ export default function SpiceApp() {
       let serverPlaylists: any[] = [];
       let playlistsPullSucceeded = false;
       try {
-        const plRes = await fetchWithRetry(`/api/sync/playlists?profileId=${encodeURIComponent(activeProf.id)}`, {
+        const plRes = await fetchWithRetry(spiceApiUrl('cloud', '/sync/playlists', { profileId: activeProf.id }), {
           headers: { 'Authorization': `Bearer ${token}` }
         }, 'Playlists pull');
         if (plRes.ok) {
@@ -3147,10 +3224,10 @@ export default function SpiceApp() {
       // 9. Push Merged States to Cloud Database (each independently)
       let pushFailures = 0;
       const pushEndpoints = [
-        { label: 'Likes', url: '/api/sync/likes', body: { likedTracks: mergedLikesArray, likedTrackDetails: mergedLikedDetails, profileId: activeProf.id } },
-        { label: 'History', url: '/api/sync/history', body: { history: mergedHistory, profileId: activeProf.id } },
-        { label: 'Playlists', url: '/api/sync/playlists', body: { playlists: ownedPlaylistsOnly(mergedPlaylists), profileId: activeProf.id } },
-        { label: 'Profiles', url: '/api/sync/profiles', body: { profiles: profilesToPersist } },
+        { label: 'Likes', url: spiceApiUrl('cloud', '/sync/likes'), body: { likedTracks: mergedLikesArray, likedTrackDetails: mergedLikedDetails, profileId: activeProf.id } },
+        { label: 'History', url: spiceApiUrl('cloud', '/sync/history'), body: { history: mergedHistory, profileId: activeProf.id } },
+        { label: 'Playlists', url: spiceApiUrl('cloud', '/sync/playlists'), body: { playlists: ownedPlaylistsOnly(mergedPlaylists), profileId: activeProf.id } },
+        { label: 'Profiles', url: spiceApiUrl('cloud', '/sync/profiles'), body: { profiles: profilesToPersist } },
       ];
 
       for (const ep of pushEndpoints) {
@@ -3187,7 +3264,7 @@ export default function SpiceApp() {
       console.error('Cloud synchronization error:', err);
       logDebug('error', `Cloud synchronization failed: ${err.message || err}`);
       if (err.message === 'db_not_configured') {
-        setDbError('DATABASE_URL is not set in backend environment.');
+        setDbError('Cloud database connection is not configured in the backend environment.');
       }
       setSyncingStatus('error');
     } finally {
@@ -3202,7 +3279,7 @@ export default function SpiceApp() {
     setAuthLoading(true);
     setDbError(null);
 
-    const url = authMode === 'login' ? '/api/auth/spice/signin' : '/api/auth/spice/signup';
+    const url = authMode === 'login' ? spiceApiUrl('cloud', '/auth/spice/signin') : spiceApiUrl('cloud', '/auth/spice/signup');
     try {
       const payload: any = { email: authEmail, password: authPassword };
       if (authMode === 'register') {
@@ -3457,7 +3534,7 @@ export default function SpiceApp() {
 
     const durationMs = currentTrack.durationMs || (duration > 0 ? Math.round(duration * 1000) : undefined);
     try {
-      const response = await fetch('/api/profile/listens', {
+      const response = await spiceFetch('cloud', '/profile/listens', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -3522,12 +3599,51 @@ export default function SpiceApp() {
     }
   }
 
+  async function handleFeedbackSubmit(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (!feedbackText.trim()) return;
+
+    setIsSubmittingFeedback(true);
+    setFeedbackStatus('');
+
+    try {
+      const response = await spiceFetch('cloud', '/feedback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(cloudToken ? { Authorization: `Bearer ${cloudToken}` } : {}),
+        },
+        body: JSON.stringify({
+          category: feedbackCategory,
+          content: feedbackText,
+          rating: feedbackRating,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || 'Feedback submission failed.');
+      }
+
+      setFeedbackStatus('Feedback submitted successfully! Thank you.');
+      setFeedbackText('');
+      localStorage.setItem('spice_feedback_submitted', 'true');
+
+      // Clear status after 3 seconds
+      setTimeout(() => setFeedbackStatus(''), 3000);
+    } catch (err: any) {
+      setFeedbackStatus(err.message || 'An error occurred. Please try again.');
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  }
+
   async function handleLinkLastFm() {
     setIsLinkingLastFm(true);
     setLastFmLinkStatus('Opening Last.fm sign-in...');
 
     try {
-      const response = await fetch('/api/lastfm/auth', {
+      const response = await spiceFetch('cloud', '/lastfm/auth', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -3653,8 +3769,8 @@ export default function SpiceApp() {
       try {
         const metadataQuery = lyricsMetadataQuery(currentTrack);
         const fetchUrl = isSoundCloudTrack(currentTrack)
-          ? `/api/sc/lyrics/${encodeURIComponent(soundCloudTrackId(currentTrack))}${metadataQuery}`
-          : `/api/yt/lyrics/${encodeURIComponent(currentTrack.id)}${metadataQuery}`;
+          ? spiceApiUrl('local', `/sc/lyrics/${encodeURIComponent(soundCloudTrackId(currentTrack))}${metadataQuery}`)
+          : spiceApiUrl('local', `/yt/lyrics/${encodeURIComponent(currentTrack.id)}${metadataQuery}`);
         logDebug('lyrics', `Fetching lyrics from API endpoint: ${fetchUrl}`);
         const res = await fetch(fetchUrl);
         if (!res.ok) {
@@ -3708,6 +3824,17 @@ export default function SpiceApp() {
     };
   }, [currentTrack.id, currentTrack.title, currentTrack.artists, currentTrack.durationMs]);
 
+  useEffect(() => {
+    if (playedTracksCount > 0 && playedTracksCount % 5 === 0) {
+      const hasDismissed = localStorage.getItem('spice_feedback_prompt_dismissed') === 'true';
+      const hasSubmitted = localStorage.getItem('spice_feedback_submitted') === 'true';
+      const token = localStorage.getItem('spice_cloud_token');
+      if (!hasDismissed && !hasSubmitted && token) {
+        setShowFeedbackPopup(true);
+      }
+    }
+  }, [playedTracksCount]);
+
   // Play a track
   const playTrack = async (track: Track, newQueue?: Track[], startSearchIndex?: number, isSyncLoopCall?: boolean) => {
     if (listenTogetherHostSessionId && !isSyncLoopCall) {
@@ -3715,6 +3842,7 @@ export default function SpiceApp() {
       return;
     }
 
+    setPlayedTracksCount(prev => prev + 1);
     if (errorSkipTimeoutRef.current) {
       clearTimeout(errorSkipTimeoutRef.current);
       errorSkipTimeoutRef.current = null;
@@ -3807,8 +3935,8 @@ export default function SpiceApp() {
       }
 
       const trackEndpoint = isSoundCloud
-        ? `/api/sc/track/${encodeURIComponent(soundCloudTrackId(track))}?quality=${audioQuality}`
-        : `/api/yt/track/${encodeURIComponent(track.id)}`;
+        ? spiceApiUrl('local', `/sc/track/${encodeURIComponent(soundCloudTrackId(track))}`, { quality: audioQuality })
+        : spiceApiUrl('local', `/yt/track/${encodeURIComponent(track.id)}`);
       const resTrack = await fetch(trackEndpoint);
       if (requestId !== playbackRequestRef.current) return;
       if (!resTrack.ok) throw new Error('Could not resolve audio streams for this track.');
@@ -3822,8 +3950,9 @@ export default function SpiceApp() {
       const streamLabel = bestStream.preset ? `preset ${bestStream.preset}` : `itag ${bestStream.itag}`;
       const shouldStartNow = shouldAutoPlayRef.current;
       logDebug('stream', `Resolved ${streams.length} ${trackSourceLabel(track)} formats. Selected ${streamLabel} (${bestStream.container}, bitrate: ${Math.round(bestStream.bitrate / 1000)}kbps)`);
-      setStreamUrl(bestStream.url);
-      streamUrlRef.current = bestStream.url;
+      const resolvedStreamUrl = spiceApiResponseUrl('local', bestStream.url);
+      setStreamUrl(resolvedStreamUrl);
+      streamUrlRef.current = resolvedStreamUrl;
       setPlaybackPlaying(shouldStartNow);
 
       // Track playback in history
@@ -4136,7 +4265,7 @@ export default function SpiceApp() {
     const currentQueue = queueRef.current || [];
     remoteDeviceReportInFlightRef.current = true;
     try {
-      const response = await fetch('/api/remote/devices', {
+      const response = await spiceFetch('cloud', '/remote/devices', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -4172,7 +4301,7 @@ export default function SpiceApp() {
 
     remoteDeviceLoadInFlightRef.current = true;
     try {
-      const response = await fetch('/api/remote/devices', {
+      const response = await spiceFetch('cloud', '/remote/devices', {
         headers: { Authorization: `Bearer ${cloudToken}` },
         cache: 'no-store',
       });
@@ -4288,10 +4417,10 @@ export default function SpiceApp() {
 
     remoteCommandPollInFlightRef.current = true;
     try {
-      const response = await fetch(`/api/remote/commands?deviceId=${encodeURIComponent(remoteDeviceId)}`, {
+      const response = await spiceFetch('cloud', '/remote/commands', {
         headers: { Authorization: `Bearer ${cloudToken}` },
         cache: 'no-store',
-      });
+      }, { deviceId: remoteDeviceId });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(data.message || `Spice Connect command poll failed with status ${response.status}.`);
@@ -4341,7 +4470,7 @@ export default function SpiceApp() {
     }
 
     try {
-      const response = await fetch('/api/remote/commands', {
+      const response = await spiceFetch('cloud', '/remote/commands', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -4411,16 +4540,16 @@ export default function SpiceApp() {
         limit: String(limit),
       });
       const endpoint = {
-        youtube_music: '/api/yt/search',
-        youtube_videos: '/api/yt/search',
-        soundcloud: '/api/sc/search',
+        youtube_music: '/yt/search',
+        youtube_videos: '/yt/search',
+        soundcloud: '/sc/search',
       }[targetProvider];
 
       if (targetProvider === 'youtube_music' || targetProvider === 'youtube_videos') {
         params.set('kind', targetProvider === 'youtube_videos' ? 'videos' : 'tracks');
       }
 
-      const res = await fetch(`${endpoint}?${params}`);
+      const res = await spiceFetch('local', endpoint, undefined, params);
       if (!res.ok) throw new Error(`${SEARCH_PROVIDER_LABELS[targetProvider]} search failed`);
       const data = await res.json();
       return playableSearchTracks((data.tracks ?? []).map(enrichTrackSnapshot) as Track[]);
@@ -4470,9 +4599,9 @@ export default function SpiceApp() {
       try {
         const [tracksRes, usersRes] = await Promise.allSettled([
           fetchSearchProviderResults(query, provider),
-          fetch(`/api/users/search?q=${encodeURIComponent(query.trim())}`, {
+          spiceFetch('cloud', '/users/search', {
             headers: cloudToken ? { Authorization: `Bearer ${cloudToken}` } : {},
-          }).then((res) => (res.ok ? res.json() : { users: [] }))
+          }, { q: query.trim() }).then((res) => (res.ok ? res.json() : { users: [] }))
         ]);
 
         if (requestId !== searchRequestRef.current) return;
@@ -4654,7 +4783,7 @@ export default function SpiceApp() {
     setSidebarSearchEnabled(enabled);
     localStorage.setItem('spice_sidebar_search_enabled', String(enabled));
     if (!enabled && currentPage === 'search' && !selectedPlaylist) {
-      setCurrentPage('home');
+      setCurrentPage('library');
     }
   };
 
@@ -4662,11 +4791,18 @@ export default function SpiceApp() {
     setSidebarProfileEnabled(enabled);
     localStorage.setItem('spice_sidebar_profile_enabled', String(enabled));
     if (!enabled && currentPage === 'account' && !selectedPlaylist) {
-      setCurrentPage('home');
+      setCurrentPage(sidebarSearchEnabled ? 'search' : 'library');
     }
   };
 
   useEffect(() => {
+    if (currentPage !== 'home') {
+      setHomeRecommendationSeed(null);
+      setHomeRecommended([]);
+      setIsLoadingRecommendations(false);
+      return;
+    }
+
     const profile = buildPrivateTasteProfile({
       history,
       likedTracks: Object.values(likedTrackDetails),
@@ -4732,7 +4868,7 @@ export default function SpiceApp() {
       cancelled = true;
       clearTimeout(timeout);
     };
-  }, [history, likedTrackDetails, customPlaylists, currentTrack]);
+  }, [currentPage, history, likedTrackDetails, customPlaylists, currentTrack]);
 
   // Playlists Operations
   const persistCustomPlaylists = (updated: Playlist[], syncOwnedPlaylists = true) => {
@@ -4773,7 +4909,7 @@ export default function SpiceApp() {
     if (target.shared) {
       if (cloudToken && isPlaylistUuid(target.id)) {
         try {
-          const response = await fetch(`/api/playlists/shared/${encodeURIComponent(target.id)}`, {
+          const response = await spiceFetch('cloud', `/playlists/shared/${encodeURIComponent(target.id)}`, {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${cloudToken}` },
           });
@@ -4839,7 +4975,7 @@ export default function SpiceApp() {
     if (selectedPlaylist.shared) {
       if (cloudToken && isPlaylistUuid(selectedPlaylist.id)) {
         try {
-          const response = await fetch(`/api/playlists/shared/${encodeURIComponent(selectedPlaylist.id)}`, {
+          const response = await spiceFetch('cloud', `/playlists/shared/${encodeURIComponent(selectedPlaylist.id)}`, {
             method: 'PATCH',
             headers: {
               'Content-Type': 'application/json',
@@ -4888,7 +5024,7 @@ export default function SpiceApp() {
     // For shared playlists, add via API
     if (target?.shared && cloudToken && isPlaylistUuid(playlistId)) {
       try {
-        const response = await fetch(`/api/playlists/shared/${encodeURIComponent(playlistId)}/tracks`, {
+        const response = await spiceFetch('cloud', `/playlists/shared/${encodeURIComponent(playlistId)}/tracks`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cloudToken}` },
           body: JSON.stringify({ track: { id: track.id, title: track.title, artists: track.artists, artworkUrl: track.artworkUrl, durationMs: track.durationMs, sourceId: track.sourceId || 'youtube_music' } }),
@@ -4946,7 +5082,7 @@ export default function SpiceApp() {
     // For shared playlists, remove via API
     if (target?.shared && cloudToken && isPlaylistUuid(playlistId) && typeof position === 'number') {
       try {
-        const response = await fetch(`/api/playlists/shared/${encodeURIComponent(playlistId)}/tracks`, {
+        const response = await spiceFetch('cloud', `/playlists/shared/${encodeURIComponent(playlistId)}/tracks`, {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cloudToken}` },
           body: JSON.stringify({ position }),
@@ -5019,7 +5155,7 @@ export default function SpiceApp() {
           }
         }
 
-        const syncResponse = await fetch('/api/sync/playlists', {
+        const syncResponse = await spiceFetch('cloud', '/sync/playlists', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -5036,7 +5172,7 @@ export default function SpiceApp() {
         }
       }
 
-      const inviteResponse = await fetch('/api/playlists/invites', {
+      const inviteResponse = await spiceFetch('cloud', '/playlists/invites', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -5091,7 +5227,7 @@ export default function SpiceApp() {
     setAcceptingInvite(true);
     setInviteStatus('Accepting shared playlist...');
     try {
-      const response = await fetch(`/api/playlists/invites/${encodeURIComponent(invitePreview.token)}`, {
+      const response = await spiceFetch('cloud', `/playlists/invites/${encodeURIComponent(invitePreview.token)}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${cloudToken}` },
       });
@@ -5134,9 +5270,9 @@ export default function SpiceApp() {
   const fetchUsername = useCallback(async (token: string | null = cloudToken, profileId: string = activeProfileId) => {
     if (!token) return;
     try {
-      const response = await fetch(`/api/account/username?profileId=${profileId}`, {
+      const response = await spiceFetch('cloud', '/account/username', {
         headers: { Authorization: `Bearer ${token}` },
-      });
+      }, { profileId });
       const data = await response.json().catch(() => ({}));
       if (response.ok && data.username) {
         updateProfileData(profileId, { cloudUsername: data.username });
@@ -5155,7 +5291,7 @@ export default function SpiceApp() {
     }
     setPendingInvitesLoading(true);
     try {
-      const res = await fetch('/api/account/invites', {
+      const res = await spiceFetch('cloud', '/account/invites', {
         headers: { Authorization: `Bearer ${cloudToken}` }
       });
       if (res.ok) {
@@ -5178,9 +5314,9 @@ export default function SpiceApp() {
   const fetchMyLikesCount = useCallback(async () => {
     if (!cloudToken || !cloudUser?.id) return;
     try {
-      const res = await fetch(`/api/users/profile?userId=${cloudUser.id}`, {
+      const res = await spiceFetch('cloud', '/users/profile', {
         headers: { Authorization: `Bearer ${cloudToken}` },
-      });
+      }, { userId: cloudUser.id });
       if (res.ok) {
         const data = await res.json();
         setMyLikesCount(data.likesCount || 0);
@@ -5234,7 +5370,7 @@ export default function SpiceApp() {
     if (!cloudToken) return;
     setAcceptingInvite(true);
     try {
-      const res = await fetch(`/api/account/invites/${playlistId}/accept`, {
+      const res = await spiceFetch('cloud', `/account/invites/${playlistId}/accept`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${cloudToken}` }
       });
@@ -5258,7 +5394,7 @@ export default function SpiceApp() {
     if (!cloudToken) return;
     setAcceptingInvite(true);
     try {
-      const res = await fetch(`/api/account/invites/${playlistId}/reject`, {
+      const res = await spiceFetch('cloud', `/account/invites/${playlistId}/reject`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${cloudToken}` }
       });
@@ -5283,7 +5419,7 @@ export default function SpiceApp() {
       return;
     }
     try {
-      const res = await fetch('/api/listen-together/invite', {
+      const res = await spiceFetch('cloud', '/listen-together/invite', {
         headers: { Authorization: `Bearer ${cloudToken}` }
       });
       if (res.ok) {
@@ -5298,9 +5434,9 @@ export default function SpiceApp() {
   const fetchListenTogetherInvitesList = useCallback(async (sessionId: string) => {
     if (!cloudToken) return;
     try {
-      const res = await fetch(`/api/listen-together/invite?sessionId=${sessionId}`, {
+      const res = await spiceFetch('cloud', '/listen-together/invite', {
         headers: { Authorization: `Bearer ${cloudToken}` }
-      });
+      }, { sessionId });
       if (res.ok) {
         const data = await res.json();
         setListenTogetherInvitesList(data.invites || []);
@@ -5315,7 +5451,7 @@ export default function SpiceApp() {
     }
     setIsCreatingListenTogetherSession(true);
     try {
-      const res = await fetch('/api/listen-together/session', {
+      const res = await spiceFetch('cloud', '/listen-together/session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -5343,7 +5479,7 @@ export default function SpiceApp() {
   const handleEndListenTogetherSession = async () => {
     if (!cloudToken) return;
     try {
-      const res = await fetch('/api/listen-together/session', {
+      const res = await spiceFetch('cloud', '/listen-together/session', {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${cloudToken}` }
       });
@@ -5361,7 +5497,7 @@ export default function SpiceApp() {
     if (!cloudToken || !listenTogetherSession || !username) return;
     setIsSendingListenTogetherInvite(true);
     try {
-      const res = await fetch('/api/listen-together/invite', {
+      const res = await spiceFetch('cloud', '/listen-together/invite', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -5390,7 +5526,7 @@ export default function SpiceApp() {
   const handleRespondToListenTogetherInvite = async (inviteId: string, action: 'accept' | 'reject') => {
     if (!cloudToken) return;
     try {
-      const res = await fetch('/api/listen-together/invite', {
+      const res = await spiceFetch('cloud', '/listen-together/invite', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -5420,10 +5556,10 @@ export default function SpiceApp() {
   const handleLeaveListenTogetherSession = async () => {
     if (cloudToken && listenTogetherHostSessionId) {
       try {
-        await fetch(`/api/listen-together/invite?sessionId=${listenTogetherHostSessionId}`, {
+        await spiceFetch('cloud', '/listen-together/invite', {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${cloudToken}` }
-        });
+        }, { sessionId: listenTogetherHostSessionId });
       } catch { /* silent */ }
     }
     setListenTogetherHostSessionId(null);
@@ -5446,7 +5582,7 @@ export default function SpiceApp() {
     } else {
       setIsCreatingListenTogetherSession(true);
       try {
-        const res = await fetch('/api/listen-together/session', {
+        const res = await spiceFetch('cloud', '/listen-together/session', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -5461,7 +5597,7 @@ export default function SpiceApp() {
           setListenTogetherHostName(null);
           showSpiceNotice('Listen Together session started!', 'success');
 
-          const inviteRes = await fetch('/api/listen-together/invite', {
+          const inviteRes = await spiceFetch('cloud', '/listen-together/invite', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -5515,7 +5651,7 @@ export default function SpiceApp() {
       const targetTrack = currentTrackRef.current;
       const currentQueue = queueRef.current || [];
       try {
-        await fetch('/api/listen-together/sync', {
+        await spiceFetch('cloud', '/listen-together/sync', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -5558,7 +5694,7 @@ export default function SpiceApp() {
 
     const syncInterval = window.setInterval(async () => {
       try {
-        const res = await fetch(`/api/listen-together/sync?sessionId=${listenTogetherHostSessionId}`);
+        const res = await spiceFetch('cloud', '/listen-together/sync', undefined, { sessionId: listenTogetherHostSessionId });
         if (!res.ok) {
           if (res.status === 404) {
             setListenTogetherHostSessionId(null);
@@ -5644,9 +5780,9 @@ export default function SpiceApp() {
     setMembersLoading(true);
     setMemberActionStatus(null);
     try {
-      const response = await fetch(`/api/playlists/shared/members?playlistId=${encodeURIComponent(playlistId)}`, {
+      const response = await spiceFetch('cloud', '/playlists/shared/members', {
         headers: { Authorization: `Bearer ${cloudToken}` },
-      });
+      }, { playlistId });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Failed to load members.');
       setMembersList({ owner: data.owner, members: data.members || [], maxMembers: data.maxMembers || 4 });
@@ -5662,7 +5798,7 @@ export default function SpiceApp() {
     setInvitingMember(true);
     setMemberActionStatus(null);
     try {
-      const response = await fetch('/api/playlists/shared/members', {
+      const response = await spiceFetch('cloud', '/playlists/shared/members', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cloudToken}` },
         body: JSON.stringify({ playlistId, username: inviteUsername.trim() }),
@@ -5683,7 +5819,7 @@ export default function SpiceApp() {
     if (!cloudToken) return;
     setMemberActionStatus(null);
     try {
-      const response = await fetch('/api/playlists/shared/members', {
+      const response = await spiceFetch('cloud', '/playlists/shared/members', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cloudToken}` },
         body: JSON.stringify({ playlistId, userId }),
@@ -5703,7 +5839,7 @@ export default function SpiceApp() {
   const refreshSharedPlaylist = useCallback(async (playlist: Playlist) => {
     if (!cloudToken || !isPlaylistUuid(playlist.id)) return;
     try {
-      const response = await fetch(`/api/playlists/shared/${encodeURIComponent(playlist.id)}/tracks`, {
+      const response = await spiceFetch('cloud', `/playlists/shared/${encodeURIComponent(playlist.id)}/tracks`, {
         headers: { Authorization: `Bearer ${cloudToken}` },
       });
       if (!response.ok) return; // silently ignore — the cached view still works
@@ -5755,7 +5891,7 @@ export default function SpiceApp() {
 
     // Sync to backend first so we have a real UUID, then auto-generate a share link
     try {
-      const syncResponse = await fetch('/api/sync/playlists', {
+      const syncResponse = await spiceFetch('cloud', '/sync/playlists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cloudToken}` },
         body: JSON.stringify({
@@ -5781,7 +5917,7 @@ export default function SpiceApp() {
 
       // Auto-generate invite link
       if (isPlaylistUuid(resolvedId)) {
-        const inviteResponse = await fetch('/api/playlists/invites', {
+        const inviteResponse = await spiceFetch('cloud', '/playlists/invites', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cloudToken}` },
           body: JSON.stringify({ playlistId: resolvedId }),
@@ -6378,7 +6514,7 @@ const getMaskedEmail = (email: string) => {
       }
       if (cleanUsername !== (cloudUsername || '')) {
         try {
-          const res = await fetch('/api/account/username', {
+          const res = await spiceFetch('cloud', '/account/username', {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
@@ -6433,7 +6569,7 @@ const getMaskedEmail = (email: string) => {
     }
 
     try {
-      const res = await fetch(`/api/yt/playlist/${encodeURIComponent(parsedId)}`);
+      const res = await spiceFetch('local', `/yt/playlist/${encodeURIComponent(parsedId)}`);
       if (!res.ok) {
         const errorData = await res.json();
         throw new Error(errorData.message || 'Failed to fetch playlist details.');
@@ -7447,8 +7583,8 @@ const getMaskedEmail = (email: string) => {
           <button
             type="button"
             className="sidebar__brand"
-            onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); setSelectedUser(null); }}
-            aria-label="Go to SPICE home"
+            onClick={() => { setCurrentPage(sidebarSearchEnabled ? 'search' : 'library'); setSelectedPlaylist(null); setSelectedUser(null); }}
+            aria-label="Go to SPICE Music"
           >
             <div
               className="sidebar__logo-icon"
@@ -7471,13 +7607,6 @@ const getMaskedEmail = (email: string) => {
         </div>
 
         <nav className="sidebar__nav">
-          <button
-            className={`sidebar__nav-item ${currentPage === 'home' && !selectedPlaylist ? 'active' : ''}`}
-            onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); setSelectedUser(null); }}
-          >
-            {Icons.home}
-            <span className="sidebar__nav-label">Home</span>
-          </button>
           {sidebarSearchEnabled && (
             <button
               className={`sidebar__nav-item ${currentPage === 'search' && !selectedPlaylist ? 'active' : ''}`}
@@ -9420,13 +9549,13 @@ const getMaskedEmail = (email: string) => {
 
                         {isLocalDbFallback && (
                           <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', padding: '12px', borderRadius: '8px', color: '#60a5fa', fontSize: '0.85rem', marginBottom: '16px', lineHeight: 1.4 }}>
-                            <span style={{ display: 'inline-flex', verticalAlign: 'middle', marginRight: '6px' }}>{Icons.database}</span><strong>Local File Account:</strong> Signed in using backend local fallback storage (`local_db.json`). Syncing works locally! Setup a DATABASE_URL to connect to the cloud.
+                            <span style={{ display: 'inline-flex', verticalAlign: 'middle', marginRight: '6px' }}>{Icons.database}</span><strong>Local File Account:</strong> Signed in using backend local fallback storage. Syncing works locally; configure the cloud database connection on Vercel for hosted backup.
                           </div>
                         )}
 
                         {dbError && (
                           <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', padding: '12px', borderRadius: '8px', color: '#f87171', fontSize: '0.85rem', marginBottom: '16px' }}>
-                            <span style={{ display: 'inline-flex', verticalAlign: 'middle', marginRight: '6px' }}>{Icons.alertTriangle}</span>{dbError} Please make sure DATABASE_URL is configured in your `.env` file and run `pnpm db:push` to enable full cloud backup!
+                            <span style={{ display: 'inline-flex', verticalAlign: 'middle', marginRight: '6px' }}>{Icons.alertTriangle}</span>{dbError} Configure the backend cloud database connection and run migrations to enable full cloud backup.
                           </div>
                         )}
 
@@ -9509,7 +9638,7 @@ const getMaskedEmail = (email: string) => {
                         {dbError && (
                           <div style={{ background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.2)', padding: '12px', borderRadius: '8px', color: '#fbbf24', fontSize: '0.85rem', marginBottom: '16px', lineHeight: 1.4 }}>
                             <strong>Database Configuration Pending:</strong><br />
-                            Define `DATABASE_URL` in `apps/backend/.env` and run migrations to unlock cloud accounts on your machine!
+                            Configure the backend cloud database connection and run migrations to unlock cloud accounts on your machine.
                           </div>
                         )}
 
@@ -10162,7 +10291,7 @@ const getMaskedEmail = (email: string) => {
                             <div style={{ color: '#fff', fontWeight: 800, fontSize: '0.92rem' }}>Last.fm Account</div>
                             <p style={{ color: 'var(--text-secondary)', fontSize: '0.74rem', lineHeight: 1.4, margin: '4px 0 0 0' }}>
                               Uses backend Last.fm API credentials. Signed-in SPICE accounts store the approved session in the backend.
-                              Callback route: /api/lastfm/callback.
+                              Callback route: {spiceApiUrl('cloud', '/lastfm/callback')}.
                             </p>
                           </div>
                           {lastFmLinkedUser && (
@@ -10437,6 +10566,103 @@ const getMaskedEmail = (email: string) => {
                         )}
                       </div>
                     </div>
+                  </div>
+
+                  {/* User Feedback & Suggestions */}
+                  <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
+                    <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: '#fff', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                      </svg>
+                      Share Your Feedback
+                    </h3>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 20px 0', lineHeight: 1.4 }}>
+                      Help us make SPICE crazier and better! Submit bug reports, feature suggestions, or general feedback directly to the developers.
+                    </p>
+
+                    {!cloudToken ? (
+                      <div style={{
+                        padding: '16px',
+                        borderRadius: '12px',
+                        background: 'rgba(255, 255, 255, 0.02)',
+                        border: '1px solid rgba(255, 255, 255, 0.05)',
+                        fontSize: '0.85rem',
+                        color: 'var(--text-secondary)',
+                        textAlign: 'center',
+                      }}>
+                        A signed-in SPICE account is required to submit feedback. Please log in or register.
+                      </div>
+                    ) : (
+                      <form onSubmit={handleFeedbackSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Category</label>
+                            <select
+                              value={feedbackCategory}
+                              onChange={(e) => setFeedbackCategory(e.target.value)}
+                              style={{ width: '100%', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', cursor: 'pointer' }}
+                            >
+                              <option value="general">General Feedback</option>
+                              <option value="bug">Bug Report</option>
+                              <option value="suggestion">Feature Suggestion</option>
+                              <option value="other">Other</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Rate Your Experience</label>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', height: '42px' }}>
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <button
+                                  key={star}
+                                  type="button"
+                                  onClick={() => setFeedbackRating(star)}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    fontSize: '1.5rem',
+                                    padding: 0,
+                                    color: feedbackRating >= star ? 'var(--accent-pink)' : '#4b5563',
+                                    transition: 'color 0.15s ease'
+                                  }}
+                                >
+                                  ★
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Your Message</label>
+                          <textarea
+                            value={feedbackText}
+                            onChange={(e) => setFeedbackText(e.target.value)}
+                            placeholder="What would you like to share with the developers?..."
+                            rows={4}
+                            maxLength={1000}
+                            required
+                            style={{ width: '100%', padding: '12px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', resize: 'vertical', fontFamily: 'inherit', fontSize: '0.9rem', lineHeight: 1.4 }}
+                          />
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px' }}>
+                          {feedbackStatus && (
+                            <span style={{ fontSize: '0.85rem', color: feedbackStatus.includes('successfully') ? '#34d399' : '#f87171' }}>
+                              {feedbackStatus}
+                            </span>
+                          )}
+                          <button
+                            type="submit"
+                            className="btn btn--primary"
+                            disabled={isSubmittingFeedback || !feedbackText.trim()}
+                            style={{ padding: '10px 24px', fontSize: '0.9rem' }}
+                          >
+                            {isSubmittingFeedback ? 'Submitting...' : 'Submit Feedback'}
+                          </button>
+                        </div>
+                      </form>
+                    )}
                   </div>
 
                   {/* Cache & Safety Controls */}
@@ -11023,6 +11249,134 @@ const getMaskedEmail = (email: string) => {
                 <button type="submit" className="btn btn--primary" style={{ padding: '8px 16px' }}>
                   Create
                 </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Periodic User Feedback Popup Dialog ═══ */}
+      {showFeedbackPopup && (
+        <div className="dialog-overlay" onClick={() => setShowFeedbackPopup(false)}>
+          <div className="dialog-box dialog-box--wide" onClick={(e) => e.stopPropagation()} style={{
+            background: 'rgba(8, 7, 18, 0.95)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '24px',
+            padding: '32px',
+            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.6), 0 0 20px rgba(236, 72, 153, 0.15)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" width="24" height="24" style={{ color: 'var(--accent-pink)' }}>
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+                <h2 style={{ fontSize: '1.3rem', fontWeight: 800, margin: 0, fontFamily: 'Outfit, sans-serif' }}>Enjoying SPICE?</h2>
+              </div>
+              <button
+                onClick={() => setShowFeedbackPopup(false)}
+                style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '1.2rem' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.5, margin: '0 0 20px 0' }}>
+              We&apos;d love to hear your thoughts! Help us improve SPICE by sharing a quick review or suggesting features.
+            </p>
+
+            <form onSubmit={(e) => {
+              handleFeedbackSubmit(e).then(() => {
+                setTimeout(() => setShowFeedbackPopup(false), 2000);
+              });
+            }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Category</label>
+                  <select
+                    value={feedbackCategory}
+                    onChange={(e) => setFeedbackCategory(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', cursor: 'pointer', fontSize: '0.85rem' }}
+                  >
+                    <option value="general">General Feedback</option>
+                    <option value="bug">Bug Report</option>
+                    <option value="suggestion">Feature Suggestion</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Rating</label>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center', height: '36px' }}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setFeedbackRating(star)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          fontSize: '1.4rem',
+                          padding: 0,
+                          color: feedbackRating >= star ? 'var(--accent-pink)' : '#4b5563',
+                          transition: 'color 0.15s ease'
+                        }}
+                      >
+                        ★
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Your Message</label>
+                <textarea
+                  value={feedbackText}
+                  onChange={(e) => setFeedbackText(e.target.value)}
+                  placeholder="What would you like to share?..."
+                  rows={3}
+                  maxLength={1000}
+                  required
+                  style={{ width: '100%', padding: '10px 12px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', resize: 'vertical', fontFamily: 'inherit', fontSize: '0.85rem', lineHeight: 1.4 }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px' }}>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => {
+                    localStorage.setItem('spice_feedback_prompt_dismissed', 'true');
+                    setShowFeedbackPopup(false);
+                  }}
+                  style={{ padding: '8px 14px', fontSize: '0.8rem', border: '1px solid rgba(248, 113, 113, 0.2)', color: '#f87171' }}
+                >
+                  Don&apos;t Ask Again
+                </button>
+
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  {feedbackStatus && (
+                    <span style={{ fontSize: '0.8rem', color: feedbackStatus.includes('successfully') ? '#34d399' : '#f87171' }}>
+                      {feedbackStatus}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    onClick={() => setShowFeedbackPopup(false)}
+                    style={{ padding: '8px 14px', fontSize: '0.8rem' }}
+                  >
+                    Maybe Later
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn--primary"
+                    disabled={isSubmittingFeedback || !feedbackText.trim()}
+                    style={{ padding: '8px 16px', fontSize: '0.8rem' }}
+                  >
+                    {isSubmittingFeedback ? 'Sending...' : 'Submit'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -12593,7 +12947,6 @@ const getMaskedEmail = (email: string) => {
         }}
       >
         {[
-          { id: 'home', label: 'Home', icon: Icons.home },
           { id: 'search', label: 'Search', icon: Icons.search },
           { id: 'library', label: 'Library', icon: Icons.library },
           { id: 'settings', label: 'Settings', icon: Icons.settings }

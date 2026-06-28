@@ -1,14 +1,14 @@
 import type { Metadata } from 'next';
 
-import SpiceAnime from '../spice-anime';
+import ShelvedService from '../shelved-service';
 
 export const dynamic = 'force-static';
 
 export const metadata: Metadata = {
-  title: 'Spice Anime - Premium Anime Streaming',
-  description: 'A starter front-end concept for the Spice Anime watching experience.',
+  title: 'Spice Anime - Shelved',
+  description: 'Spice Anime is frozen while the SPICE local runtime split is active.',
 };
 
 export default function AnimePage() {
-  return <SpiceAnime />;
+  return <ShelvedService name="Spice Anime" />;
 }

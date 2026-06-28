@@ -1,25 +1,29 @@
 import type { NextRequest } from 'next/server';
 
-import { corsHeaders, jsonResponse, optionsResponse } from '@/lib/cors';
+import { corsHeadersForRequest, jsonResponse, optionsResponse } from '@/lib/cors';
+import { requireLocalMediaNamespace } from '@/lib/runtime-target';
 import { verifySignedStream } from '@/lib/stream-signing';
 
 /**
  * Audio stream proxy.
  *
- * Receives signed URLs from `/api/yt/track/[id]`, verifies the signature,
+ * Receives signed URLs from `/api/local/yt/track/[id]`, verifies the signature,
  * then proxies the upstream YouTube audio with Range-request support so
  * the browser's `<audio>` element can seek freely.
  */
 export const runtime = 'nodejs';
 
-export function OPTIONS() {
-  return optionsResponse();
+export function OPTIONS(request: NextRequest) {
+  return optionsResponse(request);
 }
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const blocked = requireLocalMediaNamespace(request);
+  if (blocked) return blocked;
+
   const { id } = await params;
   const sp = request.nextUrl.searchParams;
   const itag = Number(sp.get('itag'));
@@ -31,6 +35,7 @@ export async function GET(
     return jsonResponse(
       { error: 'invalid_params', message: 'Missing or malformed stream parameters.' },
       { status: 400 },
+      request,
     );
   }
 
@@ -43,8 +48,9 @@ export async function GET(
 
   if (!valid) {
     return jsonResponse(
-      { error: 'stream_expired', message: 'Stream URL has expired or signature is invalid. Fetch a new one from /api/yt/track/[id].' },
+      { error: 'stream_expired', message: 'Stream URL has expired or signature is invalid. Fetch a new one from /api/local/yt/track/[id].' },
       { status: 403 },
+      request,
     );
   }
 
@@ -94,12 +100,12 @@ export async function GET(
         // Range Not Satisfiable
         return new Response(null, {
             status: 416,
-            headers: { ...corsHeaders, 'Content-Range': upstream.headers.get('content-range') || 'bytes */*' }
+            headers: { ...corsHeadersForRequest(request), 'Content-Range': upstream.headers.get('content-range') || 'bytes */*' }
         });
     }
 
     // Build response headers for the browser.
-    const responseHeaders: Record<string, string> = { ...corsHeaders };
+    const responseHeaders: Record<string, string> = { ...corsHeadersForRequest(request) };
 
     const contentType = upstream.headers.get('content-type');
     if (contentType) responseHeaders['Content-Type'] = contentType;
@@ -134,6 +140,7 @@ export async function GET(
         message: error instanceof Error ? error.message : 'Failed to proxy audio stream.',
       },
       { status: 502 },
+      request,
     );
   }
 }

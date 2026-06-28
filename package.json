@@ -10,7 +10,10 @@
   "scripts": {
     "backend:dev": "pnpm --filter @spice/backend dev",
     "backend:build": "pnpm --filter @spice/backend build",
+    "backend:build:local": "pnpm --filter @spice/backend build:local",
+    "backend:build:vercel": "pnpm --filter @spice/backend build:vercel",
     "backend:lint": "pnpm --filter @spice/backend lint",
-    "backend:typecheck": "pnpm --filter @spice/backend typecheck"
+    "backend:typecheck": "pnpm --filter @spice/backend typecheck",
+    "backend:package:local:windows": "pnpm --filter @spice/backend package:local:windows"
   }
 }

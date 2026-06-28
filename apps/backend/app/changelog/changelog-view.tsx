@@ -30,7 +30,7 @@ export default function ChangelogView({ initialPayload }: ChangelogViewProps) {
       }
 
       try {
-        const response = await fetch('/api/changelog', {
+        const response = await fetch('/api/cloud/changelog', {
           headers: {
             Authorization: `Bearer ${token}`,
           },

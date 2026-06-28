@@ -42,8 +42,20 @@
       "version": "7",
       "when": 1782512422724,
       "tag": "0005_tired_silk_fever",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
       "when": 1782514214485,
       "tag": "0005_empty_inhumans",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782600000000,
+      "tag": "0006_spice_feedback_submissions",
       "breakpoints": true
     }
   ]

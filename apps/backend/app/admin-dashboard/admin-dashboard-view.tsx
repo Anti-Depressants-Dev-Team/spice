@@ -57,7 +57,7 @@ export default function AdminDashboardView() {
     async function initializeDashboard() {
       try {
         // 1. Verify current session
-        const verifyRes = await fetch('/api/account/me', {
+        const verifyRes = await fetch('/api/cloud/account/me', {
           headers: { Authorization: `Bearer ${savedToken}` },
         });
 
@@ -81,7 +81,7 @@ export default function AdminDashboardView() {
         setCurrentUser(me);
 
         // 2. Fetch all accounts
-        const accountsRes = await fetch('/api/admin/accounts', {
+        const accountsRes = await fetch('/api/cloud/admin/accounts', {
           headers: { Authorization: `Bearer ${savedToken}` },
         });
         if (!accountsRes.ok) throw new Error('fetch_accounts_failed');
@@ -89,7 +89,7 @@ export default function AdminDashboardView() {
         setAccounts(accountsData.accounts || []);
 
         // 3. Fetch system settings
-        const settingsRes = await fetch('/api/admin/system', {
+        const settingsRes = await fetch('/api/cloud/admin/system', {
           headers: { Authorization: `Bearer ${savedToken}` },
         });
         if (settingsRes.ok) {
@@ -134,7 +134,7 @@ export default function AdminDashboardView() {
     });
 
     try {
-      const res = await fetch('/api/admin/accounts', {
+      const res = await fetch('/api/cloud/admin/accounts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -198,7 +198,7 @@ export default function AdminDashboardView() {
     setSystemSettings((prev: any) => ({ ...prev, ...updates }));
 
     try {
-      const res = await fetch('/api/admin/system', {
+      const res = await fetch('/api/cloud/admin/system', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${savedToken}`,
@@ -216,7 +216,7 @@ export default function AdminDashboardView() {
     } catch (err) {
       console.error(err);
       // Fallback to fetch current state on error
-      const settingsRes = await fetch('/api/admin/system', {
+      const settingsRes = await fetch('/api/cloud/admin/system', {
         headers: { Authorization: `Bearer ${savedToken}` },
       });
       if (settingsRes.ok) {

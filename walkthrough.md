@@ -1,5 +1,16 @@
 # SPICE Walkthrough
 
+## v1.0.90
+
+- [Spice.Music main] Split runtime targeting with `SPICE_RUNTIME_TARGET=local|vercel`, routing local media search, lyrics, stream extraction, and proxying through `/api/local/*` on `127.0.0.1:3939` while keeping cloud account, sync, metadata, and feedback traffic behind `/api/cloud/*`.
+- [Spice.Music main] Move `spice-app.tsx` API access behind one client helper, default the local app to Search, and hide Home, Anime, Movie, and Watch navigation while leaving the shelved source history intact.
+- [Spice.Admin main] Replace local feedback file writes with a serverless-safe cloud feedback path backed by Neon when configured, with log-only fallback for non-database environments.
+- [Spice.Admin main] Lock CORS to SPICE domains plus localhost and 127.0.0.1, add local runtime package leak scanning, and automate local packaging plus gated Vercel deployment checks in GitHub Actions.
+- [Shared CI] Let `pnpm/action-setup` read `pnpm@11.0.9` from the root package manager pin so pull request checks do not fail on duplicate pnpm version declarations.
+- [Shared CI] Allow `build:local` and `build:vercel` lifecycle imports to use the existing build-only JWT dummy secret while keeping runtime `JWT_SECRET` enforcement intact.
+- [Shared CI] Use `tar.exe` for the Windows local package artifact so the zipped runtime handles the packaged `node_modules` layout reliably.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.90`.
+
 ## v1.0.89
 
 - [Spice.Music main] Fixed the profile username merging and sync issue, ensuring unique usernames are preserved correctly when profile syncs run.

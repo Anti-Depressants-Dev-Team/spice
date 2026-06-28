@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 
 import { verifyLastFmLinkState } from '@/lib/auth';
+import { isAllowedCorsOrigin } from '@/lib/cors';
 import { createLastFmSession } from '@/lib/lastfm';
 import { saveLastFmConnection } from '@/lib/profile-connections';
 
@@ -9,8 +10,12 @@ export const runtime = 'nodejs';
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get('token')?.trim() || '';
   const spiceState = request.nextUrl.searchParams.get('spice_state')?.trim() || '';
+  const returnOrigin = request.nextUrl.searchParams.get('return_origin')?.trim() || '';
+  const popupTargetOrigin = returnOrigin && isAllowedCorsOrigin(returnOrigin)
+    ? returnOrigin
+    : request.nextUrl.origin;
   const result = token
-    ? await completeLastFmLink(token, spiceState, request.nextUrl.origin)
+    ? await completeLastFmLink(token, spiceState, popupTargetOrigin)
     : { html: callbackInfoHtml(request.nextUrl.origin), status: 200 };
 
   return new Response(result.html, {
@@ -73,7 +78,7 @@ function callbackInfoHtml(origin: string) {
   return pageHtml(`
     <h1>Last.fm Callback Ready</h1>
     <p>SPICE uses this callback URL to finish Last.fm account setup after the popup sign-in:</p>
-    <code>${escapeHtml(`${origin}/api/lastfm/callback`)}</code>
+    <code>${escapeHtml(`${origin}/api/cloud/lastfm/callback`)}</code>
     <p>Return to Settings and click <strong>Set up Last.fm</strong> to open the Last.fm sign-in popup.</p>
     <a href="/">Return to SPICE</a>
   `);

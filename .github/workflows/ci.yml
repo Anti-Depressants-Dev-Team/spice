@@ -26,3 +26,61 @@ jobs:
         run: pnpm --filter @spice/backend typecheck
       - name: lint
         run: pnpm --filter @spice/backend lint
+      - name: test
+        run: pnpm --filter @spice/backend test
+      - name: build local runtime
+        run: pnpm --filter @spice/backend build:local
+      - name: build vercel runtime
+        run: pnpm --filter @spice/backend build:vercel
+
+  local-windows-package:
+    name: SPICE local Windows package
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: install
+        run: pnpm install --frozen-lockfile
+      - name: build local runtime
+        run: pnpm --filter @spice/backend build:local
+      - name: package local runtime
+        run: pnpm --filter @spice/backend package:local:windows
+      - name: zip local runtime
+        shell: pwsh
+        run: tar.exe -a -cf apps/backend/dist/spice-local-windows.zip -C apps/backend/dist/spice-local-windows .
+      - name: upload local runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: spice-local-windows
+          path: apps/backend/dist/spice-local-windows.zip
+
+  vercel-deploy:
+    name: Vercel prebuilt deploy
+    runs-on: ubuntu-latest
+    needs: backend
+    if: github.ref == 'refs/heads/main' && vars.VERCEL_DEPLOY_ENABLED == 'true'
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: install
+        run: pnpm install --frozen-lockfile
+      - name: install vercel cli
+        run: npm install -g vercel@54.18.1
+      - name: pull vercel environment
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+      - name: vercel build
+        run: SPICE_RUNTIME_TARGET=vercel vercel build --prod --token="$VERCEL_TOKEN"
+      - name: vercel deploy
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"

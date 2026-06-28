@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 
 import { jsonResponse, optionsResponse } from '@/lib/cors';
+import { requireLocalMediaNamespace } from '@/lib/runtime-target';
 import { searchTracks } from '@/lib/youtube';
 
 /**
@@ -8,14 +9,17 @@ import { searchTracks } from '@/lib/youtube';
  */
 export const runtime = 'nodejs';
 
-export function OPTIONS() {
-  return optionsResponse();
+export function OPTIONS(request: NextRequest) {
+  return optionsResponse(request);
 }
 
 export async function GET(request: NextRequest) {
+  const blocked = requireLocalMediaNamespace(request);
+  if (blocked) return blocked;
+
   const q = request.nextUrl.searchParams.get('q');
   if (!q) {
-    return jsonResponse({ error: 'missing q' }, { status: 400 });
+    return jsonResponse({ error: 'missing q' }, { status: 400 }, request);
   }
 
   const limitParam = Number(request.nextUrl.searchParams.get('limit') ?? '20');
@@ -26,7 +30,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const tracks = await searchTracks(q, limit, kind);
-    return jsonResponse({ tracks });
+    return jsonResponse({ tracks }, {}, request);
   } catch (error) {
     return jsonResponse(
       {
@@ -34,6 +38,7 @@ export async function GET(request: NextRequest) {
         message: error instanceof Error ? error.message : 'YouTube search failed.',
       },
       { status: 502 },
+      request,
     );
   }
 }

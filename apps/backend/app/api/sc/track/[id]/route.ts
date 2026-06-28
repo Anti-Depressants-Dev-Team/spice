@@ -3,17 +3,21 @@ import type { NextRequest } from 'next/server';
 import { jsonResponse, optionsResponse } from '@/lib/cors';
 import { getSoundCloudTrackDetails } from '@/lib/soundcloud';
 import { buildSignedStreamUrl } from '@/lib/stream-signing';
+import { requireLocalMediaNamespace } from '@/lib/runtime-target';
 
 export const runtime = 'nodejs';
 
-export function OPTIONS() {
-  return optionsResponse();
+export function OPTIONS(request: NextRequest) {
+  return optionsResponse(request);
 }
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const blocked = requireLocalMediaNamespace(request);
+  if (blocked) return blocked;
+
   const { id } = await params;
   const requestedQuality = request.nextUrl.searchParams.get('quality');
   const quality = requestedQuality === 'high' || requestedQuality === 'low'
@@ -33,11 +37,11 @@ export async function GET(
               itag: stream.itag,
               upstreamUrl: stream.url,
               expiresAt,
-            }, '/api/sc/stream')
+            }, '/api/local/sc/stream')
           : stream.url,
         expiresAt: new Date(expiresAt).toISOString(),
       })),
-    });
+    }, {}, request);
   } catch (error) {
     return jsonResponse(
       {
@@ -45,6 +49,7 @@ export async function GET(
         message: error instanceof Error ? error.message : 'Could not resolve this SoundCloud track.',
       },
       { status: 502 },
+      request,
     );
   }
 }

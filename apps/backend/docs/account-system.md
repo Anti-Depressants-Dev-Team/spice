@@ -50,7 +50,7 @@ where email = 'owner@example.com';
 
 ## Auth Response Contract
 
-`POST /api/auth/spice/signup`, `POST /api/auth/spice/signin`, and `GET /api/account/me` return an account snapshot as both `user` and `account` for backward compatibility. The auth endpoints also return a `token`; `GET /api/account/me` does not issue a new token.
+`POST /api/cloud/auth/spice/signup`, `POST /api/cloud/auth/spice/signin`, and `GET /api/cloud/account/me` return an account snapshot as both `user` and `account` for backward compatibility. The auth endpoints also return a `token`; `GET /api/cloud/account/me` does not issue a new token.
 
 ```json
 {

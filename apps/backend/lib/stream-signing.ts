@@ -12,7 +12,7 @@ export interface SignedStreamInput {
 export function buildSignedStreamUrl(
   origin: string,
   input: SignedStreamInput,
-  routePrefix = '/api/yt/stream',
+  routePrefix = '/api/local/yt/stream',
 ) {
   const url = new URL(`${routePrefix}/${encodeURIComponent(input.id)}`, origin);
   url.searchParams.set('itag', String(input.itag));

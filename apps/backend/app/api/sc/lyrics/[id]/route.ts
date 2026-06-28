@@ -2,18 +2,22 @@ import type { NextRequest } from 'next/server';
 
 import { jsonResponse, optionsResponse } from '@/lib/cors';
 import { resolveLyrics } from '@/lib/lrclib';
+import { requireLocalMediaNamespace } from '@/lib/runtime-target';
 import { getSoundCloudTrackMetadata } from '@/lib/soundcloud';
 
 export const runtime = 'nodejs';
 
-export function OPTIONS() {
-  return optionsResponse();
+export function OPTIONS(request: NextRequest) {
+  return optionsResponse(request);
 }
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const blocked = requireLocalMediaNamespace(request);
+  if (blocked) return blocked;
+
   const { id } = await params;
 
   try {
@@ -42,7 +46,7 @@ export async function GET(
       title,
       artist,
       durationMs,
-    }));
+    }), {}, request);
   } catch (error) {
     return jsonResponse(
       {
@@ -53,6 +57,7 @@ export async function GET(
         error: error instanceof Error ? error.message : 'Could not resolve SoundCloud lyrics.',
       },
       { status: 502 },
+      request,
     );
   }
 }

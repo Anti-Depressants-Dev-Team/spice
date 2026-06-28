@@ -75,7 +75,7 @@ export default function MarketingHomeTopbar({ onProfileClick }: { onProfileClick
   const [releaseNotifications, setReleaseNotifications] = useState<ReleaseNotification[]>([]);
 
   useEffect(() => {
-    fetch('/api/notifications/release')
+    fetch('/api/cloud/notifications/release')
       .then(res => res.json())
       .then(data => {
         if (data.notifications && Array.isArray(data.notifications)) {
@@ -118,7 +118,7 @@ export default function MarketingHomeTopbar({ onProfileClick }: { onProfileClick
         return;
       }
 
-      void fetch('/api/account/me', {
+      void fetch('/api/cloud/account/me', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -134,7 +134,7 @@ export default function MarketingHomeTopbar({ onProfileClick }: { onProfileClick
           const nextAccount = payload.account || payload.user || null;
           setAccount(nextAccount);
           if (token) {
-            void fetch('/api/account/invites', {
+            void fetch('/api/cloud/account/invites', {
               headers: { Authorization: `Bearer ${token}` }
             })
             .then(res => res.json())
@@ -227,7 +227,7 @@ export default function MarketingHomeTopbar({ onProfileClick }: { onProfileClick
     if (!token) return;
     setAcceptingInvite(true);
     try {
-      const res = await fetch(`/api/account/invites/${playlistId}/accept`, {
+      const res = await fetch(`/api/cloud/account/invites/${playlistId}/accept`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -245,7 +245,7 @@ export default function MarketingHomeTopbar({ onProfileClick }: { onProfileClick
     if (!token) return;
     setAcceptingInvite(true);
     try {
-      const res = await fetch(`/api/account/invites/${playlistId}/reject`, {
+      const res = await fetch(`/api/cloud/account/invites/${playlistId}/reject`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       });

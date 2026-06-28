@@ -253,3 +253,22 @@ export const listenTogetherInvites = pgTable('listen_together_invites', {
   status: text('status').notNull().default('pending'), // 'pending', 'accepted', 'rejected'
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const feedbackSubmissions = pgTable(
+  'feedback_submissions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    email: text('email').notNull(),
+    category: text('category').notNull(),
+    content: text('content').notNull(),
+    rating: integer('rating'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('feedback_submissions_user_idx').on(t.userId),
+    index('feedback_submissions_created_at_idx').on(t.createdAt),
+  ],
+);

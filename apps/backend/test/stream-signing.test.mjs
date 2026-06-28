@@ -46,7 +46,7 @@ test('stream signing builds a verifiable URL', () => {
   const signedUrl = new URL(signedUrlString);
 
   assert.equal(signedUrl.origin, origin);
-  assert.equal(signedUrl.pathname, `/api/yt/stream/${input.id}`);
+  assert.equal(signedUrl.pathname, `/api/local/yt/stream/${input.id}`);
   assert.equal(signedUrl.searchParams.get('itag'), String(input.itag));
   assert.equal(signedUrl.searchParams.get('expires'), String(input.expiresAt));
   assert.equal(Buffer.from(signedUrl.searchParams.get('u'), 'base64url').toString(), input.upstreamUrl);

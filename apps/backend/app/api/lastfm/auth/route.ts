@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server';
 
-import { jsonResponse, optionsResponse } from '@/lib/cors';
+import { isAllowedCorsOrigin, jsonResponse, optionsResponse } from '@/lib/cors';
 import { createLastFmAuthToken, createLastFmSession, createLastFmWebAuthUrl } from '@/lib/lastfm';
 import { signLastFmLinkState, verifySession } from '@/lib/auth';
 
@@ -13,8 +13,8 @@ interface LastFmAuthRequest {
   token?: string;
 }
 
-export function OPTIONS() {
-  return optionsResponse();
+export function OPTIONS(request: NextRequest) {
+  return optionsResponse(request);
 }
 
 export async function POST(request: NextRequest) {
@@ -22,13 +22,17 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json() as LastFmAuthRequest;
   } catch {
-    return jsonResponse({ error: 'invalid_json' }, { status: 400 });
+    return jsonResponse({ error: 'invalid_json' }, { status: 400 }, request);
   }
 
   try {
     if (body.action === 'web_auth') {
       const spiceSession = await optionalSession(request);
-      const callbackUrl = new URL('/api/lastfm/callback', request.nextUrl.origin);
+      const callbackUrl = new URL('/api/cloud/lastfm/callback', request.nextUrl.origin);
+      const returnOrigin = request.headers.get('origin')?.trim();
+      if (returnOrigin && isAllowedCorsOrigin(returnOrigin)) {
+        callbackUrl.searchParams.set('return_origin', returnOrigin);
+      }
       if (spiceSession) {
         callbackUrl.searchParams.set('spice_state', await signLastFmLinkState(spiceSession));
       }
@@ -39,29 +43,29 @@ export async function POST(request: NextRequest) {
           sharedSecret: body.sharedSecret,
         },
         callbackUrl.toString(),
-      ));
+      ), {}, request);
     }
 
     if (body.action === 'token') {
       return jsonResponse(await createLastFmAuthToken({
         apiKey: body.apiKey,
         sharedSecret: body.sharedSecret,
-      }));
+      }), {}, request);
     }
 
     if (body.action === 'session') {
       if (!body.token?.trim()) {
-        return jsonResponse({ error: 'missing_token' }, { status: 400 });
+        return jsonResponse({ error: 'missing_token' }, { status: 400 }, request);
       }
 
       return jsonResponse(await createLastFmSession({
         apiKey: body.apiKey,
         sharedSecret: body.sharedSecret,
         token: body.token,
-      }));
+      }), {}, request);
     }
 
-    return jsonResponse({ error: 'invalid_action' }, { status: 400 });
+    return jsonResponse({ error: 'invalid_action' }, { status: 400 }, request);
   } catch (error) {
     return jsonResponse(
       {
@@ -69,6 +73,7 @@ export async function POST(request: NextRequest) {
         message: error instanceof Error ? error.message : 'Last.fm auth failed.',
       },
       { status: 502 },
+      request,
     );
   }
 }

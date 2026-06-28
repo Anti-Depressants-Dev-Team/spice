@@ -1,14 +1,14 @@
 import type { Metadata } from 'next';
 
-import SpiceMovie from '../spice-movie';
+import ShelvedService from '../shelved-service';
 
 export const dynamic = 'force-static';
 
 export const metadata: Metadata = {
-  title: 'Spice Movie - Premium Movie Streaming',
-  description: 'A starter front-end concept for the Spice Movie watching experience.',
+  title: 'Spice Movie - Shelved',
+  description: 'Spice Movie is frozen while the SPICE local runtime split is active.',
 };
 
 export default function MoviePage() {
-  return <SpiceMovie watchBasePath="/movie/watch" />;
+  return <ShelvedService name="Spice Movie" />;
 }

@@ -82,7 +82,7 @@ export default function MusicTester() {
         kind: 'tracks',
         limit: '12',
       });
-      const response = await fetch(`/api/yt/search?${params}`);
+      const response = await fetch(`/api/local/yt/search?${params}`);
       const payload = (await response.json()) as ErrorPayload & { tracks?: Track[] };
       if (!response.ok) throw new Error(apiError(payload, 'Search failed.'));
       setTracks(payload.tracks ?? []);
@@ -102,7 +102,7 @@ export default function MusicTester() {
     if (playbackMode === 'direct') {
       setIsLoadingStream(true);
       try {
-        const response = await fetch(`/api/yt/track/${encodeURIComponent(track.id)}`);
+        const response = await fetch(`/api/local/yt/track/${encodeURIComponent(track.id)}`);
         const payload = (await response.json()) as ErrorPayload & {
           track?: Track;
           streams?: StreamVariant[];

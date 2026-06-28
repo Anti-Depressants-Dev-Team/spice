@@ -97,6 +97,11 @@ export default function MarketingHome() {
     });
   }, []);
 
+  const handleServiceClick = (event: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    event.preventDefault();
+    window.location.href = href;
+  };
+
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeProfile) return;
@@ -209,10 +214,10 @@ export default function MarketingHome() {
               <a className={styles.secondaryAction} href="#services">
                 View services
               </a>
-              <a className={styles.secondaryAction} href="https://anime.spice-app.xyz">
+              <a className={styles.secondaryAction} href="https://anime.spice-app.xyz" onClick={(e) => handleServiceClick(e, 'https://anime.spice-app.xyz')}>
                 Preview Anime
               </a>
-              <a className={styles.secondaryAction} href="https://movie.spice-app.xyz">
+              <a className={styles.secondaryAction} href="https://movie.spice-app.xyz" onClick={(e) => handleServiceClick(e, 'https://movie.spice-app.xyz')}>
                 Preview Movie
               </a>
             </div>
@@ -274,7 +279,7 @@ export default function MarketingHome() {
                 <h2>Spice Anime</h2>
                 <p>Featured shows, watch progress, season heat, and a player-first anime shell.</p>
               </div>
-              <a href="https://anime.spice-app.xyz">Open</a>
+              <a href="https://anime.spice-app.xyz" onClick={(e) => handleServiceClick(e, 'https://anime.spice-app.xyz')}>Open</a>
             </div>
 
             <div className={styles.movieTile}>
@@ -283,7 +288,7 @@ export default function MarketingHome() {
                 <h2>Spice Movie</h2>
                 <p>Cinematic queues, premiere rows, room-ready playback, and a theater-first movie shell.</p>
               </div>
-              <a href="https://movie.spice-app.xyz">Open</a>
+              <a href="https://movie.spice-app.xyz" onClick={(e) => handleServiceClick(e, 'https://movie.spice-app.xyz')}>Open</a>
             </div>
 
             <div className={styles.signalGrid} aria-hidden="true">

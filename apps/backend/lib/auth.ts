@@ -10,7 +10,8 @@ function getJwtSecret() {
     }
     // Only fail if we are strictly not in dev/test AND not building
     // In next build, the env might not be fully populated but we need the import to succeed
-    if (process.env.npm_lifecycle_event === 'build') {
+    const lifecycleEvent = process.env.npm_lifecycle_event ?? '';
+    if (lifecycleEvent === 'build' || lifecycleEvent.startsWith('build:')) {
       return 'spice_build_dummy_secret_32_chars';
     }
     throw new Error('Missing JWT_SECRET environment variable.');

@@ -1,18 +1,22 @@
 import type { NextRequest } from 'next/server';
 
-import { corsHeaders, jsonResponse, optionsResponse } from '@/lib/cors';
+import { corsHeadersForRequest, jsonResponse, optionsResponse } from '@/lib/cors';
+import { requireLocalMediaNamespace } from '@/lib/runtime-target';
 import { verifySignedStream } from '@/lib/stream-signing';
 
 export const runtime = 'nodejs';
 
-export function OPTIONS() {
-  return optionsResponse();
+export function OPTIONS(request: NextRequest) {
+  return optionsResponse(request);
 }
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const blocked = requireLocalMediaNamespace(request);
+  if (blocked) return blocked;
+
   const { id } = await params;
   const sp = request.nextUrl.searchParams;
   const itag = Number(sp.get('itag'));
@@ -24,6 +28,7 @@ export async function GET(
     return jsonResponse(
       { error: 'invalid_params', message: 'Missing or malformed stream parameters.' },
       { status: 400 },
+      request,
     );
   }
 
@@ -32,6 +37,7 @@ export async function GET(
     return jsonResponse(
       { error: 'stream_expired', message: 'SoundCloud stream URL has expired or its signature is invalid.' },
       { status: 403 },
+      request,
     );
   }
 
@@ -70,12 +76,12 @@ export async function GET(
         // Range Not Satisfiable
         return new Response(null, {
             status: 416,
-            headers: { ...corsHeaders, 'Content-Range': upstream.headers.get('content-range') || 'bytes */*' }
+            headers: { ...corsHeadersForRequest(request), 'Content-Range': upstream.headers.get('content-range') || 'bytes */*' }
         });
     }
 
     const responseHeaders: Record<string, string> = {
-      ...corsHeaders,
+      ...corsHeadersForRequest(request),
       'Accept-Ranges': 'bytes',
       'Cache-Control': 'no-store',
     };

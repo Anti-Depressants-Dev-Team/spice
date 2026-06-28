@@ -1,17 +1,12 @@
 import type { Metadata } from 'next';
 
-import MoviePlayer from '../../../movie-player';
+import ShelvedService from '../../../shelved-service';
 
 export const metadata: Metadata = {
-  title: 'Watch - Spice Movie',
-  description: 'The Spice Movie cinema player.',
+  title: 'Spice Movie Watch - Shelved',
+  description: 'The Spice Movie watch route is frozen while the local runtime split is active.',
 };
 
-type MovieWatchPageProps = {
-  params: Promise<{ tmdbId: string }>;
-};
-
-export default async function MovieWatchPage({ params }: MovieWatchPageProps) {
-  const { tmdbId } = await params;
-  return <MoviePlayer backHref="/movie#screening" tmdbMovieId={tmdbId} />;
+export default function MovieWatchPage() {
+  return <ShelvedService name="Spice Movie Watch" />;
 }
