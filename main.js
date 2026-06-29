@@ -154,28 +154,32 @@ async function resolveServiceUrl(serviceKey) {
     const status = await spiceRuntimeManager.getStatus();
 
     if (status.supported && status.installed) {
-      const result = await dialog.showMessageBox(mainWindow, {
-        type: "warning",
-        buttons: ["Start runtime", "Install / update", "Open install guide", "Cancel"],
-        defaultId: 0,
-        cancelId: 3,
-        title: "SPICE local runtime is not running",
-        message: "SPICE Music runs from the local PC runtime.",
-        detail:
-          "The runtime is installed, but it is not answering on 127.0.0.1:3939. Start it from Spice or update it before opening the player.",
-      });
+      try {
+        await spiceRuntimeManager.start();
+        return SPICE_LOCAL_RUNTIME_URL;
+      } catch (error) {
+        const result = await dialog.showMessageBox(mainWindow, {
+          type: "warning",
+          buttons: ["Install / update", "Open install guide", "Try localhost anyway", "Cancel"],
+          defaultId: 0,
+          cancelId: 3,
+          title: "SPICE local runtime could not start",
+          message: "Spice could not auto-start the local runtime.",
+          detail:
+            error instanceof Error
+              ? error.message
+              : "Update the local runtime or open the install guide before trying again.",
+        });
 
-      if (result.response === 0) {
-        await spiceRuntimeManager.start();
-        return SPICE_LOCAL_RUNTIME_URL;
+        if (result.response === 0) {
+          await spiceRuntimeManager.installOrUpdate();
+          await spiceRuntimeManager.start();
+          return SPICE_LOCAL_RUNTIME_URL;
+        }
+        if (result.response === 1) return SPICE_INSTALL_URL;
+        if (result.response === 2) return SPICE_LOCAL_RUNTIME_URL;
+        return null;
       }
-      if (result.response === 1) {
-        await spiceRuntimeManager.installOrUpdate();
-        await spiceRuntimeManager.start();
-        return SPICE_LOCAL_RUNTIME_URL;
-      }
-      if (result.response === 2) return SPICE_INSTALL_URL;
-      return null;
     }
 
     if (status.supported && !status.installed) {
