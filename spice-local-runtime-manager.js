@@ -6,6 +6,8 @@ const { pipeline } = require("stream/promises");
 
 const DEFAULT_MANIFEST_URL = "https://music.spice-app.xyz/api/updates/local-windows";
 const DEFAULT_LOCAL_URL = "http://127.0.0.1:3939/";
+const DEFAULT_DOWNLOAD_URL =
+  "https://github.com/Anti-Depressants-Dev-Team/SPICE-but-its-crazier-cuz-yes-/releases/latest/download/spice-local-windows.zip";
 
 class SpiceLocalRuntimeManager {
   constructor(options) {
@@ -83,15 +85,16 @@ class SpiceLocalRuntimeManager {
       fs.mkdirSync(stagingDir, { recursive: true });
       const manifest = await this.fetchManifest();
       const download = manifest && manifest.download ? manifest.download : null;
-      if (!download || !download.url) {
+      const downloadUrl = resolveRuntimeDownloadUrl(download && download.url, this.manifestUrl);
+      if (!downloadUrl) {
         throw new Error("The SPICE local runtime manifest does not include a download URL.");
       }
 
       this.message = `Downloading SPICE local runtime ${manifest.version || "latest"}...`;
       this.emitStatus();
-      await this.downloadFile(download.url, zipPath);
+      await this.downloadFile(downloadUrl, zipPath);
 
-      if (download.sha256) {
+      if (download && download.sha256) {
         this.message = "Verifying SPICE local runtime package...";
         this.emitStatus();
         const actual = await sha256File(zipPath);
@@ -248,6 +251,19 @@ class SpiceLocalRuntimeManager {
 function normalizeServiceUrl(url) {
   const value = String(url || "").trim();
   return value.endsWith("/") ? value : `${value}/`;
+}
+
+function resolveRuntimeDownloadUrl(value, manifestUrl) {
+  if (!value || !String(value).trim()) return DEFAULT_DOWNLOAD_URL;
+
+  try {
+    const parsed = new URL(String(value).trim(), manifestUrl);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.toString();
+    }
+  } catch {}
+
+  return DEFAULT_DOWNLOAD_URL;
 }
 
 function delay(ms) {
