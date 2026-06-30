@@ -1,5 +1,13 @@
 # SPICE Walkthrough
 
+## v1.0.108
+
+- [Spice.Music main] Reduce Vercel Fluid Compute pressure by slowing always-on version, invite, Listen Together, and Spice Connect polling intervals.
+- [Spice.Music main] Route hosted cloud API calls directly to `/api/*` while keeping `/api/cloud/*` as the local-runtime proxy namespace.
+- [Spice.Music main] Add edge cache headers to `/api/version` and redirect legacy hosted `/api/cloud/*` requests to their direct cloud API routes.
+- [Spice.Music main] Clarify the local-mode feature ledger so hosted Vercel calls, local media calls, and local cloud proxy calls are documented separately.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.108`.
+
 ## v1.0.107
 
 - [Spice.Music main] Restore the Home sidebar navigation item and make the Spice sidebar brand return to the Home surface.

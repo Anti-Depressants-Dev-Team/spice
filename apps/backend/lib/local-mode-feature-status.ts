@@ -34,7 +34,7 @@ export const localModeFeatureStatus = [
     feature: 'Direct hosted SPICE Music player',
     status: 'Replaced',
     reason: 'The hosted page is now the cloud control plane, not the heavy media runtime.',
-    replacement: 'Install or open the local PC runtime, then use cloud APIs through /api/cloud/*.',
+    replacement: 'Install or open the local PC runtime; hosted builds use /api/* and local builds proxy cloud calls through /api/cloud/*.',
   },
   {
     feature: 'Home, Anime, Movie navigation inside the local app',
@@ -52,7 +52,7 @@ export const localModeFeatureStatus = [
     feature: 'Raw provider API strings in the client',
     status: 'Retired',
     reason: 'Runtime routing must be explicit so local-only work cannot drift back to Vercel.',
-    replacement: 'A single client API helper chooses /api/local/* or /api/cloud/*.',
+    replacement: 'A single client API helper chooses hosted /api/*, local media /api/local/*, or the local cloud proxy /api/cloud/*.',
   },
   {
     feature: 'Local JSON feedback writes',

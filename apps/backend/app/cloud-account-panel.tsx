@@ -329,7 +329,7 @@ function cloudApiUrl(path: string) {
     return `${SPICE_CLOUD_API_ORIGIN}/api/cloud${normalizedPath}`;
   }
 
-  return `/api/cloud${normalizedPath}`;
+  return `/api${normalizedPath}`;
 }
 
 function normalizeApiOrigin(origin: string) {

@@ -10,6 +10,7 @@ interface ChangelogViewProps {
 }
 
 type AccountState = 'checking' | 'guest' | 'user' | 'admin';
+const SPICE_RUNTIME_TARGET = process.env.NEXT_PUBLIC_SPICE_RUNTIME_TARGET === 'vercel' ? 'vercel' : 'local';
 
 export default function ChangelogView({ initialPayload }: ChangelogViewProps) {
   const [payload, setPayload] = useState(initialPayload);
@@ -30,7 +31,7 @@ export default function ChangelogView({ initialPayload }: ChangelogViewProps) {
       }
 
       try {
-        const response = await fetch('/api/cloud/changelog', {
+        const response = await fetch(cloudApiPath('/changelog'), {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -187,6 +188,11 @@ function ServiceButton({
       <small>{service.entries.length} release{service.entries.length === 1 ? '' : 's'}</small>
     </button>
   );
+}
+
+function cloudApiPath(path: string) {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return SPICE_RUNTIME_TARGET === 'vercel' ? `/api${normalizedPath}` : `/api/cloud${normalizedPath}`;
 }
 
 function renderInlineMarkdown(text: string) {

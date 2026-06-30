@@ -27,10 +27,15 @@ import {
 import { isSpiceConnectCommandFresh, SPICE_CONNECT_COMMAND_TTL_MS } from '@/lib/spice-connect';
 import { SPICE_MEDIA_CORE_VERSION, RELEASE_NOTIFICATION_STORAGE_KEY, type ReleaseNotification } from '@/lib/release-notifications';
 
-const SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS = 400;
-const SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS = 1500;
+const SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS = 5000;
+const SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS = 30000;
 const SPICE_CONNECT_POST_COMMAND_SYNC_DELAY_MS = 450;
-const SPICE_CONNECT_STALE_DEVICE_SECONDS = 20;
+const SPICE_CONNECT_STALE_DEVICE_SECONDS = 120;
+const SPICE_VERSION_CHECK_INTERVAL_MS = 15 * 60 * 1000;
+const SHARED_PLAYLIST_INVITE_POLL_INTERVAL_MS = 5 * 60 * 1000;
+const LISTEN_TOGETHER_INVITE_POLL_INTERVAL_MS = 60 * 1000;
+const LISTEN_TOGETHER_HOST_INVITE_POLL_INTERVAL_MS = 30 * 1000;
+const LISTEN_TOGETHER_SYNC_INTERVAL_MS = 5000;
 const MAX_LOCAL_PROFILES = 6;
 const SPICE_MEDIA_CORE_LABEL = `Spice Media Core v${SPICE_MEDIA_CORE_VERSION}`;
 const LASTFM_CALLBACK_ORIGIN_STORAGE_KEY = 'spice_lastfm_callback_origin';
@@ -48,7 +53,8 @@ function spiceApiUrl(
 ) {
   const [rawPath, rawQuery = ''] = path.startsWith('/') ? path.split('?') : `/${path}`.split('?');
   const origin = spiceApiOrigin(lane);
-  const url = new URL(`/api/${lane}${rawPath}`, origin || 'http://spice.local');
+  const namespace = spiceApiNamespace(lane);
+  const url = new URL(`/api${namespace}${rawPath}`, origin || 'http://spice.local');
 
   if (rawQuery) {
     const existing = new URLSearchParams(rawQuery);
@@ -89,6 +95,14 @@ function spiceApiOrigin(lane: SpiceApiLane) {
   }
 
   return SPICE_RUNTIME_TARGET === 'vercel' ? SPICE_LOCAL_API_ORIGIN : '';
+}
+
+function spiceApiNamespace(lane: SpiceApiLane) {
+  if (lane === 'cloud' && SPICE_RUNTIME_TARGET === 'vercel') {
+    return '';
+  }
+
+  return `/${lane}`;
 }
 
 function normalizeApiOrigin(origin: string) {
@@ -2748,14 +2762,29 @@ export default function SpiceApp() {
       }
     };
 
-    // Check every 60 seconds
-    const intervalId = setInterval(checkVersion, 60000);
-    // Initial check after 5 seconds
-    const timeoutId = setTimeout(checkVersion, 5000);
+    const handleVisibleCheck = () => {
+      if (document.visibilityState === 'visible') {
+        void checkVersion();
+      }
+    };
+    const handleFocusCheck = () => {
+      void checkVersion();
+    };
+
+    const intervalId = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void checkVersion();
+      }
+    }, SPICE_VERSION_CHECK_INTERVAL_MS);
+    const timeoutId = setTimeout(checkVersion, 15000);
+    window.addEventListener('focus', handleFocusCheck);
+    document.addEventListener('visibilitychange', handleVisibleCheck);
 
     return () => {
       clearInterval(intervalId);
       clearTimeout(timeoutId);
+      window.removeEventListener('focus', handleFocusCheck);
+      document.removeEventListener('visibilitychange', handleVisibleCheck);
     };
   }, [logDebug]);
 
@@ -5377,7 +5406,7 @@ export default function SpiceApp() {
     void fetchPendingInvites();
     const interval = window.setInterval(() => {
       void fetchPendingInvites();
-    }, 30000);
+    }, SHARED_PLAYLIST_INVITE_POLL_INTERVAL_MS);
 
     return () => window.clearInterval(interval);
   }, [cloudToken, fetchPendingInvites]);
@@ -5672,7 +5701,7 @@ export default function SpiceApp() {
     void fetchPendingListenInvites();
     const interval = window.setInterval(() => {
       void fetchPendingListenInvites();
-    }, 15000);
+    }, LISTEN_TOGETHER_INVITE_POLL_INTERVAL_MS);
     return () => window.clearInterval(interval);
   }, [cloudToken, fetchPendingListenInvites]);
 
@@ -5682,7 +5711,7 @@ export default function SpiceApp() {
 
     const inviteInterval = window.setInterval(() => {
       void fetchListenTogetherInvitesList(listenTogetherSession.id);
-    }, 6000);
+    }, LISTEN_TOGETHER_HOST_INVITE_POLL_INTERVAL_MS);
 
     const syncInterval = window.setInterval(async () => {
       const targetTrack = currentTrackRef.current;
@@ -5705,7 +5734,7 @@ export default function SpiceApp() {
           })
         });
       } catch { /* silent */ }
-    }, 2500);
+    }, LISTEN_TOGETHER_SYNC_INTERVAL_MS);
 
     return () => {
       window.clearInterval(inviteInterval);
@@ -5785,7 +5814,7 @@ export default function SpiceApp() {
           seekToPositionRef.current(hostProgress);
         }
       } catch { /* silent */ }
-    }, 2500);
+    }, LISTEN_TOGETHER_SYNC_INTERVAL_MS);
 
     return () => window.clearInterval(syncInterval);
   }, [cloudToken, listenTogetherHostSessionId]);

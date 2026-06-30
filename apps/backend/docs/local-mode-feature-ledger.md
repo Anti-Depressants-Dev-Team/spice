@@ -15,10 +15,10 @@ This ledger documents the product changes required by the local runtime split. T
 | Feature | Status | Why | Replacement |
 | --- | --- | --- | --- |
 | Hosted web media scraping | Removed from Vercel | Provider scraping and stream extraction are heavy, brittle serverless work. | Local runtime routes under `/api/local/*` on `127.0.0.1:3939`. |
-| Direct hosted SPICE Music player | Replaced | The hosted page is now the cloud control plane, not the heavy media runtime. | Install or open the local PC runtime, then use cloud APIs through `/api/cloud/*`. |
+| Direct hosted SPICE Music player | Replaced | The hosted page is now the cloud control plane, not the heavy media runtime. | Install or open the local PC runtime, then use hosted cloud APIs through `/api/*` or the local proxy through `/api/cloud/*`. |
 | Home, Anime, Movie navigation inside the local app | Hidden and frozen | The active product focus is local SPICE Music plus cloud account services. | Source history stays intact; shelved routes show frozen placeholders. |
 | Spice Anime and Spice Movie starter surfaces | Shelved | Those services would add cloud and provider load while the local split stabilizes. | Kept in source, removed from active discovery and launch flows. |
-| Raw provider API strings in the client | Retired | Runtime routing must be explicit so local-only work cannot drift back to Vercel. | A single client API helper chooses `/api/local/*` or `/api/cloud/*`. |
+| Raw provider API strings in the client | Retired | Runtime routing must be explicit so local-only work cannot drift back to Vercel. | A single client API helper chooses hosted `/api/*`, local media `/api/local/*`, or local cloud proxy `/api/cloud/*`. |
 | Local JSON feedback writes | Replaced | Vercel functions cannot depend on writable local files. | Feedback uses private cloud handling when configured, with log-only fallback. |
 | Cloud database code and secrets in local ZIPs | Blocked | Local installs must not ship database credentials, database clients, or migrations. | Database env stays in Vercel; package scans verify the local bundle. |
 

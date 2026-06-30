@@ -48,6 +48,7 @@ const Icons = {
 };
 
 const MUSIC_APP_URL = 'https://music.spice-app.xyz';
+const SPICE_RUNTIME_TARGET = process.env.NEXT_PUBLIC_SPICE_RUNTIME_TARGET === 'vercel' ? 'vercel' : 'local';
 const DEFAULT_PROFILE: HomeProfile = {
   displayName: 'Spice Listener',
   gradient: 'linear-gradient(135deg, #7c3aed, #c084fc)',
@@ -75,7 +76,7 @@ export default function MarketingHomeTopbar({ onProfileClick }: { onProfileClick
   const [releaseNotifications, setReleaseNotifications] = useState<ReleaseNotification[]>([]);
 
   useEffect(() => {
-    fetch('/api/cloud/notifications/release')
+    fetch(cloudApiPath('/notifications/release'))
       .then(res => res.json())
       .then(data => {
         if (data.notifications && Array.isArray(data.notifications)) {
@@ -118,7 +119,7 @@ export default function MarketingHomeTopbar({ onProfileClick }: { onProfileClick
         return;
       }
 
-      void fetch('/api/cloud/account/me', {
+      void fetch(cloudApiPath('/account/me'), {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -134,7 +135,7 @@ export default function MarketingHomeTopbar({ onProfileClick }: { onProfileClick
           const nextAccount = payload.account || payload.user || null;
           setAccount(nextAccount);
           if (token) {
-            void fetch('/api/cloud/account/invites', {
+            void fetch(cloudApiPath('/account/invites'), {
               headers: { Authorization: `Bearer ${token}` }
             })
             .then(res => res.json())
@@ -227,7 +228,7 @@ export default function MarketingHomeTopbar({ onProfileClick }: { onProfileClick
     if (!token) return;
     setAcceptingInvite(true);
     try {
-      const res = await fetch(`/api/cloud/account/invites/${playlistId}/accept`, {
+      const res = await fetch(cloudApiPath(`/account/invites/${playlistId}/accept`), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -245,7 +246,7 @@ export default function MarketingHomeTopbar({ onProfileClick }: { onProfileClick
     if (!token) return;
     setAcceptingInvite(true);
     try {
-      const res = await fetch(`/api/cloud/account/invites/${playlistId}/reject`, {
+      const res = await fetch(cloudApiPath(`/account/invites/${playlistId}/reject`), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -505,6 +506,11 @@ function buildMusicUrl(params: Record<string, string | undefined>) {
     }
   }
   return url.toString();
+}
+
+function cloudApiPath(path: string) {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return SPICE_RUNTIME_TARGET === 'vercel' ? `/api${normalizedPath}` : `/api/cloud${normalizedPath}`;
 }
 
 function readStoredAccount(): HomeAccount | null {
