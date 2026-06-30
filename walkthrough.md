@@ -1,5 +1,16 @@
 # SPICE Walkthrough
 
+## v1.0.106
+
+- [Spice.Music main] Preserve the real audio container when downloading shared songs so streams saved as `m4a`, `webm`, or `mp3` match the upstream content instead of forcing a misleading `.mp3` filename.
+- [Spice.Music main] Add mouse-wheel volume adjustment to the main player, expanded player, mini player, and connected-device volume sliders.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.106`.
+
+## v1.0.105
+
+- [Spice.Music main] Accept the Last.fm popup completion message from the trusted callback origin returned by `/api/cloud/lastfm/auth` so local-runtime account linking can finish after the cloud callback redirects back from Last.fm.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.105`.
+
 ## v1.0.104
 
 - [Spice.Music main] Strip decoded-body-unsafe upstream headers from `/api/cloud/*` proxy responses so local runtime account sign-in can relay hosted Vercel auth JSON without `incorrect header check` fetch failures.

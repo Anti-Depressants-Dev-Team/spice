@@ -33,6 +33,7 @@ const SPICE_CONNECT_POST_COMMAND_SYNC_DELAY_MS = 450;
 const SPICE_CONNECT_STALE_DEVICE_SECONDS = 20;
 const MAX_LOCAL_PROFILES = 6;
 const SPICE_MEDIA_CORE_LABEL = `Spice Media Core v${SPICE_MEDIA_CORE_VERSION}`;
+const LASTFM_CALLBACK_ORIGIN_STORAGE_KEY = 'spice_lastfm_callback_origin';
 
 type SpiceApiLane = 'local' | 'cloud';
 const SPICE_RUNTIME_TARGET = process.env.NEXT_PUBLIC_SPICE_RUNTIME_TARGET === 'vercel' ? 'vercel' : 'local';
@@ -92,6 +93,23 @@ function spiceApiOrigin(lane: SpiceApiLane) {
 
 function normalizeApiOrigin(origin: string) {
   return origin.replace(/\/+$/, '');
+}
+
+function trustedLastFmCallbackOrigin(callbackUrl?: string) {
+  if (!callbackUrl?.trim()) return '';
+
+  try {
+    return new URL(callbackUrl).origin;
+  } catch {
+    return '';
+  }
+}
+
+function isTrustedLastFmMessageOrigin(origin: string) {
+  if (origin === window.location.origin) return true;
+
+  const callbackOrigin = localStorage.getItem(LASTFM_CALLBACK_ORIGIN_STORAGE_KEY);
+  return Boolean(callbackOrigin && origin === callbackOrigin);
 }
 
 // ── Icons ──────────────────────────────────────────────────────────
@@ -967,7 +985,7 @@ const buildSongShareUrl = (track: Track) => {
   return url.toString();
 };
 
-const directAudioExtensionPattern = /\.(mp3|m4a|aac|wav|flac|ogg|opus)(?:$|[?#])/iu;
+const directAudioExtensionPattern = /\.(mp3|m4a|aac|wav|flac|ogg|opus|webm)(?:$|[?#])/iu;
 
 const directAudioDownloadUrl = (track: Track) => {
   const candidates = [track.permalinkUrl].filter(Boolean) as string[];
@@ -995,10 +1013,23 @@ const sanitizeDownloadName = (track: Track) => {
 const extensionFromAudioUrl = (url: string) => {
   try {
     const match = new URL(url).pathname.match(/\.([a-z0-9]+)$/iu);
-    return match?.[1]?.toLowerCase() || 'mp3';
+    return match?.[1]?.toLowerCase() || 'm4a';
   } catch {
-    return 'mp3';
+    return 'm4a';
   }
+};
+
+const downloadExtensionFromStream = (stream: any) => {
+  const container = typeof stream?.container === 'string' ? stream.container.toLowerCase() : '';
+  if (container === 'mp4') return 'm4a';
+  if (container === 'mpeg') return 'mp3';
+  if (container && /^[a-z0-9]+$/u.test(container)) return container;
+  const mimeType = typeof stream?.mimeType === 'string' ? stream.mimeType.toLowerCase() : '';
+  if (mimeType.includes('mp4')) return 'm4a';
+  if (mimeType.includes('webm')) return 'webm';
+  if (mimeType.includes('mpeg')) return 'mp3';
+  if (mimeType.includes('ogg')) return 'ogg';
+  return 'm4a';
 };
 
 const scrobbleThresholdSeconds = (durationSeconds: number) => {
@@ -1423,11 +1454,12 @@ export default function SpiceApp() {
         const finalUrl = new URL(spiceApiResponseUrl('local', streamUrl), typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
         finalUrl.searchParams.set('download', 'true');
         finalUrl.searchParams.set('title', downloadTitle);
+        finalUrl.searchParams.set('container', streamObj ? downloadExtensionFromStream(streamObj) : 'm4a');
 
         // This will trigger the browser's download manager safely without unloading
         const link = document.createElement('a');
         link.href = finalUrl.toString();
-        link.download = `${downloadTitle}.mp3`; // keeping .mp3 extension from HEAD
+        link.download = `${downloadTitle}.${streamObj ? downloadExtensionFromStream(streamObj) : 'm4a'}`;
         link.rel = 'noopener noreferrer';
         document.body.appendChild(link);
         link.click();
@@ -1440,7 +1472,7 @@ export default function SpiceApp() {
       }
     } catch (err: any) {
       logDebug('error', `Download stream failed: ${err}`);
-      showSpiceNotice(`Failed to download MP3: ${err?.message || 'Unknown error'}`, 'danger');
+      showSpiceNotice(`Failed to download audio: ${err?.message || 'Unknown error'}`, 'danger');
     }
   }, [showSpiceNotice, songShareDialog, audioQuality, logDebug]);
 
@@ -1818,6 +1850,7 @@ export default function SpiceApp() {
     localStorage.setItem('spice_lastfm_linked_user', resolvedUser);
     localStorage.setItem('spice_profile_sync_enabled', 'true');
     localStorage.removeItem('spice_lastfm_link_token');
+    localStorage.removeItem(LASTFM_CALLBACK_ORIGIN_STORAGE_KEY);
     logDebug('profile', `Last.fm linked as ${resolvedUser}.`);
   }, [logDebug]);
 
@@ -1842,7 +1875,7 @@ export default function SpiceApp() {
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
+      if (!isTrustedLastFmMessageOrigin(event.origin)) return;
 
       const data = event.data as {
         type?: unknown;
@@ -3650,9 +3683,16 @@ export default function SpiceApp() {
           action: 'web_auth',
         }),
       });
-      const data = await response.json().catch(() => ({})) as { authUrl?: string; message?: string };
+      const data = await response.json().catch(() => ({})) as { authUrl?: string; callbackUrl?: string; message?: string };
       if (!response.ok || !data.authUrl) {
         throw new Error(data.message || 'Last.fm sign-in setup failed.');
+      }
+
+      const callbackOrigin = trustedLastFmCallbackOrigin(data.callbackUrl);
+      if (callbackOrigin) {
+        localStorage.setItem(LASTFM_CALLBACK_ORIGIN_STORAGE_KEY, callbackOrigin);
+      } else {
+        localStorage.removeItem(LASTFM_CALLBACK_ORIGIN_STORAGE_KEY);
       }
 
       const popup = window.open(
@@ -6105,6 +6145,15 @@ export default function SpiceApp() {
       return;
     }
     setVolume(safeVolume);
+  };
+
+  const adjustReceiverVolumeByWheel = (event: any) => {
+    const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+    if (!delta) return;
+
+    event.preventDefault();
+    const step = event.shiftKey ? 25 : 5;
+    setReceiverVolume(playerVolume + (delta < 0 ? step : -step));
   };
 
   const refreshSpiceConnectReceiverList = () => {
@@ -10550,6 +10599,17 @@ const getMaskedEmail = (email: string) => {
                                 defaultValue={selectedRemoteDevice.volume}
                                 onMouseUp={(e) => sendRemoteCommand('volume', { volume: Number((e.target as HTMLInputElement).value) })}
                                 onTouchEnd={(e) => sendRemoteCommand('volume', { volume: Number((e.target as HTMLInputElement).value) })}
+                                onWheel={(event) => {
+                                  const input = event.currentTarget;
+                                  const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+                                  if (!delta) return;
+                                  event.preventDefault();
+                                  const maxAllowed = volumeBoosterAccepted ? 1000 : 200;
+                                  const step = event.shiftKey ? 25 : 5;
+                                  const nextVolume = Math.max(0, Math.min(maxAllowed, Number(input.value) + (delta < 0 ? step : -step)));
+                                  input.value = String(nextVolume);
+                                  void sendRemoteCommand('volume', { volume: nextVolume });
+                                }}
                                 style={{ flex: 1, accentColor: 'var(--accent-pink)' }}
                               />
                             </label>
@@ -11860,7 +11920,13 @@ const getMaskedEmail = (email: string) => {
             {Icons.miniPlayer}
           </button>
 
-          <div className="now-playing__volume" onMouseEnter={() => setIsVolumeHovered(true)} onMouseLeave={() => setIsVolumeHovered(false)} style={{ position: 'relative' }}>
+          <div
+            className="now-playing__volume"
+            onMouseEnter={() => setIsVolumeHovered(true)}
+            onMouseLeave={() => setIsVolumeHovered(false)}
+            onWheel={adjustReceiverVolumeByWheel}
+            style={{ position: 'relative' }}
+          >
             <button
               className="now-playing__volume-btn"
               onClick={() => {
@@ -12220,6 +12286,7 @@ const getMaskedEmail = (email: string) => {
                           max={volumeBoosterAccepted ? 1000 : 200}
                           value={playerVolume}
                           onChange={(e) => setReceiverVolume(Number(e.target.value))}
+                          onWheel={adjustReceiverVolumeByWheel}
                           style={{ width: '100%', cursor: 'pointer', accentColor: 'var(--accent-pink)' }}
                         />
                       </div>
@@ -12623,12 +12690,13 @@ const getMaskedEmail = (email: string) => {
                 type="range"
                 className="mini-player__volume-slider"
                 min="0"
-                max="100"
+                max={volumeBoosterAccepted ? 1000 : 200}
                 value={playerVolume}
                 onChange={(e) => {
                   const newVol = Number(e.target.value);
                   setReceiverVolume(newVol);
                 }}
+                onWheel={adjustReceiverVolumeByWheel}
                 style={{
                   width: '64px',
                   height: '4px',
@@ -12636,7 +12704,7 @@ const getMaskedEmail = (email: string) => {
                   outline: 'none',
                   cursor: 'pointer',
                   WebkitAppearance: 'none',
-                  background: `linear-gradient(to right, var(--accent-pink) 0%, var(--accent-pink) ${playerVolume}%, rgba(255,255,255,0.1) ${playerVolume}%, rgba(255,255,255,0.1) 100%)`
+                  background: `linear-gradient(to right, var(--accent-pink) 0%, var(--accent-pink) ${Math.min(playerVolume, volumeBoosterAccepted ? 1000 : 200) / (volumeBoosterAccepted ? 10 : 2)}%, rgba(255,255,255,0.1) ${Math.min(playerVolume, volumeBoosterAccepted ? 1000 : 200) / (volumeBoosterAccepted ? 10 : 2)}%, rgba(255,255,255,0.1) 100%)`
                 }}
               />
               <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', width: '22px', textAlign: 'right', display: 'inline-block', flexShrink: 0 }}>

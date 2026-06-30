@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 
+import { audioContentDisposition, audioDownloadExtension } from '@/lib/audio-download';
 import { corsHeadersForRequest, jsonResponse, optionsResponse } from '@/lib/cors';
 import { requireLocalMediaNamespace } from '@/lib/runtime-target';
 import { verifySignedStream } from '@/lib/stream-signing';
@@ -122,10 +123,8 @@ export async function GET(
 
     if (request.nextUrl.searchParams.get('download') === 'true') {
       const title = request.nextUrl.searchParams.get('title') || 'audio';
-      // Keep sanitized ASCII for fallback filename
-      const asciiTitle = title.replace(/[^a-zA-Z0-9 \-_]/g, '').trim() || 'audio';
-      // Use filename*=UTF-8'' for full Unicode support
-      responseHeaders['Content-Disposition'] = `attachment; filename="${asciiTitle}.mp3"; filename*=UTF-8''${encodeURIComponent(title)}.mp3`;
+      const extension = audioDownloadExtension(contentType, request.nextUrl.searchParams.get('container'));
+      responseHeaders['Content-Disposition'] = audioContentDisposition(title, extension);
     }
 
     return new Response(upstream.body, {
