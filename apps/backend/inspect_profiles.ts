@@ -33,7 +33,6 @@ async function main() {
   const db = drizzle(sql, { schema });
 
   const allUsers = await db.query.users.findMany();
-  console.log('--- USERS ---');
   console.log(JSON.stringify(allUsers, null, 2));
 
   const allProfiles = await db.query.profiles.findMany();
