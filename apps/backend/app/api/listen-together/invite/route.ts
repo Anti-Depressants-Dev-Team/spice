@@ -58,14 +58,8 @@ export async function GET(request: NextRequest) {
         .orderBy(desc(listenTogetherInvites.createdAt));
 
       // Deduplicate by inviteId
-      const uniqueSessionInvites = [];
       const seen = new Set();
-      for (const inv of sessionInvites) {
-        if (!seen.has(inv.inviteId)) {
-          seen.add(inv.inviteId);
-          uniqueSessionInvites.push(inv);
-        }
-      }
+      const uniqueSessionInvites = sessionInvites.filter(inv => !seen.has(inv.inviteId) && seen.add(inv.inviteId));
 
       return jsonResponse({ invites: uniqueSessionInvites });
     }
@@ -100,22 +94,18 @@ export async function GET(request: NextRequest) {
       )
       .orderBy(desc(listenTogetherInvites.createdAt));
 
-    const deduplicatedInvites = [];
     const seenPending = new Set();
-    for (const row of invites) {
-      if (!seenPending.has(row.inviteId)) {
-        seenPending.add(row.inviteId);
-        deduplicatedInvites.push({
-          inviteId: row.inviteId,
-          sessionId: row.sessionId,
-          status: row.status,
-          createdAt: row.createdAt,
-          hostUserId: row.hostUserId,
-          hostUsername: row.hostProfileUsername || row.hostUserUsername || 'unknown',
-          hostDisplayName: row.hostDisplayName || row.hostProfileUsername || row.hostUserUsername || 'Spice Listener',
-        });
-      }
-    }
+    const deduplicatedInvites = invites
+      .filter(row => !seenPending.has(row.inviteId) && seenPending.add(row.inviteId))
+      .map(row => ({
+        inviteId: row.inviteId,
+        sessionId: row.sessionId,
+        status: row.status,
+        createdAt: row.createdAt,
+        hostUserId: row.hostUserId,
+        hostUsername: row.hostProfileUsername || row.hostUserUsername || 'unknown',
+        hostDisplayName: row.hostDisplayName || row.hostProfileUsername || row.hostUserUsername || 'Spice Listener',
+      }));
 
     return jsonResponse({ invites: deduplicatedInvites });
   } catch (error) {
