@@ -216,6 +216,31 @@ class SpiceApi(
             )
         }
 
+    suspend fun fetchProfiles(token: String): List<SpiceProfile> = withContext(Dispatchers.IO) {
+        parseProfiles(getJson("/api/sync/profiles", token))
+    }
+
+    suspend fun syncProfiles(token: String, profiles: List<SpiceProfile>) = withContext(Dispatchers.IO) {
+        postJson(
+            "/api/sync/profiles",
+            JSONObject().put("profiles", JSONArray(profiles.map { it.toSyncProfileJson() })),
+            token,
+        )
+        Unit
+    }
+
+    suspend fun updateUsername(token: String, username: String, profileId: String = "default") = withContext(Dispatchers.IO) {
+        requestJson(
+            "/api/account/username",
+            method = "PUT",
+            body = JSONObject()
+                .put("username", username)
+                .put("profileId", profileId),
+            bearerToken = token,
+        )
+        Unit
+    }
+
     suspend fun fetchRemoteDevices(token: String): List<RemoteDevice> = withContext(Dispatchers.IO) {
         parseRemoteDevices(getJson("/api/remote/devices", token))
     }
@@ -856,8 +881,11 @@ internal fun parseProfileSummary(payload: JSONObject): ProfileSummary {
             username = profile.optString("username").trim(),
             avatarUrl = profile.optString("avatarUrl").trim(),
             bio = profile.optString("bio").trim(),
+            gradient = profile.optString("gradient").trim().ifEmpty { "linear-gradient(135deg, #a855f7, #ec4899)" },
             joinedAt = profile.optString("joinedAt").trim(),
             isPrivate = profile.optBoolean("isPrivate", false),
+            songsPlayed = stats.optInt("songsPlayed", profile.optInt("songsPlayed", 0)).coerceAtLeast(0),
+            passcode = profile.optString("passcode").trim(),
         ),
         stats = ProfileStats(
             songsPlayed = stats.optInt("songsPlayed", 0).coerceAtLeast(0),
@@ -865,6 +893,32 @@ internal fun parseProfileSummary(payload: JSONObject): ProfileSummary {
             playlistsCount = stats.optInt("playlistsCount", 0).coerceAtLeast(0),
         ),
     )
+}
+
+internal fun parseProfiles(payload: JSONObject): List<SpiceProfile> {
+    val profiles = payload.optJSONArray("profiles") ?: return emptyList()
+    return buildList {
+        for (index in 0 until profiles.length()) {
+            val item = profiles.optJSONObject(index) ?: continue
+            add(
+                SpiceProfile(
+                    id = item.optString("id").trim().ifEmpty { "default" },
+                    displayName = item.optString("displayName").trim()
+                        .ifEmpty { item.optString("username").trim() }
+                        .ifEmpty { "Spice Listener" },
+                    username = item.optString("username").trim()
+                        .ifEmpty { item.optString("cloudUsername").trim() },
+                    avatarUrl = item.optString("avatarUrl").trim(),
+                    bio = item.optString("bio").trim(),
+                    gradient = item.optString("gradient").trim().ifEmpty { "linear-gradient(135deg, #a855f7, #ec4899)" },
+                    joinedAt = item.optString("joinedAt").trim(),
+                    isPrivate = item.optBoolean("isPrivate", false),
+                    songsPlayed = item.optInt("songsPlayed", 0).coerceAtLeast(0),
+                    passcode = item.optString("passcode").trim(),
+                ),
+            )
+        }
+    }
 }
 
 internal fun parseRemoteDevices(payload: JSONObject): List<RemoteDevice> {
@@ -1112,6 +1166,19 @@ internal fun Playlist.toSnapshotJson(): JSONObject =
         .put("shareRole", shareRole)
         .put("isPublic", isPublic)
         .put("tracks", JSONArray(tracks.map { it.toSnapshotJson() }))
+
+internal fun SpiceProfile.toSyncProfileJson(): JSONObject =
+    JSONObject()
+        .put("id", id.ifBlank { "default" })
+        .put("displayName", displayName.ifBlank { "Spice Listener" })
+        .put("cloudUsername", username.takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+        .put("bio", bio)
+        .put("gradient", gradient.ifBlank { "linear-gradient(135deg, #a855f7, #ec4899)" })
+        .put("songsPlayed", songsPlayed.coerceAtLeast(0))
+        .put("joinedAt", joinedAt.ifBlank { "July 2026" })
+        .put("passcode", passcode.takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+        .put("avatarUrl", avatarUrl.takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+        .put("isPrivate", isPrivate)
 
 internal fun mergeSyncTracks(remote: List<Track>, local: List<Track>): List<Track> {
     val merged = linkedMapOf<String, Track>()

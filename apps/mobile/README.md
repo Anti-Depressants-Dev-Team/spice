@@ -14,7 +14,9 @@ Native Android preview for Spice Music, built with Jetpack Compose and Media3.
 - Room-backed local liked tracks and listening history, plus a local quality preference
 - Spice account sign-in/sign-up with Android Keystore-backed session storage
 - Account-aware round profile avatar that opens the profile-only sheet with cloud profile name, avatar, and listener stats
+- Phone-side profile editing for display name, username, profile picture URL, bio, and privacy
 - Round notifications button for invites and active download state
+- Global accent color themes matching the desktop accent set
 - Local playlists with manual cloud sync for playlists, liked tracks, and recent history through the hosted Spice API
 - Hosted playlist invite links from Android's share sheet for account-owned playlists
 - Native playlist invite acceptance for hosted `?playlistInvite=` links and account-level pending invites
@@ -27,8 +29,9 @@ Native Android preview for Spice Music, built with Jetpack Compose and Media3.
 - Settings Terms and Licenses tabs for native resolver and download dependencies
 - Media3/ExoPlayer playback service with Android media session and notification
 - Lock-screen controls, audio focus, headset/Bluetooth commands, noisy-output pause, and background playback
-- Stable expanded full player sheet with seek, play/pause, like, download, lyrics, shuffle, repeat, and stop controls
-- Mini player duration plus shuffle/repeat/play controls
+- Keyboard-safe player surfaces that stay above the Android IME
+- Stable expanded full player sheet with seek, play/pause, like, download, lyrics, shuffle, previous/next, repeat, and stop controls
+- Compact mini player with duration, shuffle/repeat/play controls, and a full-width seekbar above the navigation bar
 - Debug-only local audio test for validating the native media stack without the network
 
 The app intentionally does not embed the website or use its YouTube iframe fallback. Native background playback requires a direct HTTPS audio URL.

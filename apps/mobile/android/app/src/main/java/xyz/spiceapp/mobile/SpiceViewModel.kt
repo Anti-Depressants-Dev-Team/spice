@@ -26,6 +26,7 @@ import xyz.spiceapp.mobile.data.SessionStore
 import xyz.spiceapp.mobile.data.SpiceApi
 import xyz.spiceapp.mobile.data.download.MediaDownloadClient
 import xyz.spiceapp.mobile.model.AccountSession
+import xyz.spiceapp.mobile.model.AccentTheme
 import xyz.spiceapp.mobile.model.AppScreen
 import xyz.spiceapp.mobile.model.AuthMode
 import xyz.spiceapp.mobile.model.DownloadedTrack
@@ -43,6 +44,7 @@ import xyz.spiceapp.mobile.model.RemoteDevice
 import xyz.spiceapp.mobile.model.RepeatMode
 import xyz.spiceapp.mobile.model.SharedPlaylistTrack
 import xyz.spiceapp.mobile.model.SharedPlaylistTracks
+import xyz.spiceapp.mobile.model.SpiceProfile
 import xyz.spiceapp.mobile.model.StreamQuality
 import xyz.spiceapp.mobile.model.Track
 import xyz.spiceapp.mobile.playback.PlayerConnection
@@ -68,9 +70,17 @@ data class SpiceUiState(
     val downloads: List<DownloadedTrack> = emptyList(),
     val libraryTab: LibraryTab = LibraryTab.Playlists,
     val quality: StreamQuality = StreamQuality.Standard,
+    val accentTheme: AccentTheme = AccentTheme.NeonSpice,
     val accountSession: AccountSession? = null,
     val profileSummary: ProfileSummary? = null,
     val profileLoading: Boolean = false,
+    val profileEditOpen: Boolean = false,
+    val profileEditDisplayName: String = "",
+    val profileEditUsername: String = "",
+    val profileEditAvatarUrl: String = "",
+    val profileEditBio: String = "",
+    val profileEditPrivate: Boolean = false,
+    val profileEditLoading: Boolean = false,
     val authMode: AuthMode = AuthMode.SignIn,
     val authEmail: String = "",
     val authPassword: String = "",
@@ -117,6 +127,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(
         SpiceUiState(
             quality = libraryRepository.quality(),
+            accentTheme = libraryRepository.accentTheme(),
             accountSession = sessionStore.load(),
             remoteDeviceId = remoteDeviceId,
         ),
@@ -266,6 +277,11 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleShuffle() = playerConnection.toggleShuffle()
 
     fun cycleRepeat() = playerConnection.cycleRepeat()
+
+    fun setAccentTheme(theme: AccentTheme) {
+        libraryRepository.setAccentTheme(theme)
+        _uiState.value = _uiState.value.copy(accentTheme = theme)
+    }
 
     fun stopPlayback() {
         playerConnection.stop()
@@ -573,6 +589,134 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setAuthUsername(username: String) {
         _uiState.value = _uiState.value.copy(authUsername = username)
+    }
+
+    fun openProfileEditor() {
+        val state = _uiState.value
+        val session = state.accountSession
+        if (session == null) {
+            _uiState.value = state.copy(message = "Sign in before editing your profile.")
+            return
+        }
+
+        val profile = state.profileSummary?.profile
+        _uiState.value = state.copy(
+            profileEditOpen = true,
+            profileEditDisplayName = profile?.displayName?.takeIf { it.isNotBlank() }
+                ?: session.account.displayName.takeIf { it.isNotBlank() }
+                ?: session.account.email.substringBefore("@"),
+            profileEditUsername = profile?.username?.takeIf { it.isNotBlank() }
+                ?: session.account.username,
+            profileEditAvatarUrl = profile?.avatarUrl?.takeIf { it.isNotBlank() }
+                ?: session.account.avatarUrl,
+            profileEditBio = profile?.bio.orEmpty(),
+            profileEditPrivate = profile?.isPrivate == true,
+            message = null,
+        )
+    }
+
+    fun dismissProfileEditor() {
+        _uiState.value = _uiState.value.copy(profileEditOpen = false, profileEditLoading = false)
+    }
+
+    fun setProfileEditDisplayName(value: String) {
+        _uiState.value = _uiState.value.copy(profileEditDisplayName = value)
+    }
+
+    fun setProfileEditUsername(value: String) {
+        _uiState.value = _uiState.value.copy(profileEditUsername = value)
+    }
+
+    fun setProfileEditAvatarUrl(value: String) {
+        _uiState.value = _uiState.value.copy(profileEditAvatarUrl = value)
+    }
+
+    fun setProfileEditBio(value: String) {
+        _uiState.value = _uiState.value.copy(profileEditBio = value)
+    }
+
+    fun setProfileEditPrivate(value: Boolean) {
+        _uiState.value = _uiState.value.copy(profileEditPrivate = value)
+    }
+
+    fun saveProfileEdit() {
+        val state = _uiState.value
+        val session = state.accountSession
+        if (session == null) {
+            _uiState.value = state.copy(message = "Sign in before editing your profile.")
+            return
+        }
+
+        val displayName = state.profileEditDisplayName.trim().ifEmpty { "Spice Listener" }
+        val username = state.profileEditUsername.trim().lowercase()
+        val avatarUrl = state.profileEditAvatarUrl.trim()
+        val bio = state.profileEditBio.trim().ifEmpty { "No bio written yet." }
+
+        if (!Regex("^[a-zA-Z0-9_]{3,20}$").matches(username)) {
+            _uiState.value = state.copy(message = "Username must be 3-20 letters, numbers, or underscores.")
+            return
+        }
+
+        if (avatarUrl.isNotBlank() && !avatarUrl.startsWith("https://") && !avatarUrl.startsWith("http://")) {
+            _uiState.value = state.copy(message = "Profile picture must be an http or https URL.")
+            return
+        }
+
+        _uiState.value = state.copy(profileEditLoading = true, message = null)
+        viewModelScope.launch {
+            runCatching {
+                val remoteProfiles = api.fetchProfiles(session.token)
+                val currentProfile = remoteProfiles.firstOrNull { it.id == "default" }
+                    ?: state.profileSummary?.profile
+                    ?: SpiceProfile(
+                        id = "default",
+                        displayName = displayName,
+                        username = username,
+                    )
+                val updatedProfile = currentProfile.copy(
+                    displayName = displayName,
+                    username = username,
+                    avatarUrl = avatarUrl,
+                    bio = bio,
+                    isPrivate = state.profileEditPrivate,
+                    songsPlayed = currentProfile.songsPlayed.takeIf { it > 0 }
+                        ?: state.profileSummary?.stats?.songsPlayed
+                        ?: 0,
+                )
+                val profiles = if (remoteProfiles.any { it.id == updatedProfile.id }) {
+                    remoteProfiles.map { profile -> if (profile.id == updatedProfile.id) updatedProfile else profile }
+                } else {
+                    remoteProfiles + updatedProfile
+                }
+
+                if (username != session.account.username) {
+                    api.updateUsername(session.token, username, updatedProfile.id)
+                }
+                api.syncProfiles(session.token, profiles)
+                api.fetchProfileSummary(session.token, session.account.id, updatedProfile.id)
+            }.onSuccess { summary ->
+                val updatedSession = session.copy(
+                    account = session.account.copy(
+                        username = summary.profile.username,
+                        displayName = summary.profile.displayName,
+                        avatarUrl = summary.profile.avatarUrl,
+                    ),
+                )
+                sessionStore.save(updatedSession)
+                _uiState.value = _uiState.value.copy(
+                    accountSession = updatedSession,
+                    profileSummary = summary,
+                    profileEditOpen = false,
+                    profileEditLoading = false,
+                    message = "Profile updated.",
+                )
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(
+                    profileEditLoading = false,
+                    message = error.message ?: "Could not update profile.",
+                )
+            }
+        }
     }
 
     fun submitAccount() {

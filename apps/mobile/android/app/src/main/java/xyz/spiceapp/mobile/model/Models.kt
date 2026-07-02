@@ -111,8 +111,11 @@ data class SpiceProfile(
     val username: String = "",
     val avatarUrl: String = "",
     val bio: String = "",
+    val gradient: String = "linear-gradient(135deg, #a855f7, #ec4899)",
     val joinedAt: String = "",
     val isPrivate: Boolean = false,
+    val songsPlayed: Int = 0,
+    val passcode: String = "",
 )
 
 data class ProfileStats(
@@ -165,6 +168,16 @@ enum class RepeatMode {
     Off,
     All,
     One,
+}
+
+enum class AccentTheme(val label: String) {
+    NeonSpice("Neon Spice (Pink)"),
+    OceanBreeze("Ocean Breeze (Blue)"),
+    SolarFire("Solar Fire (Orange)"),
+    JadeEmerald("Jade Emerald (Green)"),
+    ImperialGold("Imperial Gold (Gold)"),
+    CrimsonMoon("Crimson Moon (Red)"),
+    MidnightVelvet("Midnight Velvet (Dark Purple)"),
 }
 
 enum class AppScreen(val label: String) {

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -34,22 +35,22 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
-import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
-import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Share
@@ -78,6 +79,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Text
@@ -107,6 +109,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import xyz.spiceapp.mobile.BuildConfig
 import xyz.spiceapp.mobile.SpiceUiState
+import xyz.spiceapp.mobile.model.AccentTheme
 import xyz.spiceapp.mobile.model.AppScreen
 import xyz.spiceapp.mobile.model.AuthMode
 import xyz.spiceapp.mobile.model.DownloadedTrack
@@ -138,11 +141,11 @@ fun SpiceApp(
     onPlayNext: () -> Unit,
     onPlayPrevious: () -> Unit,
     onSeekTo: (Long) -> Unit,
-    onSeekBy: (Long) -> Unit,
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
     onStopPlayback: () -> Unit,
     onToggleLike: (Track) -> Unit,
+    onAccentSelected: (AccentTheme) -> Unit,
     onLibraryTabSelected: (LibraryTab) -> Unit,
     onCreatePlaylist: () -> Unit,
     onAddCurrentTrackToPlaylist: (String) -> Unit,
@@ -166,6 +169,14 @@ fun SpiceApp(
     onAuthUsernameChanged: (String) -> Unit,
     onSubmitAccount: () -> Unit,
     onSignOut: () -> Unit,
+    onOpenProfileEditor: () -> Unit,
+    onDismissProfileEditor: () -> Unit,
+    onProfileDisplayNameChanged: (String) -> Unit,
+    onProfileUsernameChanged: (String) -> Unit,
+    onProfileAvatarUrlChanged: (String) -> Unit,
+    onProfileBioChanged: (String) -> Unit,
+    onProfilePrivateChanged: (Boolean) -> Unit,
+    onSaveProfile: () -> Unit,
     onSyncNow: () -> Unit,
     onRefreshSpiceConnect: () -> Unit,
     onSendSpiceConnectCommand: (String, String) -> Unit,
@@ -204,7 +215,7 @@ fun SpiceApp(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            Column(Modifier.background(SpiceBackground).navigationBarsPadding()) {
+            Column(Modifier.background(SpiceBackground).imePadding().navigationBarsPadding()) {
                 uiState.currentTrack?.let { track ->
                     MiniPlayer(
                         track = track,
@@ -214,8 +225,7 @@ fun SpiceApp(
                         queueIndex = uiState.queueIndex,
                         onOpen = { showPlayer = true },
                         onToggle = onTogglePlayback,
-                        onNext = onPlayNext,
-                        onPrevious = onPlayPrevious,
+                        onSeekTo = onSeekTo,
                         onShuffle = onToggleShuffle,
                         onRepeat = onCycleRepeat,
                     )
@@ -256,6 +266,8 @@ fun SpiceApp(
                 onAuthUsernameChanged = onAuthUsernameChanged,
                 onSubmitAccount = onSubmitAccount,
                 onSignOut = onSignOut,
+                onAccentSelected = onAccentSelected,
+                onOpenProfileEditor = onOpenProfileEditor,
                 onSyncNow = onSyncNow,
                 onRefreshSpiceConnect = onRefreshSpiceConnect,
                 onSendSpiceConnectCommand = onSendSpiceConnectCommand,
@@ -277,7 +289,6 @@ fun SpiceApp(
             onNext = onPlayNext,
             onPrevious = onPlayPrevious,
             onSeekTo = onSeekTo,
-            onSeekBy = onSeekBy,
             onShuffle = onToggleShuffle,
             onRepeat = onCycleRepeat,
             queueSize = uiState.playbackQueue.size,
@@ -296,6 +307,10 @@ fun SpiceApp(
         ProfileSheet(
             uiState = uiState,
             onDismiss = { showProfile = false },
+            onEditProfile = {
+                showProfile = false
+                onOpenProfileEditor()
+            },
             onOpenSettings = {
                 showProfile = false
                 onScreenSelected(AppScreen.Settings)
@@ -322,6 +337,19 @@ fun SpiceApp(
             loading = uiState.lyricsLoading,
             lyrics = uiState.lyricsPayload,
             onDismiss = onDismissLyrics,
+        )
+    }
+
+    if (uiState.profileEditOpen) {
+        ProfileEditorSheet(
+            uiState = uiState,
+            onDismiss = onDismissProfileEditor,
+            onDisplayNameChanged = onProfileDisplayNameChanged,
+            onUsernameChanged = onProfileUsernameChanged,
+            onAvatarUrlChanged = onProfileAvatarUrlChanged,
+            onBioChanged = onProfileBioChanged,
+            onPrivateChanged = onProfilePrivateChanged,
+            onSave = onSaveProfile,
         )
     }
 
@@ -370,7 +398,7 @@ private fun SpiceTopBar(
     TopAppBar(
         title = {
             Column {
-                Text("SPICE MUSIC", color = SpicePink, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text("SPICE MUSIC", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 Text(uiState.screen.label, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
             }
         },
@@ -406,7 +434,7 @@ private fun RoundTopAction(
             if (showDot) {
                 Surface(
                     shape = CircleShape,
-                    color = SpicePink,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(9.dp),
                 ) {}
             }
@@ -423,7 +451,7 @@ private fun ProfileAvatarButton(uiState: SpiceUiState, onClick: () -> Unit) {
         ?: session?.account?.displayName?.takeIf { it.isNotBlank() }
         ?: session?.account?.email?.substringBefore("@")
     val initials = profileInitials(displayName ?: session?.account?.email, session?.account?.id)
-    val borderColor = if (session == null) SpiceTextMuted.copy(alpha = 0.45f) else SpicePink.copy(alpha = 0.7f)
+    val borderColor = if (session == null) SpiceTextMuted.copy(alpha = 0.45f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
 
     Surface(
         modifier = Modifier.padding(end = 12.dp).size(42.dp).clickable { onClick() },
@@ -440,7 +468,7 @@ private fun ProfileAvatarButton(uiState: SpiceUiState, onClick: () -> Unit) {
                     modifier = Modifier.fillMaxSize().clip(CircleShape),
                 )
             } else {
-                Surface(shape = CircleShape, color = if (session == null) SpiceSurface else SpicePink, modifier = Modifier.fillMaxSize()) {
+                Surface(shape = CircleShape, color = if (session == null) SpiceSurface else MaterialTheme.colorScheme.primary, modifier = Modifier.fillMaxSize()) {
                 Box(contentAlignment = Alignment.Center) {
                         Text(initials, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
                     }
@@ -467,6 +495,7 @@ private fun profileInitials(email: String?, id: String?): String {
 private fun ProfileSheet(
     uiState: SpiceUiState,
     onDismiss: () -> Unit,
+    onEditProfile: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -488,7 +517,7 @@ private fun ProfileSheet(
         ) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Surface(shape = CircleShape, color = SpicePink, modifier = Modifier.size(72.dp)) {
+                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(72.dp)) {
                         if (!avatarUrl.isNullOrBlank()) {
                             AsyncImage(
                                 model = avatarUrl,
@@ -530,12 +559,124 @@ private fun ProfileSheet(
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = onOpenSettings, modifier = Modifier.weight(1f)) {
+                    Button(onClick = onEditProfile, enabled = session != null, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Rounded.Edit, null)
+                        Text("Edit", modifier = Modifier.padding(start = 8.dp))
+                    }
+                    TextButton(onClick = onOpenSettings, modifier = Modifier.weight(1f)) {
                         Icon(Icons.Rounded.Settings, null)
                         Text("Account", modifier = Modifier.padding(start = 8.dp))
                     }
-                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text("Close")
+                }
+            }
+            item {
+                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                    Text("Close")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProfileEditorSheet(
+    uiState: SpiceUiState,
+    onDismiss: () -> Unit,
+    onDisplayNameChanged: (String) -> Unit,
+    onUsernameChanged: (String) -> Unit,
+    onAvatarUrlChanged: (String) -> Unit,
+    onBioChanged: (String) -> Unit,
+    onPrivateChanged: (Boolean) -> Unit,
+    onSave: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        modifier = Modifier.imePadding(),
+        containerColor = SpiceSurface,
+    ) {
+        LazyColumn(
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Text("Edit Spice profile", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("Saved to your Spice account profile.", color = SpiceTextMuted, fontSize = 13.sp)
+            }
+            item {
+                OutlinedTextField(
+                    value = uiState.profileEditDisplayName,
+                    onValueChange = onDisplayNameChanged,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Display name") },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    shape = RoundedCornerShape(8.dp),
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = uiState.profileEditUsername,
+                    onValueChange = onUsernameChanged,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Username") },
+                    supportingText = { Text("3-20 letters, numbers, or underscores.") },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    shape = RoundedCornerShape(8.dp),
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = uiState.profileEditAvatarUrl,
+                    onValueChange = onAvatarUrlChanged,
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Profile picture URL") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+                    shape = RoundedCornerShape(8.dp),
+                )
+            }
+            item {
+                OutlinedTextField(
+                    value = uiState.profileEditBio,
+                    onValueChange = onBioChanged,
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    maxLines = 4,
+                    label = { Text("Bio") },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { onSave() }),
+                    shape = RoundedCornerShape(8.dp),
+                )
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Private profile", fontWeight = FontWeight.SemiBold)
+                        Text("Hide bio, stats, and playlists from other listeners.", color = SpiceTextMuted, fontSize = 12.sp)
+                    }
+                    Switch(checked = uiState.profileEditPrivate, onCheckedChange = onPrivateChanged)
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TextButton(onClick = onDismiss, enabled = !uiState.profileEditLoading, modifier = Modifier.weight(1f)) {
+                        Text("Cancel")
+                    }
+                    Button(onClick = onSave, enabled = !uiState.profileEditLoading, modifier = Modifier.weight(1f)) {
+                        if (uiState.profileEditLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Rounded.Check, null)
+                        }
+                        Text("Save", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
             }
@@ -657,7 +798,7 @@ private fun HomeScreen(
         if (uiState.homeLoading) {
             item {
                 Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = SpicePink)
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                 }
             }
         } else if (uiState.homeSections.isEmpty()) {
@@ -718,7 +859,7 @@ private fun TrackCard(track: Track, onTrackSelected: (Track) -> Unit) {
             )
             Surface(
                 shape = CircleShape,
-                color = SpicePink,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).size(36.dp),
             ) {
                 Icon(Icons.Rounded.PlayArrow, null, modifier = Modifier.padding(8.dp), tint = Color.White)
@@ -1157,6 +1298,8 @@ private fun SettingsScreen(
     onAuthUsernameChanged: (String) -> Unit,
     onSubmitAccount: () -> Unit,
     onSignOut: () -> Unit,
+    onAccentSelected: (AccentTheme) -> Unit,
+    onOpenProfileEditor: () -> Unit,
     onSyncNow: () -> Unit,
     onRefreshSpiceConnect: () -> Unit,
     onSendSpiceConnectCommand: (String, String) -> Unit,
@@ -1190,6 +1333,13 @@ private fun SettingsScreen(
         when (selectedTab) {
             SettingsTab.General -> {
                 item {
+                    AccentSection(
+                        selected = uiState.accentTheme,
+                        onSelected = onAccentSelected,
+                    )
+                }
+                item { HorizontalDivider() }
+                item {
                     AccountSection(
                         uiState = uiState,
                         onAuthModeSelected = onAuthModeSelected,
@@ -1198,6 +1348,7 @@ private fun SettingsScreen(
                         onAuthUsernameChanged = onAuthUsernameChanged,
                         onSubmitAccount = onSubmitAccount,
                         onSignOut = onSignOut,
+                        onOpenProfileEditor = onOpenProfileEditor,
                         onSyncNow = onSyncNow,
                         onRefreshPendingInvites = onRefreshPendingInvites,
                         onAcceptPendingInvite = onAcceptPendingInvite,
@@ -1234,6 +1385,67 @@ private fun SettingsScreen(
 }
 
 @Composable
+private fun AccentSection(selected: AccentTheme, onSelected: (AccentTheme) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Rounded.Palette, null)
+            Text("Global Accent Colors", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        }
+        Text(
+            "Select a dynamic accent theme for highlights, buttons, and player controls.",
+            color = SpiceTextMuted,
+            fontSize = 13.sp,
+        )
+        AccentTheme.entries.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                row.forEach { theme ->
+                    AccentCard(
+                        theme = theme,
+                        selected = selected == theme,
+                        onSelected = onSelected,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccentCard(
+    theme: AccentTheme,
+    selected: Boolean,
+    onSelected: (AccentTheme) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        onClick = { onSelected(theme) },
+        modifier = modifier.height(64.dp),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Black),
+        border = BorderStroke(
+            width = if (selected) 2.dp else 1.dp,
+            color = if (selected) theme.toColor() else Color.White.copy(alpha = 0.08f),
+        ),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = theme.toColor(),
+                modifier = Modifier.size(28.dp),
+                shadowElevation = if (selected) 8.dp else 0.dp,
+            ) {}
+            Text(theme.label, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable
 private fun AccountSection(
     uiState: SpiceUiState,
     onAuthModeSelected: (AuthMode) -> Unit,
@@ -1242,6 +1454,7 @@ private fun AccountSection(
     onAuthUsernameChanged: (String) -> Unit,
     onSubmitAccount: () -> Unit,
     onSignOut: () -> Unit,
+    onOpenProfileEditor: () -> Unit,
     onSyncNow: () -> Unit,
     onRefreshPendingInvites: () -> Unit,
     onAcceptPendingInvite: (PendingPlaylistInvite) -> Unit,
@@ -1273,6 +1486,10 @@ private fun AccountSection(
                 TextButton(onClick = onSignOut, enabled = !uiState.syncLoading && !uiState.accountLoading) {
                     Text("Sign out")
                 }
+            }
+            TextButton(onClick = onOpenProfileEditor, enabled = !uiState.profileEditLoading, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.Edit, null)
+                Text("Edit Spice profile", modifier = Modifier.padding(start = 8.dp))
             }
             PendingInviteSection(
                 invites = uiState.pendingAccountInvites,
@@ -1708,7 +1925,7 @@ private fun PlaylistMemberRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Surface(shape = CircleShape, color = SpicePink, modifier = Modifier.size(34.dp)) {
+        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(34.dp)) {
             Box(contentAlignment = Alignment.Center) {
                 Text(memberInitials(member), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
@@ -1799,7 +2016,7 @@ private fun TermsSection() {
         }
         Text(
             "Redistributing the APK means keeping these notices, the source links, and the matching source availability for GPL components.",
-            color = SpicePink,
+            color = MaterialTheme.colorScheme.primary,
             fontSize = 13.sp,
         )
     }
@@ -1831,7 +2048,7 @@ private fun LicenseCard(entry: LicenseEntry) {
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(entry.name, fontWeight = FontWeight.Bold)
-            Text(entry.license, color = SpicePink, fontSize = 13.sp)
+            Text(entry.license, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
             Text(entry.purpose, color = SpiceTextMuted, fontSize = 13.sp)
             Text(entry.url, color = SpiceCyan, fontSize = 12.sp)
         }
@@ -1856,8 +2073,7 @@ private fun MiniPlayer(
     queueIndex: Int,
     onOpen: () -> Unit,
     onToggle: () -> Unit,
-    onNext: () -> Unit,
-    onPrevious: () -> Unit,
+    onSeekTo: (Long) -> Unit,
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
 ) {
@@ -1866,15 +2082,15 @@ private fun MiniPlayer(
         color = SpiceSurfaceHigh,
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
     ) {
-        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AsyncImage(
                     model = track.artworkUrl,
                     contentDescription = track.title,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(6.dp)),
+                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(6.dp)),
                 )
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
                     Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
                     Text(
@@ -1895,43 +2111,37 @@ private fun MiniPlayer(
                         fontSize = 12.sp,
                     )
                 }
+                IconButton(onClick = onShuffle, modifier = Modifier.size(34.dp)) {
+                    Icon(Icons.Rounded.Shuffle, "Shuffle", tint = if (player.shuffleEnabled) MaterialTheme.colorScheme.primary else Color.White)
+                }
+                IconButton(onClick = onRepeat, modifier = Modifier.size(34.dp)) {
+                    Icon(
+                        if (player.repeatMode == RepeatMode.One) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                        "Repeat",
+                        tint = if (player.repeatMode != RepeatMode.Off) MaterialTheme.colorScheme.primary else Color.White,
+                    )
+                }
                 if (resolving || player.isBuffering) {
                     CircularProgressIndicator(modifier = Modifier.size(30.dp), strokeWidth = 3.dp)
                 } else {
-                    FilledIconButton(onClick = onToggle) {
+                    FilledIconButton(onClick = onToggle, modifier = Modifier.size(42.dp)) {
                         Icon(if (player.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Play or pause")
                     }
                 }
             }
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 58.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onShuffle, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Rounded.Shuffle, "Shuffle", tint = if (player.shuffleEnabled) SpicePink else Color.White)
-                }
-                IconButton(onClick = onPrevious, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Rounded.SkipPrevious, "Previous track")
-                }
-                IconButton(onClick = onNext, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Rounded.SkipNext, "Next track")
-                }
-                IconButton(onClick = onRepeat, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        if (player.repeatMode == RepeatMode.One) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                        "Repeat",
-                        tint = if (player.repeatMode != RepeatMode.Off) SpicePink else Color.White,
-                    )
-                }
-            }
+            Slider(
+                value = player.positionMs.coerceAtMost(player.durationMs).toFloat(),
+                onValueChange = { onSeekTo(it.toLong()) },
+                valueRange = 0f..player.durationMs.coerceAtLeast(1).toFloat(),
+                modifier = Modifier.fillMaxWidth().height(18.dp),
+            )
         }
     }
 }
 
 @Composable
 private fun SpiceNavigation(selected: AppScreen, onSelected: (AppScreen) -> Unit) {
-    NavigationBar(containerColor = SpiceBackground) {
+    NavigationBar(containerColor = SpiceBackground, modifier = Modifier.height(56.dp)) {
         AppScreen.entries.forEach { screen ->
             val icon = when (screen) {
                 AppScreen.Home -> Icons.Rounded.Home
@@ -1943,7 +2153,6 @@ private fun SpiceNavigation(selected: AppScreen, onSelected: (AppScreen) -> Unit
                 selected = selected == screen,
                 onClick = { onSelected(screen) },
                 icon = { Icon(icon, screen.label) },
-                label = { Text(screen.label) },
             )
         }
     }
@@ -1960,7 +2169,6 @@ private fun FullPlayer(
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onSeekTo: (Long) -> Unit,
-    onSeekBy: (Long) -> Unit,
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
     queueSize: Int,
@@ -1978,7 +2186,7 @@ private fun FullPlayer(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        modifier = Modifier.fillMaxHeight(0.96f),
+        modifier = Modifier.fillMaxHeight(0.96f).imePadding(),
         containerColor = SpiceSurface,
     ) {
         Column(
@@ -2002,33 +2210,13 @@ private fun FullPlayer(
                     }
                 }
                 IconButton(onClick = onLike) {
-                    Icon(if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Like", tint = if (liked) SpicePink else Color.White)
+                    Icon(if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Like", tint = if (liked) MaterialTheme.colorScheme.primary else Color.White)
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = onLyrics, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Rounded.MusicNote, null)
                     Text("Lyrics", modifier = Modifier.padding(start = 6.dp))
-                }
-                TextButton(onClick = onShuffle, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Rounded.Shuffle, null, tint = if (player.shuffleEnabled) SpicePink else Color.White)
-                    Text("Shuffle", modifier = Modifier.padding(start = 6.dp), color = if (player.shuffleEnabled) SpicePink else Color.White)
-                }
-                TextButton(onClick = onRepeat, modifier = Modifier.weight(1f)) {
-                    Icon(
-                        if (player.repeatMode == RepeatMode.One) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                        null,
-                        tint = if (player.repeatMode != RepeatMode.Off) SpicePink else Color.White,
-                    )
-                    Text(
-                        when (player.repeatMode) {
-                            RepeatMode.One -> "One"
-                            RepeatMode.All -> "Repeat"
-                            RepeatMode.Off -> "Repeat"
-                        },
-                        modifier = Modifier.padding(start = 6.dp),
-                        color = if (player.repeatMode != RepeatMode.Off) SpicePink else Color.White,
-                    )
                 }
             }
             val downloading = downloadTrackId == track.id
@@ -2062,13 +2250,21 @@ private fun FullPlayer(
                 Text(formatTime(player.durationMs), color = SpiceTextMuted, fontSize = 12.sp)
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                IconButton(onClick = onShuffle) {
+                    Icon(Icons.Rounded.Shuffle, "Shuffle", tint = if (player.shuffleEnabled) MaterialTheme.colorScheme.primary else Color.White)
+                }
                 IconButton(onClick = onPrevious) { Icon(Icons.Rounded.SkipPrevious, "Previous track") }
-                IconButton(onClick = { onSeekBy(-10_000) }) { Icon(Icons.Rounded.Replay10, "Back 10 seconds") }
                 FilledIconButton(onClick = onToggle, modifier = Modifier.size(64.dp)) {
                     Icon(if (player.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Play or pause", modifier = Modifier.size(34.dp))
                 }
-                IconButton(onClick = { onSeekBy(10_000) }) { Icon(Icons.Rounded.Forward10, "Forward 10 seconds") }
                 IconButton(onClick = onNext) { Icon(Icons.Rounded.SkipNext, "Next track") }
+                IconButton(onClick = onRepeat) {
+                    Icon(
+                        if (player.repeatMode == RepeatMode.One) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                        "Repeat",
+                        tint = if (player.repeatMode != RepeatMode.Off) MaterialTheme.colorScheme.primary else Color.White,
+                    )
+                }
             }
             TextButton(onClick = { onStop(); onDismiss() }) {
                 Icon(Icons.Rounded.Stop, null)
