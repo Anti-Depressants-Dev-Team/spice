@@ -36,6 +36,9 @@ export interface PlaybackSaveState {
   queue: TrackSnapshot[];
   queueIndex: number;
   progress: number;
+  repeatMode?: 'none' | 'all' | 'one';
+  isShuffle?: boolean;
+  volume?: number;
   savedAt: number;
 }
 

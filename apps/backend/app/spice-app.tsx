@@ -38,6 +38,11 @@ const LISTEN_TOGETHER_HOST_INVITE_POLL_INTERVAL_MS = 30 * 1000;
 const LISTEN_TOGETHER_SYNC_INTERVAL_MS = 5000;
 const UPDATE_RELOAD_REMOTE_SUPPRESS_MS = 30 * 1000;
 const UPDATE_RELOAD_REMOTE_SUPPRESS_KEY = 'spice_update_reload_remote_suppress_until';
+const PLAYBACK_STREAM_RETRY_LIMIT = 3;
+const PLAYBACK_STREAM_RETRY_DELAY_MS = 1200;
+const PLAYER_VOLUME_STORAGE_KEY = 'spice_player_volume';
+const PLAYER_SHUFFLE_STORAGE_KEY = 'spice_is_shuffle';
+const PLAYER_REPEAT_STORAGE_KEY = 'spice_repeat_mode';
 const MAX_LOCAL_PROFILES = 6;
 const SPICE_MEDIA_CORE_LABEL = `Spice Media Core v${SPICE_MEDIA_CORE_VERSION}`;
 const LASTFM_CALLBACK_ORIGIN_STORAGE_KEY = 'spice_lastfm_callback_origin';
@@ -550,6 +555,8 @@ type ArtworkShape = 'rounded' | 'soft' | 'circle';
 type MotionLevel = 'full' | 'calm' | 'off';
 type InterfaceScale = 'compact' | 'comfortable' | 'spacious';
 type PlayerBarDensity = 'standard' | 'slim';
+type PlayerVisualStyle = 'spice' | 'vk';
+type TopbarSearchMode = SearchProvider | 'users';
 type ReceiverSelectVariant = 'bar' | 'expanded' | 'mini';
 type AccountRole = 'user' | 'admin' | string;
 type SpiceNoticeKind = 'success' | 'info' | 'warning' | 'danger';
@@ -581,6 +588,11 @@ const SEARCH_PROVIDER_LABELS: Record<SearchProvider, string> = {
   soundcloud: 'SoundCloud',
 };
 
+const TOPBAR_SEARCH_MODE_LABELS: Record<TopbarSearchMode, string> = {
+  ...SEARCH_PROVIDER_LABELS,
+  users: 'Users',
+};
+
 const VISUAL_SURFACE_LABELS: Record<VisualSurface, string> = {
   midnight: 'Midnight Black',
   glass: 'Soft Glass',
@@ -609,6 +621,11 @@ const INTERFACE_SCALE_LABELS: Record<InterfaceScale, string> = {
 const PLAYER_BAR_DENSITY_LABELS: Record<PlayerBarDensity, string> = {
   standard: 'Standard Bar',
   slim: 'Slim Bar',
+};
+
+const PLAYER_VISUAL_STYLE_LABELS: Record<PlayerVisualStyle, string> = {
+  spice: 'SPICE Default',
+  vk: 'VK Compact',
 };
 
 const PROFILE_SYNC_STATUS_LABELS: Record<ProfileSyncStatus, string> = {
@@ -828,6 +845,22 @@ const isInterfaceScale = (value: string | null): value is InterfaceScale =>
 
 const isPlayerBarDensity = (value: string | null): value is PlayerBarDensity =>
   value === 'standard' || value === 'slim';
+
+const isPlayerVisualStyle = (value: string | null): value is PlayerVisualStyle =>
+  value === 'spice' || value === 'vk';
+
+const isTopbarSearchMode = (value: string | null): value is TopbarSearchMode =>
+  value === 'users' || isSearchProvider(value);
+
+const isRepeatMode = (value: unknown): value is 'none' | 'all' | 'one' =>
+  value === 'none' || value === 'all' || value === 'one';
+
+const normalizePlayerVolume = (value: unknown, boosterAccepted: boolean) => {
+  const numericValue = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numericValue)) return null;
+  const maxVolume = boosterAccepted ? 1000 : 200;
+  return Math.max(0, Math.min(maxVolume, Math.round(numericValue)));
+};
 
 const playableSearchTracks = (tracks: Track[]) =>
   tracks.filter((track) => !track.previewOnly);
@@ -1317,6 +1350,7 @@ export default function SpiceApp() {
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const [sidebarSearchEnabled, setSidebarSearchEnabled] = useState(true);
   const [sidebarProfileEnabled, setSidebarProfileEnabled] = useState(true);
+  const [sidebarSettingsEnabled, setSidebarSettingsEnabled] = useState(true);
   const [profileSyncEnabled, setProfileSyncEnabled] = useState(false);
   const [lastFmSessionKey, setLastFmSessionKey] = useState('');
   const [lastFmAccountLinked, setLastFmAccountLinked] = useState(false);
@@ -1751,9 +1785,9 @@ export default function SpiceApp() {
   const [isLocalDbFallback, setIsLocalDbFallback] = useState<boolean>(false);
   const [remoteControlEnabled, setRemoteControlEnabled] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('spice_remote_control_enabled') !== 'false';
+      return localStorage.getItem('spice_remote_control_enabled') === 'true';
     }
-    return true;
+    return false;
   });
   const [remoteDeviceId] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -1783,6 +1817,7 @@ export default function SpiceApp() {
   const [playerPlacement, setPlayerPlacement] = useState<'bottom' | 'top'>('bottom');
   const [playerViewMode, setPlayerViewMode] = useState<'bar' | 'expanded' | 'mini'>('bar');
   const [playerBarDensity, setPlayerBarDensity] = useState<PlayerBarDensity>('standard');
+  const [playerVisualStyle, setPlayerVisualStyle] = useState<PlayerVisualStyle>('spice');
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
   const [miniPlayerPos, setMiniPlayerPos] = useState<{ x: number; y: number } | null>(null);
   const [isDraggingMini, setIsDraggingMini] = useState(false);
@@ -2014,6 +2049,7 @@ export default function SpiceApp() {
   const isShuffleRef = useRef(isShuffle);
   const activeProfileRef = useRef(activeProfile);
   const activeProfileIdRef = useRef(activeProfileId);
+  const listenTogetherHostSessionIdRef = useRef(listenTogetherHostSessionId);
   const cloudTokenRef = useRef(cloudToken);
   const cloudUserRef = useRef(cloudUser);
   const cloudUsernameRef = useRef(cloudUsername);
@@ -2024,7 +2060,9 @@ export default function SpiceApp() {
   const isLoadingStreamRef = useRef(isLoadingStream);
   const durationRef = useRef(duration);
   const volumeRef = useRef(volume);
-  const errorSkipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const playbackRetryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const playbackRetryCountsRef = useRef<Map<string, number>>(new Map());
+  const playbackTelemetryRecordedRef = useRef<Set<string>>(new Set());
   const playbackRequestRef = useRef(0);
   const shouldAutoPlayRef = useRef(false);
   const clientBootedAtRef = useRef(0);
@@ -2041,15 +2079,16 @@ export default function SpiceApp() {
 
   const handleAudioEndedRef = useRef<() => void>(() => { });
   const handleAudioErrorRef = useRef<() => void>(() => { });
-  const playTrackRef = useRef<(track: Track, newQueue?: Track[], startSearchIndex?: number, isSyncLoopCall?: boolean) => Promise<void>>(async () => { });
-  const handleNextRef = useRef<(overrideIndex?: any, startSearchIndex?: number) => void>(() => { });
+  const playTrackRef = useRef<(track: Track, newQueue?: Track[], queueIndexHint?: number, isSyncLoopCall?: boolean, isRetryCall?: boolean) => Promise<void>>(async () => { });
+  const handleNextRef = useRef<(overrideIndex?: any) => void>(() => { });
 
   useEffect(() => {
     activeProfileIdRef.current = activeProfileId;
+    listenTogetherHostSessionIdRef.current = listenTogetherHostSessionId;
     cloudTokenRef.current = cloudToken;
     cloudUserRef.current = cloudUser;
     cloudUsernameRef.current = cloudUsername;
-  }, [activeProfileId, cloudToken, cloudUser, cloudUsername]);
+  }, [activeProfileId, listenTogetherHostSessionId, cloudToken, cloudUser, cloudUsername]);
 
   const autoSyncProfiles = (updatedProfiles: UserProfile[]) => {
     if (!cloudToken) return;
@@ -2372,6 +2411,7 @@ export default function SpiceApp() {
   // Load localStorage states safely on client mount to prevent SSR hydration mismatch
   useEffect(() => {
     setIsMounted(true);
+    let restoredVolumeBoosterAccepted = false;
     if (typeof window !== 'undefined') {
       const now = currentTimestampMs();
       clientBootedAtRef.current = now;
@@ -2383,7 +2423,8 @@ export default function SpiceApp() {
       }
 
       const savedBooster = localStorage.getItem('spice_volume_booster_accepted');
-      if (savedBooster === 'true') setVolumeBoosterAccepted(true);
+      restoredVolumeBoosterAccepted = savedBooster === 'true';
+      if (restoredVolumeBoosterAccepted) setVolumeBoosterAccepted(true);
     }
     if (typeof window !== 'undefined') {
       const savedTheme = localStorage.getItem('spice_accent_theme');
@@ -2450,6 +2491,11 @@ export default function SpiceApp() {
         setSidebarProfileEnabled(savedSidebarProfile !== 'false');
       }
 
+      const savedSidebarSettings = localStorage.getItem('spice_sidebar_settings_enabled');
+      if (savedSidebarSettings !== null) {
+        setSidebarSettingsEnabled(savedSidebarSettings !== 'false');
+      }
+
       const savedLocalDb = localStorage.getItem('spice_local_db_fallback');
       if (savedLocalDb) setIsLocalDbFallback(savedLocalDb === 'true');
 
@@ -2462,11 +2508,17 @@ export default function SpiceApp() {
       const savedPlayerBarDensity = localStorage.getItem('spice_player_bar_density');
       if (isPlayerBarDensity(savedPlayerBarDensity)) setPlayerBarDensity(savedPlayerBarDensity);
 
-      const savedShuffle = localStorage.getItem('spice_is_shuffle');
-      if (savedShuffle) setIsShuffle(savedShuffle === 'true');
+      const savedPlayerVisualStyle = localStorage.getItem('spice_player_visual_style');
+      if (isPlayerVisualStyle(savedPlayerVisualStyle)) setPlayerVisualStyle(savedPlayerVisualStyle);
 
-      const savedRepeat = localStorage.getItem('spice_repeat_mode');
-      if (savedRepeat) setRepeatMode(savedRepeat as any);
+      const savedShuffle = localStorage.getItem(PLAYER_SHUFFLE_STORAGE_KEY);
+      if (savedShuffle !== null) setIsShuffle(savedShuffle === 'true');
+
+      const savedRepeat = localStorage.getItem(PLAYER_REPEAT_STORAGE_KEY);
+      if (isRepeatMode(savedRepeat)) setRepeatMode(savedRepeat);
+
+      const savedVolume = normalizePlayerVolume(localStorage.getItem(PLAYER_VOLUME_STORAGE_KEY), restoredVolumeBoosterAccepted);
+      if (savedVolume !== null) setVolume(savedVolume);
 
       const savedProfiles = localStorage.getItem('spice_profiles_list');
       const savedActiveId = localStorage.getItem('spice_active_profile_id') || 'default';
@@ -2528,6 +2580,10 @@ export default function SpiceApp() {
           setQueue(savedPlayback.queue.length > 0 ? savedPlayback.queue : [savedPlayback.currentTrack]);
           setQueueIndex(Math.min(savedPlayback.queueIndex, Math.max(savedPlayback.queue.length - 1, 0)));
           setProgress(savedPlayback.progress);
+          if (isRepeatMode(savedPlayback.repeatMode)) setRepeatMode(savedPlayback.repeatMode);
+          if (typeof savedPlayback.isShuffle === 'boolean') setIsShuffle(savedPlayback.isShuffle);
+          const savedPlaybackVolume = normalizePlayerVolume(savedPlayback.volume, restoredVolumeBoosterAccepted);
+          if (savedPlaybackVolume !== null) setVolume(savedPlaybackVolume);
         } else if (hydratedHistory.length > 0) {
           setCurrentTrack(hydratedHistory[0]);
           setQueue([hydratedHistory[0]]);
@@ -2636,6 +2692,9 @@ export default function SpiceApp() {
         queue,
         queueIndex,
         progress: progressRef.current,
+        repeatMode,
+        isShuffle,
+        volume,
         savedAt: Date.now(),
       });
     };
@@ -2643,7 +2702,14 @@ export default function SpiceApp() {
 
     const interval = setInterval(persistPlayback, 5000);
     return () => clearInterval(interval);
-  }, [activeProfileId, currentTrack, isMounted, queue, queueIndex]);
+  }, [activeProfileId, currentTrack, isMounted, isShuffle, queue, queueIndex, repeatMode, volume]);
+
+  useEffect(() => {
+    if (!isMounted || typeof window === 'undefined') return;
+    localStorage.setItem(PLAYER_SHUFFLE_STORAGE_KEY, String(isShuffle));
+    localStorage.setItem(PLAYER_REPEAT_STORAGE_KEY, repeatMode);
+    localStorage.setItem(PLAYER_VOLUME_STORAGE_KEY, String(volume));
+  }, [isMounted, isShuffle, repeatMode, volume]);
 
   const initializeYtPlayer = useCallback(() => {
     if (typeof window === 'undefined' || ytPlayerRef.current) return;
@@ -2722,15 +2788,15 @@ export default function SpiceApp() {
               && !embedProxyRetryRef.current.has(activeTrackKey)
             ) {
               embedProxyRetryRef.current.add(activeTrackKey);
-              logDebug('diagnostics', 'YouTube embed was blocked. Retrying this track with the direct proxy transport before skipping.');
+              logDebug('diagnostics', 'YouTube embed was blocked. Retrying this track with the direct proxy transport.');
               setShowVideoPlayer(false);
               setStreamProtocol('proxy');
               streamProtocolRef.current = 'proxy';
               localStorage.setItem('spice_stream_protocol', 'proxy');
-              void playTrackRef.current(activeTrack, queueRef.current, queueIndexRef.current);
+              void playTrackRef.current(activeTrack, queueRef.current, queueIndexRef.current, Boolean(listenTogetherHostSessionIdRef.current), true);
               return;
             }
-            // Trigger self-healing error skip logic upon iframe playback error
+            // Keep iframe failures on the same user-requested track.
             handleAudioErrorRef.current?.();
           }
         }
@@ -3471,7 +3537,69 @@ export default function SpiceApp() {
     setIsPlaying(nextPlaying);
   };
 
+  const clearPlaybackRetryTimer = () => {
+    if (playbackRetryTimeoutRef.current) {
+      clearTimeout(playbackRetryTimeoutRef.current);
+      playbackRetryTimeoutRef.current = null;
+    }
+  };
+
+  const schedulePlaybackRetry = (track: Track, retryQueue: Track[], reason: string) => {
+    if (!track || track.id === 'placeholder') return false;
+
+    const trackKey = playbackTrackKey(track);
+    const isListenTogetherRetry = Boolean(listenTogetherHostSessionIdRef.current);
+    const nextAttempt = (playbackRetryCountsRef.current.get(trackKey) ?? 0) + 1;
+
+    if (nextAttempt > PLAYBACK_STREAM_RETRY_LIMIT) {
+      playbackRetryCountsRef.current.delete(trackKey);
+      shouldAutoPlayRef.current = false;
+      setPlaybackPlaying(false);
+      setIsLoadingStream(false);
+      isLoadingStreamRef.current = false;
+      setError('Playback failed after repeated retries. Press play to try again or choose another track.');
+      logDebug('error', `Playback failed after ${PLAYBACK_STREAM_RETRY_LIMIT} retries for "${track.title}". ${reason}`);
+      return true;
+    }
+
+    playbackRetryCountsRef.current.set(trackKey, nextAttempt);
+    clearPlaybackRetryTimer();
+
+    const delay = PLAYBACK_STREAM_RETRY_DELAY_MS * nextAttempt;
+    const queueSnapshot = retryQueue.length > 0 ? retryQueue : [track];
+    setPlaybackPlaying(false);
+    setIsLoadingStream(false);
+    isLoadingStreamRef.current = false;
+    setError(`Playback failed. Retrying this track (${nextAttempt}/${PLAYBACK_STREAM_RETRY_LIMIT})...`);
+    logDebug('player', `Playback failed for "${track.title}". Retrying the same track in ${delay}ms (${nextAttempt}/${PLAYBACK_STREAM_RETRY_LIMIT}). ${reason}`);
+
+    playbackRetryTimeoutRef.current = setTimeout(() => {
+      playbackRetryTimeoutRef.current = null;
+      if (!shouldAutoPlayRef.current && !isPlayingRef.current) return;
+      void playTrackRef.current(track, queueSnapshot, undefined, isListenTogetherRetry, true);
+    }, delay);
+
+    return true;
+  };
+
+  const recordPlaybackTelemetry = (track: Track) => {
+    const trackKey = playbackTrackKey(track);
+    if (playbackTelemetryRecordedRef.current.has(trackKey)) return;
+    playbackTelemetryRecordedRef.current.add(trackKey);
+
+    const filteredHist = history.filter(t => t.id !== track.id);
+    const newHist = [track, ...filteredHist].slice(0, 50);
+    setHistory(newHist);
+    updateActiveProfileData({
+      history: newHist,
+      songsPlayed: activeProfile.songsPlayed + 1
+    });
+    autoSyncHistory(newHist);
+  };
+
   const handleAudioEnded = () => {
+    playbackRetryCountsRef.current.delete(playbackTrackKey(currentTrackRef.current));
+
     // Increment songs played on completion
     const currentSongsPlayed = activeProfileRef.current?.songsPlayed ?? 0;
     const updatedSongsCount = currentSongsPlayed + 1;
@@ -3533,10 +3661,7 @@ export default function SpiceApp() {
     const playbackWasRequested = shouldAutoPlayRef.current || isPlayingRef.current;
 
     if (!playbackWasRequested) {
-      if (errorSkipTimeoutRef.current) {
-        clearTimeout(errorSkipTimeoutRef.current);
-        errorSkipTimeoutRef.current = null;
-      }
+      clearPlaybackRetryTimer();
       setStreamUrl(null);
       streamUrlRef.current = null;
       setIsLoadingStream(false);
@@ -3554,30 +3679,16 @@ export default function SpiceApp() {
     ) {
       directEmbedRetryRef.current.add(activeTrackKey);
       setError('Direct audio failed. Falling back to the YouTube embedded player...');
-      logDebug('diagnostics', 'Direct audio playback failed after stream resolution. Retrying this track in the YouTube embed transport before skipping.');
+      logDebug('diagnostics', 'Direct audio playback failed after stream resolution. Retrying this track in the YouTube embed transport.');
       setStreamProtocol('embed');
       streamProtocolRef.current = 'embed';
       setStreamUrl('youtube-embed-active');
       streamUrlRef.current = 'youtube-embed-active';
-      void playTrackRef.current(activeTrack, queueRef.current, queueIndexRef.current);
+      void playTrackRef.current(activeTrack, queueRef.current, queueIndexRef.current, Boolean(listenTogetherHostSessionIdRef.current), true);
       return;
     }
 
-    setIsPlaying(false);
-    setIsLoadingStream(false);
-    setError('Playback failed. Attempting self-healing skip to next queue item...');
-
-    const currentQueue = queueRef.current;
-    if (currentQueue.length > 1) {
-      logDebug('player', 'Playback error encountered. Scheduling self-healing skip in 1.5s...');
-      if (errorSkipTimeoutRef.current) {
-        clearTimeout(errorSkipTimeoutRef.current);
-      }
-      errorSkipTimeoutRef.current = setTimeout(() => {
-        handleNextRef.current();
-        errorSkipTimeoutRef.current = null;
-      }, 1500);
-    } else {
+    if (!schedulePlaybackRetry(activeTrack, queueRef.current, 'Audio element or iframe reported a playback error.')) {
       setError('Failed to play stream. Upstream YouTube Music connection reset.');
     }
   };
@@ -3820,9 +3931,7 @@ export default function SpiceApp() {
 
   useEffect(() => {
     return () => {
-      if (errorSkipTimeoutRef.current) {
-        clearTimeout(errorSkipTimeoutRef.current);
-      }
+      clearPlaybackRetryTimer();
     };
   }, []);
 
@@ -3926,23 +4035,30 @@ export default function SpiceApp() {
   }, [playedTracksCount]);
 
   // Play a track
-  const playTrack = async (track: Track, newQueue?: Track[], startSearchIndex?: number, isSyncLoopCall?: boolean) => {
+  const playTrack = async (track: Track, newQueue?: Track[], _queueIndexHint?: number, isSyncLoopCall?: boolean, isRetryCall = false) => {
     if (listenTogetherHostSessionId && !isSyncLoopCall) {
       showSpiceNotice('You cannot change tracks while listening in a Listen Together session.', 'warning');
       return;
     }
 
-    setPlayedTracksCount(prev => prev + 1);
-    if (errorSkipTimeoutRef.current) {
-      clearTimeout(errorSkipTimeoutRef.current);
-      errorSkipTimeoutRef.current = null;
+    if (!isRetryCall) {
+      setPlayedTracksCount(prev => prev + 1);
     }
+    clearPlaybackRetryTimer();
 
     if (!track || track.id === 'placeholder') {
       shouldAutoPlayRef.current = false;
       setIsLoadingStream(false);
       logDebug('player', 'Ready to stream. Select any track from the lists to begin playback.');
       return;
+    }
+
+    const trackKey = playbackTrackKey(track);
+    if (!isRetryCall) {
+      playbackRetryCountsRef.current.delete(trackKey);
+      directEmbedRetryRef.current.delete(trackKey);
+      embedProxyRetryRef.current.delete(trackKey);
+      playbackTelemetryRecordedRef.current.delete(trackKey);
     }
 
     const requestId = ++playbackRequestRef.current;
@@ -3997,14 +4113,7 @@ export default function SpiceApp() {
         isLoadingStreamRef.current = false;
         setPlaybackPlaying(shouldStartNow);
 
-        const filteredHist = history.filter(t => t.id !== track.id);
-        const newHist = [track, ...filteredHist].slice(0, 50);
-        setHistory(newHist);
-        updateActiveProfileData({
-          history: newHist,
-          songsPlayed: activeProfile.songsPlayed + 1
-        });
-        autoSyncHistory(newHist);
+        recordPlaybackTelemetry(track);
 
         if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
           if (typeof ytPlayerRef.current.stopVideo === 'function') {
@@ -4045,17 +4154,7 @@ export default function SpiceApp() {
       streamUrlRef.current = resolvedStreamUrl;
       setPlaybackPlaying(shouldStartNow);
 
-      // Track playback in history
-      const filteredHist = history.filter(t => t.id !== track.id);
-      const newHist = [track, ...filteredHist].slice(0, 50);
-      setHistory(newHist);
-
-      // Sync history & stats increments to active profile
-      updateActiveProfileData({
-        history: newHist,
-        songsPlayed: activeProfile.songsPlayed + 1
-      });
-      autoSyncHistory(newHist);
+      recordPlaybackTelemetry(track);
 
     } catch (err: any) {
       if (requestId !== playbackRequestRef.current) return;
@@ -4063,7 +4162,7 @@ export default function SpiceApp() {
       logDebug('error', `Track streaming failed: ${err.message || err}`);
 
       if (isYouTubeTrack(track) && streamProtocolRef.current !== 'embed') {
-        logDebug('diagnostics', `Direct stream resolution failed. Initiating self-healing fallback to YouTube Embedded Player...`);
+        logDebug('diagnostics', `Direct stream resolution failed. Retrying this track in the YouTube Embedded Player...`);
         const shouldStartNow = shouldAutoPlayRef.current;
         setStreamProtocol('embed');
         streamProtocolRef.current = 'embed';
@@ -4075,14 +4174,7 @@ export default function SpiceApp() {
         isLoadingStreamRef.current = false;
         setPlaybackPlaying(shouldStartNow);
 
-        const filteredHist = history.filter(t => t.id !== track.id);
-        const newHist = [track, ...filteredHist].slice(0, 50);
-        setHistory(newHist);
-        updateActiveProfileData({
-          history: newHist,
-          songsPlayed: activeProfile.songsPlayed + 1
-        });
-        autoSyncHistory(newHist);
+        recordPlaybackTelemetry(track);
 
         if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
           if (typeof ytPlayerRef.current.stopVideo === 'function') {
@@ -4098,12 +4190,7 @@ export default function SpiceApp() {
         return;
       }
 
-      // Auto-advance skip to next song if it's already in embed mode and still failing
-      const currentQueue = queueRef.current;
-      if (currentQueue.length > 1) {
-        logDebug('player', 'Failed to resolve track stream. Triggering self-healing next-track skip...');
-        handleNextRef.current(updatedIndex, startSearchIndex !== undefined ? startSearchIndex : updatedIndex);
-      } else {
+      if (!schedulePlaybackRetry(track, updatedQueue, 'Track stream resolution failed.')) {
         setError('Playback connection failed. Please select a different track.');
       }
     } finally {
@@ -4120,11 +4207,7 @@ export default function SpiceApp() {
 
   const pauseCurrentPlayback = () => {
     shouldAutoPlayRef.current = false;
-
-    if (errorSkipTimeoutRef.current) {
-      clearTimeout(errorSkipTimeoutRef.current);
-      errorSkipTimeoutRef.current = null;
-    }
+    clearPlaybackRetryTimer();
 
     const targetTrack = currentTrackRef.current;
     if (streamProtocolRef.current === 'embed' && isYouTubeTrack(targetTrack) && ytPlayerRef.current) {
@@ -4150,6 +4233,8 @@ export default function SpiceApp() {
     const targetTrack = currentTrackRef.current;
     if (!targetTrack || targetTrack.id === 'placeholder') return;
 
+    clearPlaybackRetryTimer();
+    playbackRetryCountsRef.current.delete(playbackTrackKey(targetTrack));
     shouldAutoPlayRef.current = true;
     setError(undefined);
 
@@ -4268,14 +4353,13 @@ export default function SpiceApp() {
     playTrack(currentQueue[prevIdx]);
   };
 
-  const handleNext = (overrideIndex?: any, startSearchIndex?: number) => {
+  const handleNext = (overrideIndex?: any) => {
     const currentQueue = queueRef.current;
     if (currentQueue.length === 0) return;
 
     const currentIndex = (overrideIndex !== undefined && typeof overrideIndex === 'number')
       ? overrideIndex
       : queueIndexRef.current;
-    const searchStart = startSearchIndex !== undefined ? startSearchIndex : currentIndex;
 
     let nextIdx = currentIndex;
     if (isShuffleRef.current) {
@@ -4290,16 +4374,7 @@ export default function SpiceApp() {
       nextIdx = (currentIndex + 1) % currentQueue.length;
     }
 
-    // Safety limit: if it loops back to the beginning of the skip-failure cycle, stop it!
-    if (nextIdx === searchStart) {
-      setIsPlaying(false);
-      setIsLoadingStream(false);
-      setError('All tracks in the queue failed to stream. Please select a different source or check your database pings.');
-      logDebug('error', 'All queue tracks failed to resolve. Aborted self-healing loop.');
-      return;
-    }
-
-    playTrack(currentQueue[nextIdx], undefined, searchStart);
+    playTrack(currentQueue[nextIdx]);
   };
 
   useEffect(() => {
@@ -4387,7 +4462,7 @@ export default function SpiceApp() {
   };
 
   const loadRemoteDevices = async (showStatus = false) => {
-    if (!cloudToken || !remoteControlEnabled || remoteDeviceLoadInFlightRef.current) return;
+    if (!cloudToken || remoteDeviceLoadInFlightRef.current) return;
 
     remoteDeviceLoadInFlightRef.current = true;
     try {
@@ -4436,7 +4511,9 @@ export default function SpiceApp() {
 
     remoteStateSyncTimeoutRef.current = window.setTimeout(() => {
       remoteStateSyncTimeoutRef.current = null;
-      void reportRemoteDeviceState();
+      if (remoteControlEnabled) {
+        void reportRemoteDeviceState();
+      }
       void loadRemoteDevices();
     }, delayMs);
   };
@@ -4609,14 +4686,18 @@ export default function SpiceApp() {
   };
 
   useEffect(() => {
-    if (!isMounted || !cloudToken || !remoteControlEnabled) return;
+    if (!isMounted || !cloudToken) return;
 
-    void reportRemoteDeviceState();
     void loadRemoteDevices();
-
-    const syncInterval = setInterval(() => {
+    if (remoteControlEnabled) {
       void reportRemoteDeviceState();
-    }, SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS);
+    }
+
+    const syncInterval = remoteControlEnabled
+      ? setInterval(() => {
+        void reportRemoteDeviceState();
+      }, SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS)
+      : null;
 
     const timerInterval = setInterval(() => {
       setRemoteDevices((currentDevices) =>
@@ -4628,7 +4709,9 @@ export default function SpiceApp() {
     }, 1000);
 
     return () => {
-      clearInterval(syncInterval);
+      if (syncInterval) {
+        clearInterval(syncInterval);
+      }
       clearInterval(timerInterval);
     };
   }, [isMounted, cloudToken, remoteControlEnabled, remoteDeviceId, remoteDeviceName]);
@@ -4752,10 +4835,35 @@ export default function SpiceApp() {
   };
 
   const handleSearchProviderChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const provider = e.target.value as SearchProvider;
+    if (!isSearchProvider(e.target.value)) return;
+    const provider = e.target.value;
     setSearchProvider(provider);
     localStorage.setItem('spice_search_provider', provider);
     queueSearch(searchQuery, provider);
+  };
+
+  const handleTopbarSearchModeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    if (!isTopbarSearchMode(e.target.value)) return;
+    const mode = e.target.value;
+
+    setTopbarSearchTrayOpen(Boolean(topbarSearchQuery.trim()) || topbarRecentSuggestions.length > 0 || topbarUserSearchResults.length > 0);
+    setNotificationTrayOpen(false);
+
+    if (mode === 'users') {
+      setQuickSearchTab('users');
+      if (topbarSearchQuery.trim()) {
+        queueSearch(topbarSearchQuery, searchProvider);
+      }
+      return;
+    }
+
+    setQuickSearchTab('tracks');
+    setSearchProvider(mode);
+    localStorage.setItem('spice_search_provider', mode);
+    const activeQuery = topbarSearchQuery.trim() || searchQuery.trim();
+    if (activeQuery) {
+      queueSearch(activeQuery, mode);
+    }
   };
 
   const runTopbarSearch = (query: string, provider = searchProvider) => {
@@ -4782,6 +4890,10 @@ export default function SpiceApp() {
 
   const handleTopbarSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (quickSearchTab === 'users') {
+      setTopbarSearchTrayOpen(Boolean(topbarSearchQuery.trim()));
+      setNotificationTrayOpen(false);
+    }
     runTopbarSearch(topbarSearchQuery, searchProvider);
   };
 
@@ -4806,6 +4918,14 @@ export default function SpiceApp() {
     setSelectedUser(null);
     setNotificationTrayOpen(false);
     setCurrentPage('account');
+  };
+
+  const openSettingsFromTopbar = () => {
+    setSelectedPlaylist(null);
+    setSelectedUser(null);
+    setNotificationTrayOpen(false);
+    setTopbarSearchTrayOpen(false);
+    setCurrentPage('settings');
   };
 
   useEffect(() => {
@@ -4904,6 +5024,11 @@ export default function SpiceApp() {
     if (!enabled && currentPage === 'account' && !selectedPlaylist) {
       setCurrentPage(sidebarSearchEnabled ? 'search' : 'library');
     }
+  };
+
+  const updateSidebarSettingsPreference = (enabled: boolean) => {
+    setSidebarSettingsEnabled(enabled);
+    localStorage.setItem('spice_sidebar_settings_enabled', String(enabled));
   };
 
   useEffect(() => {
@@ -6080,7 +6205,7 @@ export default function SpiceApp() {
   const playerVolume = isControllingRemoteReceiver ? (selectedRemoteDevice?.volume ?? 70) : volume;
   const playerIsPlaceholder = playerTrack.id === 'placeholder' || playerTrack.id === 'spice-connect-placeholder';
   const receiverLabel = selectedRemoteDevice?.displayName || 'This device';
-  const receiverSelectDisabled = !cloudToken || !remoteControlEnabled;
+  const receiverSelectDisabled = !cloudToken;
 
   const canControlSelectedRemoteReceiver = (command: RemoteCommandType) => {
     if (!selectedRemoteDevice) return false;
@@ -6231,8 +6356,10 @@ export default function SpiceApp() {
   };
 
   const refreshSpiceConnectReceiverList = () => {
-    if (!cloudToken || !remoteControlEnabled) return;
-    void reportRemoteDeviceState();
+    if (!cloudToken) return;
+    if (remoteControlEnabled) {
+      void reportRemoteDeviceState();
+    }
     void loadRemoteDevices();
   };
 
@@ -6293,11 +6420,7 @@ export default function SpiceApp() {
           className="spice-connect-receiver__button"
           onClick={() => {
             if (receiverSelectDisabled) {
-              if (!cloudToken) {
-                showSpiceNotice('Please sign in to choose other playback devices.', 'warning');
-              } else {
-                showSpiceNotice('Please enable Spice Connect in Account settings to choose other playback devices.', 'warning');
-              }
+              showSpiceNotice('Please sign in to choose other playback devices.', 'warning');
               return;
             }
             refreshSpiceConnectReceiverList();
@@ -6307,7 +6430,7 @@ export default function SpiceApp() {
           aria-haspopup="listbox"
           aria-expanded={isMenuOpen}
           aria-controls={menuId}
-          title={receiverSelectDisabled ? 'Sign in and enable Spice Connect to choose another receiver' : `Receiver: ${receiverLabel}`}
+          title={receiverSelectDisabled ? 'Sign in to choose another receiver' : `Receiver: ${receiverLabel}`}
         >
           <span className="spice-connect-receiver__icon">{Icons.monitor}</span>
           {variant !== 'bar' && (
@@ -6367,7 +6490,7 @@ export default function SpiceApp() {
   const shufflePlaylistPlay = (tracks: Track[]) => {
     if (!tracks || tracks.length === 0) return;
     setIsShuffle(true);
-    localStorage.setItem('spice_is_shuffle', 'true');
+    localStorage.setItem(PLAYER_SHUFFLE_STORAGE_KEY, 'true');
     const shuffled = [...tracks].sort(() => getSecureRandom() - 0.5);
     startTrackOnActiveReceiver(shuffled[0], shuffled);
   };
@@ -6470,6 +6593,10 @@ const getMaskedEmail = (email: string) => {
       setQueue(savedPlayback.queue.length > 0 ? savedPlayback.queue : [savedPlayback.currentTrack]);
       setQueueIndex(Math.min(savedPlayback.queueIndex, Math.max(savedPlayback.queue.length - 1, 0)));
       setProgress(savedPlayback.progress);
+      if (isRepeatMode(savedPlayback.repeatMode)) setRepeatMode(savedPlayback.repeatMode);
+      if (typeof savedPlayback.isShuffle === 'boolean') setIsShuffle(savedPlayback.isShuffle);
+      const savedPlaybackVolume = normalizePlayerVolume(savedPlayback.volume, volumeBoosterAccepted);
+      if (savedPlaybackVolume !== null) setVolume(savedPlaybackVolume);
     } else if (targetHistory.length > 0) {
       setCurrentTrack(targetHistory[0]);
       setQueue([targetHistory[0]]);
@@ -7176,6 +7303,7 @@ const getMaskedEmail = (email: string) => {
     .filter((entry) => entry.query.trim().toLocaleLowerCase() !== normalizedTopbarQuery)
     .slice(0, 6);
   const topbarTrayResults = searchResults.slice(0, 6);
+  const topbarSearchMode: TopbarSearchMode = quickSearchTab === 'users' ? 'users' : searchProvider;
   const shouldShowTopbarSearchTray =
     topbarSearchTrayOpen
     && (Boolean(topbarSearchQuery.trim()) || topbarRecentSuggestions.length > 0 || topbarTrayResults.length > 0 || topbarUserSearchResults.length > 0 || isSearching || isSearchingTopbarUsers);
@@ -7191,7 +7319,7 @@ const getMaskedEmail = (email: string) => {
     : false;
 
   return (
-    <div className={`app ${sidebarHidden ? 'app--sidebar-hidden' : ''}`}>
+    <div className={`app ${sidebarHidden ? 'app--sidebar-hidden' : ''} player-style--${playerVisualStyle}`}>
       <style dangerouslySetInnerHTML={{ __html: getAccentStyles() }} />
 
       {(listenTogetherSession || listenTogetherHostSessionId) && (
@@ -7759,13 +7887,15 @@ const getMaskedEmail = (email: string) => {
               <span className="sidebar__nav-label">Profile</span>
             </button>
           )}
-          <button
-            className={`sidebar__nav-item ${currentPage === 'settings' && !selectedPlaylist ? 'active' : ''}`}
-            onClick={() => { setCurrentPage('settings'); setSelectedPlaylist(null); setSelectedUser(null); }}
-          >
-            {Icons.settings}
-            <span className="sidebar__nav-label">Settings</span>
-          </button>
+          {sidebarSettingsEnabled && (
+            <button
+              className={`sidebar__nav-item ${currentPage === 'settings' && !selectedPlaylist ? 'active' : ''}`}
+              onClick={() => { setCurrentPage('settings'); setSelectedPlaylist(null); setSelectedUser(null); }}
+            >
+              {Icons.settings}
+              <span className="sidebar__nav-label">Settings</span>
+            </button>
+          )}
         </nav>
 
         <div className="sidebar__divider"></div>
@@ -7815,7 +7945,7 @@ const getMaskedEmail = (email: string) => {
                 {Icons.search}
                 <input
                   type="search"
-                  placeholder={`Search ${SEARCH_PROVIDER_LABELS[searchProvider]}...`}
+                  placeholder={topbarSearchMode === 'users' ? 'Search users...' : `Search ${SEARCH_PROVIDER_LABELS[searchProvider]}...`}
                   value={topbarSearchQuery}
                   onChange={handleTopbarSearchInput}
                   onFocus={() => {
@@ -8101,27 +8231,17 @@ const getMaskedEmail = (email: string) => {
             </div>
 
             <div className="app-topbar__actions">
-              <span className="app-topbar__provider">
-                {SEARCH_PROVIDER_LABELS[searchProvider]}
-              </span>
-              <button
-                className="app-topbar__profile"
-                type="button"
-                onClick={openAccountFromTopbar}
-                aria-label={`Open profile for ${activeProfile.displayName}`}
+              <select
+                className="app-topbar__provider"
+                value={topbarSearchMode}
+                onChange={handleTopbarSearchModeChange}
+                aria-label="Topbar search mode"
+                title="Search mode"
               >
-                <span className="app-topbar__avatar" style={{ background: activeProfile.avatarUrl ? 'transparent' : activeProfile.gradient }}>
-                  {activeProfile.avatarUrl ? (
-                    <img src={activeProfile.avatarUrl} alt="" />
-                  ) : (
-                    activeProfile.displayName.charAt(0).toUpperCase()
-                  )}
-                </span>
-                <span className="app-topbar__profile-copy">
-                  <strong>{activeProfile.displayName}</strong>
-                  <small>{isMounted && cloudUser?.accountRole ? `${cloudUser.accountRole} account` : 'Local profile'}</small>
-                </span>
-              </button>
+                {(Object.entries(TOPBAR_SEARCH_MODE_LABELS) as [TopbarSearchMode, string][]).map(([id, label]) => (
+                  <option key={id} value={id}>{label}</option>
+                ))}
+              </select>
               <div className="app-topbar__notification-shell">
                 <button
                   className={`app-topbar__notification ${notificationTrayOpen ? 'active' : ''}`}
@@ -8271,6 +8391,33 @@ const getMaskedEmail = (email: string) => {
                   </div>
                 )}
               </div>
+              <button
+                className={`app-topbar__settings ${currentPage === 'settings' && !selectedPlaylist ? 'active' : ''}`}
+                type="button"
+                onClick={openSettingsFromTopbar}
+                aria-label="Open settings"
+                title="Settings"
+              >
+                {Icons.settings}
+              </button>
+              <button
+                className="app-topbar__profile"
+                type="button"
+                onClick={openAccountFromTopbar}
+                aria-label={`Open profile for ${activeProfile.displayName}`}
+              >
+                <span className="app-topbar__avatar" style={{ background: activeProfile.avatarUrl ? 'transparent' : activeProfile.gradient }}>
+                  {activeProfile.avatarUrl ? (
+                    <img src={activeProfile.avatarUrl} alt="" />
+                  ) : (
+                    activeProfile.displayName.charAt(0).toUpperCase()
+                  )}
+                </span>
+                <span className="app-topbar__profile-copy">
+                  <strong>{activeProfile.displayName}</strong>
+                  <small>{isMounted && cloudUser?.accountRole ? `${cloudUser.accountRole} account` : 'Local profile'}</small>
+                </span>
+              </button>
             </div>
           </header>
 
@@ -10327,6 +10474,21 @@ const getMaskedEmail = (email: string) => {
                           </span>
                         </span>
                       </label>
+
+                      <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '14px', background: '#070707', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={sidebarSettingsEnabled}
+                          onChange={(e) => updateSidebarSettingsPreference(e.target.checked)}
+                          style={{ accentColor: 'var(--accent-pink)', marginTop: '3px' }}
+                        />
+                        <span>
+                          <span style={{ display: 'block', color: '#fff', fontWeight: 800, fontSize: '0.9rem' }}>Settings tab</span>
+                          <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '0.74rem', lineHeight: 1.4, marginTop: '4px' }}>
+                            Show Settings in the sidebar. The topbar settings button always remains available.
+                          </span>
+                        </span>
+                      </label>
                     </div>
                   </div>
 
@@ -10516,6 +10678,23 @@ const getMaskedEmail = (email: string) => {
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
                       <div>
+                        <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Player Visual Style</label>
+                        <select
+                          value={playerVisualStyle}
+                          onChange={(e) => {
+                            if (!isPlayerVisualStyle(e.target.value)) return;
+                            setPlayerVisualStyle(e.target.value);
+                            localStorage.setItem('spice_player_visual_style', e.target.value);
+                          }}
+                          style={{ width: '100%', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', cursor: 'pointer' }}
+                        >
+                          {(Object.entries(PLAYER_VISUAL_STYLE_LABELS) as [PlayerVisualStyle, string][]).map(([id, label]) => (
+                            <option key={id} value={id}>{label}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
                         <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Player Placement</label>
                         <select
                           value={playerPlacement}
@@ -10569,7 +10748,7 @@ const getMaskedEmail = (email: string) => {
                   <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
                     <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: '#fff', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>{Icons.monitor} Spice Connect Setup</h3>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 20px 0', lineHeight: 1.4 }}>
-                      Name this device and keep cross-device control enabled here. Use the receiver selector in the player to decide whether the normal controls target this device or another signed-in device.
+                      Name this device and enable cross-device control only on devices you want to receive Spice Connect commands. Use the receiver selector in the player to decide whether the normal controls target this device or another signed-in device.
                     </p>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 0.85fr) minmax(0, 1.15fr)', gap: '20px', alignItems: 'start' }}>
@@ -10616,10 +10795,12 @@ const getMaskedEmail = (email: string) => {
                           <button
                             className="btn btn--ghost"
                             onClick={() => {
-                              void reportRemoteDeviceState();
+                              if (remoteControlEnabled) {
+                                void reportRemoteDeviceState();
+                              }
                               void loadRemoteDevices(true);
                             }}
-                            disabled={!cloudToken || !remoteControlEnabled}
+                            disabled={!cloudToken}
                             style={{ padding: '8px 12px', fontSize: '0.78rem', whiteSpace: 'nowrap' }}
                           >
                             Refresh
@@ -10629,7 +10810,7 @@ const getMaskedEmail = (email: string) => {
                         <select
                           value={selectedRemoteDeviceId}
                           onChange={(e) => selectSpiceConnectReceiver(e.target.value)}
-                          disabled={!cloudToken || !remoteControlEnabled}
+                          disabled={!cloudToken}
                           style={{ width: '100%', padding: '10px 14px', background: '#0a0a0a', border: '1px solid var(--border-color)', borderRadius: '8px', color: '#fff', outline: 'none', cursor: 'pointer', marginBottom: '14px' }}
                         >
                           <option value="">This device (current browser)</option>
@@ -11839,7 +12020,7 @@ const getMaskedEmail = (email: string) => {
             onClick={() => {
               if (listenTogetherHostSessionId) return;
               setIsShuffle(!isShuffle);
-              localStorage.setItem('spice_is_shuffle', (!isShuffle).toString());
+              localStorage.setItem(PLAYER_SHUFFLE_STORAGE_KEY, (!isShuffle).toString());
             }}
             disabled={!!listenTogetherHostSessionId}
             style={{ cursor: listenTogetherHostSessionId ? 'not-allowed' : 'pointer' }}
@@ -11888,7 +12069,7 @@ const getMaskedEmail = (email: string) => {
               if (listenTogetherHostSessionId) return;
               const nextMode = repeatMode === 'none' ? 'all' : repeatMode === 'all' ? 'one' : 'none';
               setRepeatMode(nextMode);
-              localStorage.setItem('spice_repeat_mode', nextMode);
+              localStorage.setItem(PLAYER_REPEAT_STORAGE_KEY, nextMode);
             }}
             disabled={!!listenTogetherHostSessionId}
             style={{ cursor: listenTogetherHostSessionId ? 'not-allowed' : 'pointer' }}
@@ -12250,7 +12431,7 @@ const getMaskedEmail = (email: string) => {
                         onClick={() => {
                           if (listenTogetherHostSessionId) return;
                           setIsShuffle(!isShuffle);
-                          localStorage.setItem('spice_is_shuffle', (!isShuffle).toString());
+                          localStorage.setItem(PLAYER_SHUFFLE_STORAGE_KEY, (!isShuffle).toString());
                         }}
                         disabled={!!listenTogetherHostSessionId}
                         style={{ background: 'none', border: 'none', color: isShuffle ? 'var(--accent-pink)' : '#fff', opacity: isShuffle ? 1 : 0.4, cursor: listenTogetherHostSessionId ? 'not-allowed' : 'pointer', outline: 'none', transition: 'all 0.15s ease' }}
@@ -12312,7 +12493,7 @@ const getMaskedEmail = (email: string) => {
                           if (listenTogetherHostSessionId) return;
                           const nextMode = repeatMode === 'none' ? 'all' : repeatMode === 'all' ? 'one' : 'none';
                           setRepeatMode(nextMode);
-                          localStorage.setItem('spice_repeat_mode', nextMode);
+                          localStorage.setItem(PLAYER_REPEAT_STORAGE_KEY, nextMode);
                         }}
                         disabled={!!listenTogetherHostSessionId}
                         style={{ background: 'none', border: 'none', color: repeatMode !== 'none' ? 'var(--accent-pink)' : '#fff', opacity: repeatMode !== 'none' ? 1 : 0.4, cursor: listenTogetherHostSessionId ? 'not-allowed' : 'pointer', outline: 'none', transition: 'all 0.15s ease' }}

@@ -1,5 +1,38 @@
 # SPICE Walkthrough
 
+## v1.0.114
+
+- [Spice.Music main] Add a topbar Settings button so application settings stay reachable even when the sidebar Settings shortcut is hidden.
+- [Spice.Music main] Replace the topbar provider pill with a provider/users dropdown that can switch quick search between Hybrid, YouTube Music, YouTube Videos, SoundCloud, and listener search.
+- [Spice.Music main] Add a sidebar Settings shortcut visibility toggle to the Sidebar Controls settings.
+- [Spice.Music main] Add a Player Visual Style setting with a new VK Compact SPICE player bar style.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.114`.
+
+## v1.0.113
+
+- [Spice.Music main] Persist the active song queue, queue index, shuffle mode, repeat mode, and player volume together in the per-profile playback snapshot.
+- [Spice.Music main] Save shuffle, repeat, and volume through state-driven player preference persistence so all player surfaces restore the same controls after reload.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.113`.
+
+## v1.0.112
+
+- [Spice.Music main] Load saved Spice Connect receiver state for signed-in controller-only browsers without enabling local command receiving.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.112`.
+
+## v1.0.111
+
+- [Spice.Music main] Record playback history and profile play counts only once across retry recovery for a user-requested track.
+- [Spice.Music main] Let controller-only Spice Connect browsers discover and control remote receivers without enabling local command receiving.
+- [Spice.Music main] Preserve Listen Together sync context when retrying the host-selected track after a local stream failure.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.111`.
+
+## v1.0.110
+
+- [Spice.Music main] Make Spice Connect remote playback opt-in on each device so startup cannot accept cloud playback commands unless the listener explicitly enables it.
+- [Spice.Music main] Replace failed-playback self-healing queue skips with bounded same-track retries so SPICE never starts a different song because a stream failed.
+- [Spice.Music main] Keep playback recovery retry timers from firing after pause, stop, or fresh user track selection.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.110`.
+
 ## v1.0.109
 
 - [Spice.Music main] Keep paused playback stopped when a saved audio stream expires or resets so backend updates do not trigger self-healing skips into autoplay.

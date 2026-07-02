@@ -1596,9 +1596,12 @@ h4 { font-size: 1rem; }
 }
 
 .app-topbar__provider {
+  appearance: none;
+  -webkit-appearance: none;
   display: inline-flex;
   align-items: center;
   min-height: 36px;
+  min-width: 120px;
   padding: 0 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-full);
@@ -1607,6 +1610,20 @@ h4 { font-size: 1rem; }
   font-size: 0.72rem;
   font-weight: 800;
   white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+}
+
+.app-topbar__provider:hover,
+.app-topbar__provider:focus-visible {
+  color: #fff;
+  border-color: rgba(var(--accent-pink-rgb, 236, 72, 153), 0.34);
+  background: rgba(var(--accent-pink-rgb, 236, 72, 153), 0.1);
+}
+
+.app-topbar__provider option {
+  background: #0a0a0c;
+  color: #fff;
 }
 
 .app-topbar__profile {
@@ -1658,7 +1675,8 @@ h4 { font-size: 1rem; }
   flex-shrink: 0;
 }
 
-.app-topbar__notification {
+.app-topbar__notification,
+.app-topbar__settings {
   position: relative;
   width: 48px;
   height: 48px;
@@ -1674,7 +1692,10 @@ h4 { font-size: 1rem; }
 
 .app-topbar__notification:hover,
 .app-topbar__notification:focus-visible,
-.app-topbar__notification.active {
+.app-topbar__notification.active,
+.app-topbar__settings:hover,
+.app-topbar__settings:focus-visible,
+.app-topbar__settings.active {
   border-color: rgba(var(--accent-pink-rgb, 236, 72, 153), 0.38);
   background: rgba(var(--accent-pink-rgb, 236, 72, 153), 0.13);
   transform: translateY(-1px);
@@ -2108,6 +2129,76 @@ h4 { font-size: 1rem; }
   justify-content: flex-end;
   gap: clamp(2px, 0.8vw, var(--space-md));
   flex-shrink: 0;
+}
+
+.player-style--vk .now-playing {
+  width: min(1180px, calc(100% - 32px));
+  min-height: 76px;
+  margin: 0 auto 10px;
+  border: 1px solid rgba(var(--accent-pink-rgb, 236, 72, 153), 0.22);
+  border-radius: 28px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.025)),
+    rgba(6, 6, 8, 0.94);
+  box-shadow:
+    0 18px 52px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.player-style--vk .now-playing::before {
+  content: '';
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  top: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--accent-gradient);
+  opacity: 0.9;
+}
+
+.player-style--vk .now-playing__left-controls,
+.player-style--vk .now-playing__right-controls {
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.player-style--vk .now-playing__song {
+  flex-basis: clamp(190px, 28vw, 360px);
+  max-width: clamp(190px, 28vw, 360px);
+}
+
+.player-style--vk .now-playing__art {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+}
+
+.player-style--vk .now-playing__title {
+  font-size: 0.92rem;
+  font-weight: 850;
+}
+
+.player-style--vk .now-playing__btn--play {
+  background: #fff;
+  color: #050507 !important;
+  box-shadow:
+    0 0 0 4px rgba(var(--accent-pink-rgb, 236, 72, 153), 0.13),
+    0 10px 26px rgba(var(--accent-pink-rgb, 236, 72, 153), 0.26);
+}
+
+.player-style--vk .now-playing__btn.active,
+.player-style--vk .now-playing__like.liked svg {
+  color: var(--accent-pink);
+  fill: var(--accent-pink);
+  stroke: var(--accent-pink);
+}
+
+.player-style--vk .now-playing__seek-track {
+  height: 5px;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .spice-connect-receiver {
@@ -3724,7 +3815,11 @@ h4 { font-size: 1rem; }
   }
 
   .app-topbar__provider {
-    display: none !important;
+    display: inline-flex !important;
+    min-width: 104px !important;
+    min-height: 44px !important;
+    flex: 0 0 auto !important;
+    padding: 0 10px !important;
   }
 
   .app-topbar__profile {
@@ -3733,7 +3828,8 @@ h4 { font-size: 1rem; }
     max-width: none !important;
   }
 
-  .app-topbar__notification {
+  .app-topbar__notification,
+  .app-topbar__settings {
     width: 44px !important;
     height: 44px !important;
   }
@@ -4009,6 +4105,12 @@ h4 { font-size: 1rem; }
     gap: 10px !important;
     padding: 0 10px !important;
     box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5) !important;
+  }
+
+  .player-style--vk .now-playing {
+    width: calc(100vw - 24px) !important;
+    margin: 0 12px max(12px, env(safe-area-inset-bottom, 0px)) !important;
+    border-radius: 22px !important;
   }
 
   /* Hide desktop-only controls */
