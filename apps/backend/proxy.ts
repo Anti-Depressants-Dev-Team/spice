@@ -5,9 +5,9 @@ import { getProxySystemSettings } from '@/lib/proxy-system-settings';
 export async function proxy(request: NextRequest) {
   const url = request.nextUrl.clone();
 
-  // Keep the emergency/austerity proxy off hot polling APIs. Route handlers
-  // still own auth; this proxy only gates sync writes when austerity is active.
-  if (!url.pathname.startsWith('/api/sync')) {
+  // Keep admin bootstrap and management APIs reachable so operators can
+  // verify their session and disable an emergency stop from the dashboard.
+  if (!url.pathname.startsWith('/api') || isAdminEmergencyBypassPath(url.pathname)) {
     return NextResponse.next();
   }
 
@@ -27,8 +27,14 @@ export async function proxy(request: NextRequest) {
       );
     }
 
+    // Keep austerity throttling off hot polling APIs. Emergency stop remains global
+    // for non-admin API routes, while austerity only gates sync writes.
+    if (!url.pathname.startsWith('/api/sync')) {
+      return NextResponse.next();
+    }
+
     if (settings.emergencyAusterity) {
-      if (settings.disableSync && url.pathname.startsWith('/api/sync')) {
+      if (settings.disableSync) {
         return new NextResponse(
           JSON.stringify({ error: 'service_unavailable', message: 'Sync services are temporarily disabled.' }),
           { status: 503, headers: { 'Content-Type': 'application/json' } }
@@ -55,5 +61,18 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: '/api/sync/:path*',
+  matcher: '/api/:path*',
 };
+
+function isAdminEmergencyBypassPath(pathname: string) {
+  return (
+    isPathOrChild(pathname, '/api/admin') ||
+    pathname === '/api/account/me' ||
+    isPathOrChild(pathname, '/api/cloud/admin') ||
+    pathname === '/api/cloud/account/me'
+  );
+}
+
+function isPathOrChild(pathname: string, parentPath: string) {
+  return pathname === parentPath || pathname.startsWith(`${parentPath}/`);
+}

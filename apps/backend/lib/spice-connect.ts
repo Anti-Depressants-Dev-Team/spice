@@ -1,6 +1,6 @@
 export type SpiceConnectCommandType = 'play' | 'pause' | 'toggle' | 'next' | 'previous' | 'seek' | 'volume' | 'play_track';
 
-export const SPICE_CONNECT_COMMAND_TTL_MS = 15000;
+export const SPICE_CONNECT_COMMAND_TTL_MS = 240000;
 
 export interface SpiceConnectDeviceInput {
   deviceId: string;

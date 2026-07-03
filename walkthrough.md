@@ -1,5 +1,17 @@
 # SPICE Walkthrough
 
+## v1.0.117
+
+- [Spice.Admin main] Keep admin session bootstrap and cloud admin management endpoints reachable during emergency stop so operators can disable the stop from the dashboard.
+- [Spice.Admin main] Bump the visible diagnostics version to `Spice Media Core v1.0.117`.
+
+## v1.0.116
+
+- [Spice.Music main] Extend the Spice Connect command freshness and stale-device windows so adaptive and hidden-tab receiver polling has enough slack to accept commands.
+- [Spice.Music main] Keep hidden paused Spice Connect receivers on the low-frequency heartbeat so controllers can still wake them remotely.
+- [Spice.Admin main] Restore global emergency-stop coverage for non-admin API routes while keeping austerity throttling scoped to sync writes.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.116`.
+
 ## v1.0.115
 
 - [Spice.Music main] Reduce Vercel invocation pressure by limiting the emergency/austerity Proxy to `/api/sync/*` instead of every API request.

@@ -33,7 +33,7 @@ const SPICE_CONNECT_COMMAND_HIDDEN_POLL_INTERVAL_MS = 120000;
 const SPICE_CONNECT_COMMAND_IDLE_BACKOFF_POLLS = 3;
 const SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS = 120000;
 const SPICE_CONNECT_POST_COMMAND_SYNC_DELAY_MS = 450;
-const SPICE_CONNECT_STALE_DEVICE_SECONDS = 120;
+const SPICE_CONNECT_STALE_DEVICE_SECONDS = 240;
 const SPICE_VERSION_CHECK_INTERVAL_MS = 15 * 60 * 1000;
 const SHARED_PLAYLIST_INVITE_POLL_INTERVAL_MS = 5 * 60 * 1000;
 const LISTEN_TOGETHER_INVITE_POLL_INTERVAL_MS = 60 * 1000;
@@ -4433,7 +4433,6 @@ export default function SpiceApp() {
 
   const reportRemoteDeviceState = async () => {
     if (!cloudToken || !remoteControlEnabled || remoteDeviceReportInFlightRef.current) return;
-    if (!isSpiceDocumentVisible() && !isPlayingRef.current) return;
 
     const targetTrack = currentTrackRef.current;
     const currentQueue = queueRef.current || [];
