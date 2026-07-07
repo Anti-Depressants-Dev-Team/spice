@@ -78,6 +78,8 @@ let currentVolume = 1.0; // Volume gain value (0.0 - 10.0), shared across scopes
 let currentBoostEnabled = false;
 let spiceRuntimeManager = null;
 let applyVolumeToActiveView = () => {};
+let updateInstallInProgress = false;
+let updateInstallCleanupPromise = null;
 
 const APP_NATIVE_MODE =
   process.env.SPICE_NATIVE_APP === "1" ||
@@ -294,6 +296,15 @@ async function isLocalSpiceRuntimeReady() {
 async function resolveServiceUrl(serviceKey) {
   if (serviceKey !== "spice_crazy") return SERVICES[serviceKey];
   if (await isLocalSpiceRuntimeReady()) return SPICE_LOCAL_RUNTIME_URL;
+
+  if (APP_NATIVE_MODE && spiceRuntimeManager) {
+    try {
+      await ensureNativeRuntimeReady();
+      return SPICE_LOCAL_RUNTIME_URL;
+    } catch (error) {
+      console.warn("Native runtime prepare failed before loading SPICE Music:", error && error.message);
+    }
+  }
 
   if (spiceRuntimeManager) {
     const status = await spiceRuntimeManager.getStatus();
@@ -514,7 +525,9 @@ function createWindow() {
       discordRpc.disconnect();
     }
     // Force quit to ensure no background processes remain
-    app.quit();
+    if (!updateInstallInProgress) {
+      app.quit();
+    }
   });
 }
 
@@ -719,6 +732,51 @@ function markSpiceNativePlaybackIntent(reason = "shell") {
       `,
     )
     .catch(() => {});
+}
+
+async function prepareForUpdateInstall() {
+  if (updateInstallCleanupPromise) return updateInstallCleanupPromise;
+
+  updateInstallInProgress = true;
+  updateInstallCleanupPromise = (async () => {
+    stopTrackPolling();
+    resetTrackedPlayback();
+
+    if (mainWindow && view) {
+      try {
+        mainWindow.setBrowserView(null);
+      } catch (_) {}
+    }
+
+    if (view && view.webContents && !view.webContents.isDestroyed()) {
+      try {
+        view.webContents.destroy();
+      } catch (_) {}
+    }
+    view = null;
+
+    for (const childWindow of [lyricsWindow, miniPlayerWindow, settingsWindow, toolbarSettingsWindow]) {
+      if (childWindow && !childWindow.isDestroyed()) {
+        try {
+          childWindow.close();
+        } catch (_) {}
+      }
+    }
+
+    if (spiceRuntimeManager) {
+      try {
+        await spiceRuntimeManager.stop();
+      } catch (_) {}
+    }
+
+    if (discordRpc) {
+      try {
+        discordRpc.disconnect();
+      } catch (_) {}
+    }
+  })();
+
+  return updateInstallCleanupPromise;
 }
 
 // Send VK track info to the main window's renderer (for the app-frame player bar)
@@ -1511,6 +1569,32 @@ function startTrackPolling() {
                                 ].includes(text);
                             }
 
+                            function firstText(selector) {
+                                const element = document.querySelector(selector);
+                                return cleanLine(element && element.textContent);
+                            }
+
+                            function isShellTrackCandidate(songTitle, songArtist) {
+                                const titleText = normalize(songTitle);
+                                const artistText = normalize(songArtist);
+                                const blocked = [
+                                    'select a track to play',
+                                    'spice player',
+                                    'spice',
+                                    'spice music',
+                                    'search',
+                                    'library',
+                                    'profile',
+                                    'settings',
+                                    'home',
+                                    'local profile',
+                                    'spice listener'
+                                ];
+                                if (!titleText || blocked.includes(titleText)) return true;
+                                if (blocked.includes(artistText)) return true;
+                                return titleText === 'spice' && artistText === 'library';
+                            }
+
                             function bottomDistance(el) {
                                 const rect = el.getBoundingClientRect();
                                 return Math.abs(window.innerHeight - rect.bottom);
@@ -1549,8 +1633,11 @@ function startTrackPolling() {
                                 ? mediaSession.artwork[mediaSession.artwork.length - 1].src
                                 : '';
 
-                            let title = metadataTitle || lines[0] || '';
-                            let artist = metadataArtist || lines.find((line) => line !== title) || '';
+                            const explicitTitle = firstText('.now-playing__title, .mini-player__title, [data-now-playing-title]');
+                            const explicitArtist = firstText('.now-playing__artist, .mini-player__artist, [data-now-playing-artist]');
+
+                            let title = metadataTitle || explicitTitle || lines[0] || '';
+                            let artist = metadataArtist || explicitArtist || lines.find((line) => line !== title) || '';
                             let album = metadataAlbum || '';
 
                             const img = player
@@ -1562,6 +1649,25 @@ function startTrackPolling() {
                                 const parts = title.split(' - ');
                                 artist = cleanLine(parts[0]);
                                 title = cleanLine(parts.slice(1).join(' - '));
+                            }
+
+                            if (isShellTrackCandidate(title, artist)) {
+                                return {
+                                    sourceService: 'spice_crazy',
+                                    rawText: rawText,
+                                    title: '',
+                                    artist: '',
+                                    album: '',
+                                    albumArt: '',
+                                    duration: media && Number.isFinite(media.duration) && media.duration > 0 ? media.duration : uiDuration,
+                                    paused: true,
+                                    currentTime: media && Number.isFinite(media.currentTime) ? media.currentTime : uiCurrentTime,
+                                    listenUrl: '',
+                                    shuffle: false,
+                                    repeat: 'off',
+                                    likeStatus: false,
+                                    repeatDebug: ''
+                                };
                             }
 
                             const listenUrl = buildListenUrl(title, artist, player);
@@ -1822,7 +1928,7 @@ function startTrackPolling() {
 
           // Update Scrobbler
           console.log("[Main Poll] Updating scrobbler...");
-          if (scrobbler) {
+          if (scrobbler && !track.paused) {
             scrobbler.updateNowPlaying(track);
           }
 
@@ -2652,6 +2758,10 @@ app.whenReady().then(async () => {
   autoUpdater.on("update-downloaded", (info) => {
     if (mainWindow) mainWindow.webContents.send("update-status", { status: "downloaded", info });
   });
+  autoUpdater.on("before-quit-for-update", () => {
+    updateInstallInProgress = true;
+    prepareForUpdateInstall().catch(() => {});
+  });
 
   // Automatically check on startup
   try {
@@ -2818,8 +2928,13 @@ app.whenReady().then(async () => {
     }
   });
 
-  ipcMain.on("install-update", () => {
+  ipcMain.on("install-update", async () => {
     if (!app.isPackaged) return;
+    try {
+      await prepareForUpdateInstall();
+    } catch (error) {
+      console.error("Failed to prepare for update install:", error);
+    }
     autoUpdater.quitAndInstall(false, true);
   });
 
@@ -3378,6 +3493,9 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on("spice-audio-state-changed", (event, state) => {
+    if (currentService === "spice_crazy" && !(state && state.desktopReady)) {
+      return;
+    }
     const volume = Number(state && state.volume);
     if (Number.isFinite(volume)) {
       currentVolume = Math.max(0, Math.min(10, volume / 100));

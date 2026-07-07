@@ -9,6 +9,10 @@ const IS_SPICE_LOCAL_RUNTIME =
     (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') &&
     window.location.port === '3939';
 
+if (IS_SPICE_LOCAL_RUNTIME) {
+    window.__spiceDesktopAudioReady = false;
+}
+
 const NATIVE_STARTUP_PLAYBACK_GUARD_MS = 60 * 1000;
 const NATIVE_REMOTE_SUPPRESS_KEY = 'spice_update_reload_remote_suppress_until';
 const NATIVE_STARTUP_GUARD_KEY = 'spice_native_startup_playback_guard_until';
@@ -45,7 +49,7 @@ function installNativeStartupPlaybackGuard() {
     }
 
     function shouldBlockStartupPlayback() {
-        return isGuardActive() && !userPlaybackIntent;
+        return window.__spiceDesktopAudioReady === false || (isGuardActive() && !userPlaybackIntent);
     }
 
     function allowPlaybackIntent(reason) {
@@ -77,7 +81,6 @@ function installNativeStartupPlaybackGuard() {
             '[role="button"]',
             '[data-track-id]',
             '[data-song-id]',
-            '.library-item',
             '.queue-item',
             '.search-result',
             '.track-card',
@@ -101,7 +104,11 @@ function installNativeStartupPlaybackGuard() {
             candidate.textContent
         ].filter(Boolean).join(' ').toLowerCase();
 
-        return /play|pause|track|song|queue|listen|album|artist|result|library|chart|recommendation/.test(label);
+        if (candidate.matches('[data-track-id], [data-song-id], .queue-item, .search-result, .track-card, .track-row, .playlist-track, .recommendation-card, .chart-card')) {
+            return true;
+        }
+
+        return /play|pause|track|song|queue|listen|album|artist|result/.test(label);
     }
 
     function noteTrustedPlaybackIntent(event) {
@@ -265,6 +272,7 @@ function installSpiceAudioBridge() {
     let lastSignature = '';
     let listenerAttached = false;
     let pendingAudioPayload = null;
+    let desktopAudioPayloadApplied = false;
 
     function readBoostEnabled() {
         return window.localStorage.getItem('spice_volume_booster_accepted') === 'true';
@@ -285,6 +293,7 @@ function installSpiceAudioBridge() {
     }
 
     function emitAudioState(force = false) {
+        if (!desktopAudioPayloadApplied) return;
         const volume = readVolume();
         const boostEnabled = readBoostEnabled();
         if (volume === null) return;
@@ -295,6 +304,7 @@ function installSpiceAudioBridge() {
         ipcRenderer.send('spice-audio-state-changed', {
             volume,
             boostEnabled,
+            desktopReady: true,
         });
     }
 
@@ -332,6 +342,8 @@ function installSpiceAudioBridge() {
             }
             pendingAudioPayload = null;
             const nextVolume = Math.max(0, Math.min(maxVolume, Math.round(requested)));
+            desktopAudioPayloadApplied = true;
+            window.__spiceDesktopAudioReady = true;
             setNativeRangeValue(slider, nextVolume);
         };
 

@@ -516,7 +516,7 @@
                                    cursor-pointer transition-all duration-300 hover:-translate-y-1.5
                                    hover:border-purple-500/30 hover:shadow-[0_8px_40px_rgba(168,85,247,0.15)]
                                    active:scale-95"
-                            onClick=${function() { onLoad('spice_crazy'); }}>
+                            onClick=${function() { nativeMode ? launchNativeSpice() : onLoad('spice_crazy'); }}>
                         <div class="text-purple-500 mb-5 transition-transform duration-300 group-hover:scale-110">
                             ${icon(IC.ytMusic, 44)}
                         </div>
