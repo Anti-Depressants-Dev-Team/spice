@@ -130,16 +130,13 @@ jobs:
         run: |
           VERSION="v$(node -p "require('./package.json').version")"
           SIGNED_APK="apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
-          UNSIGNED_APK="apps/mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk"
           ASSET_DIR="dist-mobile"
           if [ -f "$SIGNED_APK" ]; then
             APK="$SIGNED_APK"
             SIGNING_KIND="signed"
-          elif [ -f "$UNSIGNED_APK" ]; then
-            APK="$UNSIGNED_APK"
-            SIGNING_KIND="unsigned"
           else
-            echo "Expected release APK not found."
+            echo "Expected signed release APK not found."
+            find apps/mobile/android/app/build/outputs/apk/release -type f -maxdepth 3 || true
             find apps/mobile/android/app/build/outputs -type f || true
             exit 1
           fi
