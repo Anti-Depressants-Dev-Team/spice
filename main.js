@@ -1282,6 +1282,7 @@ function goHome() {
 // This bypasses the broken preload IPC by polling directly from main
 let trackPollingInterval = null;
 let lastPolledTrackKey = null;
+let lastScrobbledTrackKey = null;
 let lastPolledTime = 0;
 
 let queuePollingInterval = null;
@@ -1591,7 +1592,6 @@ function startTrackPolling() {
                                     'spice listener'
                                 ];
                                 if (!titleText || blocked.includes(titleText)) return true;
-                                if (blocked.includes(artistText)) return true;
                                 return titleText === 'spice' && artistText === 'library';
                             }
 
@@ -1654,7 +1654,7 @@ function startTrackPolling() {
                             if (isShellTrackCandidate(title, artist)) {
                                 return {
                                     sourceService: 'spice_crazy',
-                                    rawText: rawText,
+                                    shellOnly: true,
                                     title: '',
                                     artist: '',
                                     album: '',
@@ -1802,6 +1802,8 @@ function startTrackPolling() {
           likeStatus: false,
           repeatDebug: "",
         };
+      } else if (rawData && rawData.sourceService === "spice_crazy") {
+        track = null;
       } else if (rawData && rawData.rawText) {
         const lines = rawData.rawText.split("\n");
         let title = rawData.title || (lines.length > 1 ? lines[1].trim() : "");
@@ -1908,8 +1910,10 @@ function startTrackPolling() {
         // Update lastPolledTime
         lastPolledTime = currentTime;
 
+        const trackChangedOrRepeated = trackKey !== lastPolledTrackKey || isRepeat;
+
         // Update components on track change OR repeat
-        if (trackKey !== lastPolledTrackKey || isRepeat) {
+        if (trackChangedOrRepeated) {
           lastPolledTrackKey = trackKey;
           console.log(
             "[Main] TRACK POLLED:",
@@ -1926,12 +1930,6 @@ function startTrackPolling() {
             lastTrack.artwork = track.albumArt;
           }
 
-          // Update Scrobbler
-          console.log("[Main Poll] Updating scrobbler...");
-          if (scrobbler && !track.paused) {
-            scrobbler.updateNowPlaying(track);
-          }
-
           // Update Lyrics Window
           console.log("[Main Poll] Updating Lyrics Window...");
           if (lyricsWindow) {
@@ -1939,6 +1937,12 @@ function startTrackPolling() {
           }
 
           injectInlineLyrics(track);
+        }
+
+        if (scrobbler && !track.paused && (trackChangedOrRepeated || trackKey !== lastScrobbledTrackKey)) {
+          console.log("[Main Poll] Updating scrobbler...");
+          scrobbler.updateNowPlaying(track);
+          lastScrobbledTrackKey = trackKey;
         }
 
         // ALWAYS update Mini Player and Discord (for progress/time sync)
@@ -2012,6 +2016,7 @@ function stopTrackPolling() {
     queuePollingInterval = null;
   }
   lastPolledTrackKey = null;
+  lastScrobbledTrackKey = null;
 }
 // ============== END TRACK POLLING ==============
 

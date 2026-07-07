@@ -11,6 +11,7 @@ const IS_SPICE_LOCAL_RUNTIME =
 
 if (IS_SPICE_LOCAL_RUNTIME) {
     window.__spiceDesktopAudioReady = false;
+    window.__spiceDesktopAudioSettingsQueued = false;
 }
 
 const NATIVE_STARTUP_PLAYBACK_GUARD_MS = 60 * 1000;
@@ -49,7 +50,10 @@ function installNativeStartupPlaybackGuard() {
     }
 
     function shouldBlockStartupPlayback() {
-        return window.__spiceDesktopAudioReady === false || (isGuardActive() && !userPlaybackIntent);
+        const waitingForAudioSettings =
+            window.__spiceDesktopAudioReady === false &&
+            !(userPlaybackIntent && window.__spiceDesktopAudioSettingsQueued === true);
+        return waitingForAudioSettings || (isGuardActive() && !userPlaybackIntent);
     }
 
     function allowPlaybackIntent(reason) {
@@ -355,6 +359,7 @@ function installSpiceAudioBridge() {
 
     window.__spiceDesktopSetAudioSettings = function(payload) {
         pendingAudioPayload = payload;
+        window.__spiceDesktopAudioSettingsQueued = true;
         applyAudioSettingsPayload(payload);
     };
 
