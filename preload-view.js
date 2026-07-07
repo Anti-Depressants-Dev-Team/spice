@@ -273,10 +273,13 @@ installNativeSessionSnapshot();
 function installSpiceAudioBridge() {
     if (!IS_SPICE_LOCAL_RUNTIME) return;
 
+    const PLAYER_VOLUME_STORAGE_KEY = 'spice_player_volume';
     let lastSignature = '';
     let listenerAttached = false;
     let pendingAudioPayload = null;
+    let desktopAudioPayload = null;
     let desktopAudioPayloadApplied = false;
+    let applyingDesktopAudioPayload = false;
 
     function readBoostEnabled() {
         return window.localStorage.getItem('spice_volume_booster_accepted') === 'true';
@@ -296,15 +299,46 @@ function installSpiceAudioBridge() {
         return Number.isFinite(value) ? value : null;
     }
 
-    function emitAudioState(force = false) {
+    function normalizePayloadVolume(payload) {
+        const boostEnabled = Boolean(payload && payload.boostEnabled);
+        const maxVolume = boostEnabled ? 1000 : 200;
+        const requested = Number(payload && payload.volume);
+        if (!Number.isFinite(requested)) return null;
+        return Math.max(0, Math.min(maxVolume, Math.round(requested)));
+    }
+
+    function writeDesktopAudioPayloadToStorage(payload) {
+        const volume = normalizePayloadVolume(payload);
+        if (volume === null) return;
+        try {
+            window.localStorage.setItem(PLAYER_VOLUME_STORAGE_KEY, String(volume));
+            window.localStorage.setItem('spice_volume_booster_accepted', String(Boolean(payload && payload.boostEnabled)));
+        } catch {
+            // LocalStorage may be unavailable on early navigation; the DOM bridge still applies the payload.
+        }
+    }
+
+    function emitAudioState(force = false, source = 'observer') {
         if (!desktopAudioPayloadApplied) return;
         const volume = readVolume();
         const boostEnabled = readBoostEnabled();
         if (volume === null) return;
 
+        const isUserSource = source === 'user';
+        if (!isUserSource && desktopAudioPayload) {
+            const expectedVolume = normalizePayloadVolume(desktopAudioPayload);
+            const expectedBoost = Boolean(desktopAudioPayload.boostEnabled);
+            if (expectedVolume !== null && (volume !== expectedVolume || boostEnabled !== expectedBoost)) {
+                applyAudioSettingsPayload(desktopAudioPayload);
+            }
+            return;
+        }
+
         const signature = `${volume}:${boostEnabled}`;
         if (!force && signature === lastSignature) return;
         lastSignature = signature;
+        desktopAudioPayload = { volume, boostEnabled };
+        writeDesktopAudioPayloadToStorage(desktopAudioPayload);
         ipcRenderer.send('spice-audio-state-changed', {
             volume,
             boostEnabled,
@@ -321,6 +355,12 @@ function installSpiceAudioBridge() {
     }
 
     function applyAudioSettingsPayload(payload) {
+        desktopAudioPayload = {
+            volume: Number(payload && payload.volume),
+            boostEnabled: Boolean(payload && payload.boostEnabled),
+        };
+        writeDesktopAudioPayloadToStorage(desktopAudioPayload);
+
         const boostEnabled = Boolean(payload && payload.boostEnabled);
         const currentBoost = readBoostEnabled();
         let boostClickQueued = false;
@@ -335,9 +375,8 @@ function installSpiceAudioBridge() {
         }
 
         const applyRequestedVolume = () => {
-            const maxVolume = boostEnabled ? 1000 : 200;
-            const requested = Number(payload && payload.volume);
-            if (!Number.isFinite(requested)) return;
+            const nextVolume = normalizePayloadVolume(payload);
+            if (nextVolume === null) return;
 
             const slider = findVolumeSlider();
             if (!slider) {
@@ -345,16 +384,23 @@ function installSpiceAudioBridge() {
                 return;
             }
             pendingAudioPayload = null;
-            const nextVolume = Math.max(0, Math.min(maxVolume, Math.round(requested)));
             desktopAudioPayloadApplied = true;
             window.__spiceDesktopAudioReady = true;
-            setNativeRangeValue(slider, nextVolume);
+            lastSignature = `${nextVolume}:${boostEnabled}`;
+            applyingDesktopAudioPayload = true;
+            try {
+                setNativeRangeValue(slider, nextVolume);
+            } finally {
+                setTimeout(() => {
+                    applyingDesktopAudioPayload = false;
+                }, 0);
+            }
         };
 
         if (boostClickQueued) setTimeout(applyRequestedVolume, 80);
         else applyRequestedVolume();
 
-        setTimeout(() => emitAudioState(true), 50);
+        setTimeout(() => emitAudioState(true, 'desktop'), 50);
     }
 
     window.__spiceDesktopSetAudioSettings = function(payload) {
@@ -370,8 +416,12 @@ function installSpiceAudioBridge() {
         }
         if (slider && !slider.dataset.spiceDesktopAudioBridge) {
             slider.dataset.spiceDesktopAudioBridge = '1';
-            slider.addEventListener('input', () => emitAudioState());
-            slider.addEventListener('change', () => emitAudioState(true));
+            slider.addEventListener('input', (event) => {
+                emitAudioState(false, event.isTrusted && !applyingDesktopAudioPayload ? 'user' : 'programmatic');
+            });
+            slider.addEventListener('change', (event) => {
+                emitAudioState(true, event.isTrusted && !applyingDesktopAudioPayload ? 'user' : 'programmatic');
+            });
         }
 
         if (!listenerAttached) {
@@ -379,12 +429,12 @@ function installSpiceAudioBridge() {
             document.addEventListener('click', (event) => {
                 const target = event.target;
                 if (target && target.closest && target.closest('button[title="Toggle Volume Booster"]')) {
-                    setTimeout(() => emitAudioState(true), 50);
+                    setTimeout(() => emitAudioState(true, event.isTrusted ? 'user' : 'programmatic'), 50);
                 }
             }, true);
         }
 
-        emitAudioState();
+        emitAudioState(false, 'observer');
     }
 
     function startBridgeObserver() {

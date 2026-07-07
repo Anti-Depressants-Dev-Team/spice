@@ -95,12 +95,22 @@ if ($resolvedJavaHome) {
     $env:Path = (Join-Path $env:JAVA_HOME "bin") + ";" + $env:Path
 }
 
+$hasReleaseSigning = $env:SPICE_ANDROID_SIGNING_STORE_FILE -and
+    $env:SPICE_ANDROID_SIGNING_STORE_PASSWORD -and
+    $env:SPICE_ANDROID_SIGNING_KEY_ALIAS -and
+    $env:SPICE_ANDROID_SIGNING_KEY_PASSWORD
+$allowLocalDebugSigning = -not $env:CI -and -not $hasReleaseSigning
+$gradleArgs = @()
+if ($allowLocalDebugSigning) {
+    $gradleArgs += "-PspiceAndroidDebugSignRelease=true"
+}
+
 Push-Location $androidRoot
 try {
     if ($Check) {
-        .\gradlew.bat lintRelease testReleaseUnitTest assembleRelease --stacktrace
+        .\gradlew.bat @gradleArgs lintRelease testReleaseUnitTest assembleRelease --stacktrace
     } else {
-        .\gradlew.bat assembleRelease --stacktrace
+        .\gradlew.bat @gradleArgs assembleRelease --stacktrace
     }
     if ($LASTEXITCODE -ne 0) {
         throw "Android release build failed with exit code $LASTEXITCODE."

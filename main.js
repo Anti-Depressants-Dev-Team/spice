@@ -398,6 +398,7 @@ function initStore() {
     const savedVolume = Number(store.get("volume", currentVolume));
     if (Number.isFinite(savedVolume)) currentVolume = Math.max(0, Math.min(10, savedVolume));
     currentBoostEnabled = Boolean(store.get("boostEnabled", false));
+    syncMiniPlayerAudioState();
     // Initialize scrobbler after store
     scrobbler = new Scrobbler(store);
     console.log("Scrobbler initialized");
@@ -639,8 +640,17 @@ function sendActiveServiceState(active) {
 
 function sendAudioControlState() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  syncMiniPlayerAudioState();
   mainWindow.webContents.send("volume-changed", currentVolume);
   mainWindow.webContents.send("boost-changed", currentBoostEnabled);
+}
+
+function syncMiniPlayerAudioState() {
+  try {
+    miniPlayerServer.updateState({ volume: currentVolume });
+  } catch (error) {
+    console.error("Failed to sync mini player audio state:", error.message);
+  }
 }
 
 function getToolbarButtons() {
@@ -2043,6 +2053,7 @@ function startTrackPolling() {
             track.artist,
             isRepeat ? "(REPEAT)" : "",
           );
+          applyVolumeToActiveView();
 
           // Enhance album art
           if (track.albumArt && track.albumArt.includes("ggpht.com")) {
@@ -3531,6 +3542,7 @@ app.whenReady().then(async () => {
                 try {
                     const media = document.querySelector('video') || document.querySelector('audio');
                     if (!media) return;
+                    media.volume = Math.max(0, Math.min(1, window.spiceVolume));
 
                     if (!window.boostCtx) {
                         const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -3582,7 +3594,7 @@ app.whenReady().then(async () => {
         })();
     `;
 
-  function applySpiceAudioControls(retries = 4) {
+  function applySpiceAudioControls(retries = 60) {
     const targetView = getActiveBackendView();
     if (!targetView) return;
     targetView.webContents

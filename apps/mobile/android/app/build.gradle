@@ -17,6 +17,7 @@ def hasReleaseSigning = releaseSigningStoreFile &&
     releaseSigningStorePassword &&
     releaseSigningKeyAlias &&
     releaseSigningKeyPassword
+def allowDebugReleaseSigning = (project.findProperty("spiceAndroidDebugSignRelease") ?: System.getenv("SPICE_ANDROID_DEBUG_SIGN_RELEASE") ?: "false").toString().toBoolean()
 
 android {
     namespace = "xyz.spiceapp.mobile"
@@ -49,7 +50,11 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            signingConfig hasReleaseSigning ? signingConfigs.releaseUpload : signingConfigs.debug
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.releaseUpload
+            } else if (allowDebugReleaseSigning) {
+                signingConfig signingConfigs.debug
+            }
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
