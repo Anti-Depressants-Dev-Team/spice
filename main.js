@@ -80,6 +80,7 @@ let spiceRuntimeManager = null;
 let applyVolumeToActiveView = () => {};
 let updateInstallInProgress = false;
 let updateInstallCleanupPromise = null;
+let updateInstallCleanupCompleted = false;
 
 const APP_NATIVE_MODE =
   process.env.SPICE_NATIVE_APP === "1" ||
@@ -698,15 +699,27 @@ function supportsInjectedPlayback(serviceKey) {
   );
 }
 
-function resetTrackedPlayback() {
-  stopTrackPolling();
+function clearPlaybackSurfaces(rawData = {}) {
   lastTrack = null;
+  lastPolledTrackKey = null;
+  lastScrobbledTrackKey = null;
+  lastPolledTime = 0;
   lastInlineLyricsKey = null;
   discordRpc.clearPresence();
   miniPlayerServer.updateState({
     track: null,
     currentTime: 0,
     paused: true,
+    volume: currentVolume,
+    shuffle: rawData.shuffle || false,
+    repeat: rawData.repeat || "off",
+    likeStatus: false,
+  });
+}
+
+function resetTrackedPlayback() {
+  stopTrackPolling();
+  clearPlaybackSurfaces({
     shuffle: false,
     repeat: "off",
   });
@@ -738,9 +751,10 @@ async function prepareForUpdateInstall() {
   if (updateInstallCleanupPromise) return updateInstallCleanupPromise;
 
   updateInstallInProgress = true;
+  updateInstallCleanupCompleted = false;
   updateInstallCleanupPromise = (async () => {
     stopTrackPolling();
-    resetTrackedPlayback();
+    clearPlaybackSurfaces();
 
     if (mainWindow && view) {
       try {
@@ -774,6 +788,8 @@ async function prepareForUpdateInstall() {
         discordRpc.disconnect();
       } catch (_) {}
     }
+
+    updateInstallCleanupCompleted = true;
   })();
 
   return updateInstallCleanupPromise;
@@ -1578,9 +1594,11 @@ function startTrackPolling() {
                             function isShellTrackCandidate(songTitle, songArtist) {
                                 const titleText = normalize(songTitle);
                                 const artistText = normalize(songArtist);
-                                const blocked = [
+                                const hardShellTitles = [
                                     'select a track to play',
-                                    'spice player',
+                                    'spice player'
+                                ];
+                                const uiTitles = [
                                     'spice',
                                     'spice music',
                                     'search',
@@ -1591,8 +1609,22 @@ function startTrackPolling() {
                                     'local profile',
                                     'spice listener'
                                 ];
-                                if (!titleText || blocked.includes(titleText)) return true;
-                                return titleText === 'spice' && artistText === 'library';
+                                const shellArtists = [
+                                    '',
+                                    'spice player',
+                                    'spice',
+                                    'spice music',
+                                    'spice listener',
+                                    'local profile',
+                                    'library',
+                                    'search',
+                                    'profile',
+                                    'settings',
+                                    'home',
+                                    'hybrid'
+                                ];
+                                if (!titleText || hardShellTitles.includes(titleText)) return true;
+                                return uiTitles.includes(titleText) && shellArtists.includes(artistText);
                             }
 
                             function bottomDistance(el) {
@@ -1993,12 +2025,16 @@ function startTrackPolling() {
       // ALWAYS send basic playback state to mini player, even when track is null
       // This ensures play/pause, shuffle, repeat, and volume stay in sync
       if (!track && rawData) {
-        miniPlayerServer.updateState({
-          paused: rawData.paused,
-          volume: currentVolume,
-          shuffle: rawData.shuffle || false,
-          repeat: rawData.repeat || "off",
-        });
+        if (rawData.shellOnly || rawData.sourceService === "spice_crazy") {
+          clearPlaybackSurfaces(rawData);
+        } else {
+          miniPlayerServer.updateState({
+            paused: rawData.paused,
+            volume: currentVolume,
+            shuffle: rawData.shuffle || false,
+            repeat: rawData.repeat || "off",
+          });
+        }
       }
     } catch (e) {
       console.log("[Main Poll] Error:", e.message);
@@ -2745,6 +2781,7 @@ app.whenReady().then(async () => {
   // Initialize Auto Updater
   autoUpdater.channel = UPDATE_CHANNEL;
   autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.on("checking-for-update", () => {
     if (mainWindow) mainWindow.webContents.send("update-status", { status: "checking" });
   });
@@ -2765,7 +2802,16 @@ app.whenReady().then(async () => {
   });
   autoUpdater.on("before-quit-for-update", () => {
     updateInstallInProgress = true;
-    prepareForUpdateInstall().catch(() => {});
+    if (!updateInstallCleanupCompleted) {
+      console.warn("Updater quit started before cleanup completed; running synchronous cleanup fallback.");
+      stopTrackPolling();
+      clearPlaybackSurfaces();
+      if (discordRpc) {
+        try {
+          discordRpc.disconnect();
+        } catch (_) {}
+      }
+    }
   });
 
   // Automatically check on startup
