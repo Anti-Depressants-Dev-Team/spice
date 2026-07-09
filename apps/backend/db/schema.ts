@@ -125,6 +125,8 @@ export const remoteDevices = pgTable(
     queueJson: text('queue_json').notNull().default('[]'),
     queueIndex: integer('queue_index').notNull().default(0),
     isPlaying: boolean('is_playing').notNull().default(false),
+    shuffleEnabled: boolean('shuffle_enabled').notNull().default(false),
+    repeatMode: text('repeat_mode').notNull().default('none'),
     progressMs: integer('progress_ms').notNull().default(0),
     durationMs: integer('duration_ms').notNull().default(0),
     volume: integer('volume').notNull().default(70),

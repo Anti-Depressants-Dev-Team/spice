@@ -19,6 +19,8 @@ test('Spice Connect device normalization bounds client-reported playback state',
     queue,
     queueIndex: 120,
     isPlaying: 1,
+    shuffleEnabled: true,
+    repeatMode: 'one',
     progress: 42.4,
     duration: 1000000,
     volume: 140,
@@ -30,6 +32,8 @@ test('Spice Connect device normalization bounds client-reported playback state',
   assert.equal(input.queue.length, 80);
   assert.equal(input.queueIndex, 79);
   assert.equal(input.isPlaying, true);
+  assert.equal(input.shuffleEnabled, true);
+  assert.equal(input.repeatMode, 'one');
   assert.equal(input.progressMs, 42400);
   assert.equal(input.durationMs, 86400000);
   assert.equal(input.volume, 100);
@@ -73,6 +77,26 @@ test('Spice Connect command normalization accepts remote track handoff payloads'
     queue: [{ id: 'yt-1', title: 'Remote Start' }],
     queueIndex: 0,
   });
+});
+
+test('Spice Connect command normalization accepts idempotent shuffle and repeat payloads', () => {
+  const shuffle = normalizeSpiceConnectCommandInput({
+    sourceDeviceId: 'phone',
+    targetDeviceId: 'desktop',
+    command: 'shuffle',
+    payload: { enabled: true },
+  });
+  const repeat = normalizeSpiceConnectCommandInput({
+    sourceDeviceId: 'desktop',
+    targetDeviceId: 'phone',
+    command: 'repeat',
+    payload: { mode: 'one' },
+  });
+
+  assert.ok(!('error' in shuffle));
+  assert.ok(!('error' in repeat));
+  assert.deepEqual(JSON.parse(shuffle.payloadJson), { enabled: true });
+  assert.deepEqual(JSON.parse(repeat.payloadJson), { mode: 'one' });
 });
 
 test('Spice Connect command normalization rejects same-device and unsupported commands', () => {

@@ -702,7 +702,17 @@ interface CloudAccount {
   };
 }
 
-type RemoteCommandType = 'play' | 'pause' | 'toggle' | 'next' | 'previous' | 'seek' | 'volume' | 'play_track';
+type RemoteCommandType =
+  | 'play'
+  | 'pause'
+  | 'toggle'
+  | 'next'
+  | 'previous'
+  | 'seek'
+  | 'volume'
+  | 'shuffle'
+  | 'repeat'
+  | 'play_track';
 
 interface RemoteDevice {
   deviceId: string;
@@ -711,6 +721,8 @@ interface RemoteDevice {
   queue?: Track[];
   queueIndex: number;
   isPlaying: boolean;
+  shuffleEnabled: boolean;
+  repeatMode: 'none' | 'all' | 'one';
   progress: number;
   duration: number;
   volume: number;
@@ -726,6 +738,8 @@ interface RemoteCommand {
   payload?: {
     progress?: number;
     volume?: number;
+    enabled?: boolean;
+    mode?: 'none' | 'all' | 'one';
     track?: Track;
     queue?: Track[];
     queueIndex?: number;
@@ -4493,6 +4507,18 @@ export default function SpiceApp() {
     }
   };
 
+  const applyLocalShuffleMode = (enabled: boolean) => {
+    setIsShuffle(enabled);
+    isShuffleRef.current = enabled;
+    localStorage.setItem(PLAYER_SHUFFLE_STORAGE_KEY, String(enabled));
+  };
+
+  const applyLocalRepeatMode = (mode: 'none' | 'all' | 'one') => {
+    setRepeatMode(mode);
+    repeatModeRef.current = mode;
+    localStorage.setItem(PLAYER_REPEAT_STORAGE_KEY, mode);
+  };
+
   const reportRemoteDeviceState = async () => {
     if (!cloudToken || !remoteControlEnabled || remoteDeviceReportInFlightRef.current) return;
     if (!isSpiceDocumentVisible() && !isPlayingRef.current) return;
@@ -4514,6 +4540,8 @@ export default function SpiceApp() {
           queue: currentQueue.slice(0, 80),
           queueIndex: queueIndexRef.current,
           isPlaying: isPlayingRef.current,
+          shuffleEnabled: isShuffleRef.current,
+          repeatMode: repeatModeRef.current,
           progress: progressRef.current,
           duration: durationRef.current,
           volume: volumeRef.current,
@@ -4551,6 +4579,8 @@ export default function SpiceApp() {
           ...device,
           currentTrack: device.currentTrack ? enrichTrackSnapshot(device.currentTrack) : null,
           queue: Array.isArray(device.queue) ? device.queue.map(enrichTrackSnapshot) : [],
+          shuffleEnabled: device.shuffleEnabled === true,
+          repeatMode: isRepeatMode(device.repeatMode) ? device.repeatMode : 'none',
           lastSeenSeconds: Math.max(0, Math.round((Date.now() - new Date(device.updatedAt).getTime()) / 1000)),
         })).filter((device: any) => device.lastSeenSeconds <= 7200)
         : [];
@@ -4607,6 +4637,8 @@ export default function SpiceApp() {
     || command.command === 'toggle'
     || command.command === 'next'
     || command.command === 'previous'
+    || command.command === 'shuffle'
+    || command.command === 'repeat'
     || command.command === 'play_track'
   );
 
@@ -4651,6 +4683,16 @@ export default function SpiceApp() {
         if (Number.isFinite(nextVolume)) {
           setVolume(Math.max(0, Math.min(100, Math.round(nextVolume))));
         }
+        break;
+      }
+      case 'shuffle': {
+        const enabled = command.payload?.enabled;
+        if (typeof enabled === 'boolean') applyLocalShuffleMode(enabled);
+        break;
+      }
+      case 'repeat': {
+        const mode = command.payload?.mode;
+        if (isRepeatMode(mode)) applyLocalRepeatMode(mode);
         break;
       }
       case 'play_track': {
@@ -6321,6 +6363,10 @@ export default function SpiceApp() {
   const playerProgress = isControllingRemoteReceiver ? (selectedRemoteDevice?.progress || 0) : progress;
   const playerDuration = isControllingRemoteReceiver ? (selectedRemoteDevice?.duration || 0) : duration;
   const playerVolume = isControllingRemoteReceiver ? (selectedRemoteDevice?.volume ?? 70) : volume;
+  const playerShuffleEnabled = isControllingRemoteReceiver ? Boolean(selectedRemoteDevice?.shuffleEnabled) : isShuffle;
+  const playerRepeatMode = isControllingRemoteReceiver && isRepeatMode(selectedRemoteDevice?.repeatMode)
+    ? selectedRemoteDevice.repeatMode
+    : repeatMode;
   const playerIsPlaceholder = playerTrack.id === 'placeholder' || playerTrack.id === 'spice-connect-placeholder';
   const receiverLabel = selectedRemoteDevice?.displayName || 'This device';
   const receiverSelectDisabled = !cloudToken;
@@ -6429,6 +6475,30 @@ export default function SpiceApp() {
       return;
     }
     togglePlayPause();
+  };
+
+  const toggleReceiverShuffle = () => {
+    if (listenTogetherHostSessionId) return;
+    const enabled = !playerShuffleEnabled;
+    if (isControllingRemoteReceiver) {
+      if (!canControlSelectedRemoteReceiver('shuffle')) return;
+      patchSelectedRemoteDevice({ shuffleEnabled: enabled });
+      void sendRemoteCommand('shuffle', { enabled });
+      return;
+    }
+    applyLocalShuffleMode(enabled);
+  };
+
+  const cycleReceiverRepeat = () => {
+    if (listenTogetherHostSessionId) return;
+    const mode = playerRepeatMode === 'none' ? 'all' : playerRepeatMode === 'all' ? 'one' : 'none';
+    if (isControllingRemoteReceiver) {
+      if (!canControlSelectedRemoteReceiver('repeat')) return;
+      patchSelectedRemoteDevice({ repeatMode: mode });
+      void sendRemoteCommand('repeat', { mode });
+      return;
+    }
+    applyLocalRepeatMode(mode);
   };
 
   const seekActiveReceiverTo = (seekTime: number) => {
@@ -12140,12 +12210,8 @@ const getMaskedEmail = (email: string) => {
         {/* Left: playback controls */}
         <div className="now-playing__left-controls" style={{ opacity: listenTogetherHostSessionId ? 0.5 : 1 }}>
           <button
-            className={`now-playing__btn now-playing__btn--wide-only ${isShuffle ? 'active' : ''}`}
-            onClick={() => {
-              if (listenTogetherHostSessionId) return;
-              setIsShuffle(!isShuffle);
-              localStorage.setItem(PLAYER_SHUFFLE_STORAGE_KEY, (!isShuffle).toString());
-            }}
+            className={`now-playing__btn now-playing__btn--wide-only ${playerShuffleEnabled ? 'active' : ''}`}
+            onClick={toggleReceiverShuffle}
             disabled={!!listenTogetherHostSessionId}
             style={{ cursor: listenTogetherHostSessionId ? 'not-allowed' : 'pointer' }}
             title={listenTogetherHostSessionId ? "Playback controlled by host" : "Shuffle"}
@@ -12188,18 +12254,13 @@ const getMaskedEmail = (email: string) => {
           </button>
 
           <button
-            className={`now-playing__btn now-playing__btn--wide-only ${repeatMode !== 'none' ? 'active' : ''}`}
-            onClick={() => {
-              if (listenTogetherHostSessionId) return;
-              const nextMode = repeatMode === 'none' ? 'all' : repeatMode === 'all' ? 'one' : 'none';
-              setRepeatMode(nextMode);
-              localStorage.setItem(PLAYER_REPEAT_STORAGE_KEY, nextMode);
-            }}
+            className={`now-playing__btn now-playing__btn--wide-only ${playerRepeatMode !== 'none' ? 'active' : ''}`}
+            onClick={cycleReceiverRepeat}
             disabled={!!listenTogetherHostSessionId}
             style={{ cursor: listenTogetherHostSessionId ? 'not-allowed' : 'pointer' }}
-            title={listenTogetherHostSessionId ? "Playback controlled by host" : `Repeat Mode: ${repeatMode === 'none' ? 'Off' : repeatMode === 'all' ? 'Repeat All' : 'Repeat One'}`}
+            title={listenTogetherHostSessionId ? "Playback controlled by host" : `Repeat Mode: ${playerRepeatMode === 'none' ? 'Off' : playerRepeatMode === 'all' ? 'Repeat All' : 'Repeat One'}`}
           >
-            {repeatMode === 'one' ? Icons.repeatOne : Icons.repeat}
+            {playerRepeatMode === 'one' ? Icons.repeatOne : Icons.repeat}
           </button>
 
           <button
@@ -12552,13 +12613,9 @@ const getMaskedEmail = (email: string) => {
                     {/* Huge transport buttons */}
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '32px', opacity: listenTogetherHostSessionId ? 0.5 : 1 }}>
                       <button
-                        onClick={() => {
-                          if (listenTogetherHostSessionId) return;
-                          setIsShuffle(!isShuffle);
-                          localStorage.setItem(PLAYER_SHUFFLE_STORAGE_KEY, (!isShuffle).toString());
-                        }}
+                        onClick={toggleReceiverShuffle}
                         disabled={!!listenTogetherHostSessionId}
-                        style={{ background: 'none', border: 'none', color: isShuffle ? 'var(--accent-pink)' : '#fff', opacity: isShuffle ? 1 : 0.4, cursor: listenTogetherHostSessionId ? 'not-allowed' : 'pointer', outline: 'none', transition: 'all 0.15s ease' }}
+                        style={{ background: 'none', border: 'none', color: playerShuffleEnabled ? 'var(--accent-pink)' : '#fff', opacity: playerShuffleEnabled ? 1 : 0.4, cursor: listenTogetherHostSessionId ? 'not-allowed' : 'pointer', outline: 'none', transition: 'all 0.15s ease' }}
                         className="expanded-player__btn"
                         title={listenTogetherHostSessionId ? "Playback controlled by host" : "Shuffle"}
                       >
@@ -12613,18 +12670,13 @@ const getMaskedEmail = (email: string) => {
                       </button>
 
                       <button
-                        onClick={() => {
-                          if (listenTogetherHostSessionId) return;
-                          const nextMode = repeatMode === 'none' ? 'all' : repeatMode === 'all' ? 'one' : 'none';
-                          setRepeatMode(nextMode);
-                          localStorage.setItem(PLAYER_REPEAT_STORAGE_KEY, nextMode);
-                        }}
+                        onClick={cycleReceiverRepeat}
                         disabled={!!listenTogetherHostSessionId}
-                        style={{ background: 'none', border: 'none', color: repeatMode !== 'none' ? 'var(--accent-pink)' : '#fff', opacity: repeatMode !== 'none' ? 1 : 0.4, cursor: listenTogetherHostSessionId ? 'not-allowed' : 'pointer', outline: 'none', transition: 'all 0.15s ease' }}
+                        style={{ background: 'none', border: 'none', color: playerRepeatMode !== 'none' ? 'var(--accent-pink)' : '#fff', opacity: playerRepeatMode !== 'none' ? 1 : 0.4, cursor: listenTogetherHostSessionId ? 'not-allowed' : 'pointer', outline: 'none', transition: 'all 0.15s ease' }}
                         className="expanded-player__btn"
-                        title={listenTogetherHostSessionId ? "Playback controlled by host" : `Repeat Mode: ${repeatMode === 'none' ? 'Off' : repeatMode === 'all' ? 'Repeat All' : 'Repeat One'}`}
+                        title={listenTogetherHostSessionId ? "Playback controlled by host" : `Repeat Mode: ${playerRepeatMode === 'none' ? 'Off' : playerRepeatMode === 'all' ? 'Repeat All' : 'Repeat One'}`}
                       >
-                        <span style={{ transform: 'scale(1.4)', display: 'inline-block' }}>{repeatMode === 'one' ? Icons.repeatOne : Icons.repeat}</span>
+                        <span style={{ transform: 'scale(1.4)', display: 'inline-block' }}>{playerRepeatMode === 'one' ? Icons.repeatOne : Icons.repeat}</span>
                       </button>
                     </div>
 

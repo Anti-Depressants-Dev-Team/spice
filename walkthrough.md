@@ -2,6 +2,10 @@
 
 ## v1.0.120
 
+- [Spice.Music main] Extend Spice Connect device presence with persisted shuffle and repeat state.
+- [Spice.Music main] Add idempotent remote `shuffle` and `repeat` commands so desktop and Android controllers stay synchronized.
+- [Spice.Music main] Route the desktop bar and expanded-player shuffle/repeat buttons through the selected Spice Connect receiver.
+- [Spice.Music main] Add the `remote_devices` playback-mode migration and protocol normalization coverage.
 - [Spice.Music main] Apply saved player volume to the audio element before direct playback starts so startup and track changes do not briefly jump to 100%.
 - [Spice.Music main] Keep restored profile playback snapshots paused on first boot and profile switch until the listener explicitly presses play.
 - [Spice.Music main] Share platform song links from the share/download dialog while keeping the internal song token as a fallback.

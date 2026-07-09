@@ -1,4 +1,16 @@
-export type SpiceConnectCommandType = 'play' | 'pause' | 'toggle' | 'next' | 'previous' | 'seek' | 'volume' | 'play_track';
+export type SpiceConnectCommandType =
+  | 'play'
+  | 'pause'
+  | 'toggle'
+  | 'next'
+  | 'previous'
+  | 'seek'
+  | 'volume'
+  | 'shuffle'
+  | 'repeat'
+  | 'play_track';
+
+export type SpiceConnectRepeatMode = 'none' | 'all' | 'one';
 
 export const SPICE_CONNECT_COMMAND_TTL_MS = 240000;
 
@@ -9,6 +21,8 @@ export interface SpiceConnectDeviceInput {
   queue: unknown[];
   queueIndex: number;
   isPlaying: boolean;
+  shuffleEnabled: boolean;
+  repeatMode: SpiceConnectRepeatMode;
   progressMs: number;
   durationMs: number;
   volume: number;
@@ -29,8 +43,17 @@ const allowedCommands = new Set<SpiceConnectCommandType>([
   'previous',
   'seek',
   'volume',
+  'shuffle',
+  'repeat',
   'play_track',
 ]);
+
+export function normalizeSpiceConnectRepeatMode(
+  value: unknown,
+  fallback: SpiceConnectRepeatMode = 'none',
+): SpiceConnectRepeatMode {
+  return value === 'none' || value === 'all' || value === 'one' ? value : fallback;
+}
 
 export function safeJsonStringify(value: unknown, fallback: string) {
   try {
@@ -72,6 +95,8 @@ export function normalizeSpiceConnectDeviceInput(body: Record<string, unknown>):
     queue,
     queueIndex: boundedInteger(body.queueIndex, 0, 0, Math.max(queue.length - 1, 0)),
     isPlaying: Boolean(body.isPlaying),
+    shuffleEnabled: body.shuffleEnabled === true,
+    repeatMode: normalizeSpiceConnectRepeatMode(body.repeatMode),
     progressMs: boundedInteger(Number(body.progress ?? 0) * 1000, 0, 0, 24 * 60 * 60 * 1000),
     durationMs: boundedInteger(Number(body.duration ?? 0) * 1000, 0, 0, 24 * 60 * 60 * 1000),
     volume: boundedInteger(body.volume, 70, 0, 100),
