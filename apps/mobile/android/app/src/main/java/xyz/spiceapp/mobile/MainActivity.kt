@@ -106,7 +106,7 @@ private fun SpiceRoot(viewModel: SpiceViewModel) {
             onSaveProfile = viewModel::saveProfileEdit,
             onSyncNow = viewModel::syncNow,
             onRefreshSpiceConnect = viewModel::refreshSpiceConnect,
-            onSendSpiceConnectCommand = viewModel::sendSpiceConnectCommand,
+            onPlaybackDeviceSelected = viewModel::selectPlaybackDevice,
             onTestEngine = {
                 ensureNotificationPermission()
                 viewModel.playEngineTest()

@@ -934,6 +934,8 @@ internal fun parseRemoteDevices(payload: JSONObject): List<RemoteDevice> {
                     deviceId = deviceId,
                     displayName = displayName,
                     currentTrack = parseRemoteTrack(item.optJSONObject("currentTrack")),
+                    queue = parseRemoteTracks(item.optJSONArray("queue")),
+                    queueIndex = item.optInt("queueIndex", 0).coerceAtLeast(0),
                     isPlaying = item.optBoolean("isPlaying", false),
                     progressMs = (item.optDouble("progress", 0.0) * 1000).toLong().coerceAtLeast(0),
                     durationMs = (item.optDouble("duration", 0.0) * 1000).toLong().coerceAtLeast(0),
@@ -958,13 +960,25 @@ internal fun parseRemoteCommands(payload: JSONObject): List<RemoteCommand> {
                 commandPayload.optJSONObject("track")
                     ?: commandPayload.optJSONObject("currentTrack"),
             )
+            val payloadQueue = parseRemoteTracks(commandPayload.optJSONArray("queue"))
+            val payloadQueueIndex = commandPayload.optInt("queueIndex", 0).coerceAtLeast(0)
             val seekPositionMs = when {
                 commandPayload.has("positionMs") -> commandPayload.optLong("positionMs").coerceAtLeast(0)
                 commandPayload.has("progressMs") -> commandPayload.optLong("progressMs").coerceAtLeast(0)
+                commandPayload.has("progress") -> (commandPayload.optDouble("progress", 0.0) * 1000).toLong().coerceAtLeast(0)
                 commandPayload.has("position") -> (commandPayload.optDouble("position", 0.0) * 1000).toLong().coerceAtLeast(0)
                 else -> null
             }
-            add(RemoteCommand(id, command, payloadTrack, seekPositionMs))
+            add(RemoteCommand(id, command, payloadTrack, payloadQueue, payloadQueueIndex, seekPositionMs))
+        }
+    }
+}
+
+private fun parseRemoteTracks(payload: JSONArray?): List<Track> {
+    val tracks = payload ?: return emptyList()
+    return buildList {
+        for (index in 0 until tracks.length()) {
+            parseRemoteTrack(tracks.optJSONObject(index))?.let(::add)
         }
     }
 }

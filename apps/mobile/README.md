@@ -23,15 +23,15 @@ Native Android preview for Spice Music, built with Jetpack Compose and Media3.
 - Shared playlist member management for owner invites/removal and member leave actions
 - Shared playlist track editing for owner/editor add-current and permitted track removal
 - Downloads library tab with completed download history, open/share/remove actions, and active download cancellation
-- Full player download action with progress state for explicit audio downloads
+- Compact full-player download action with progress and cancellation for explicit audio downloads
 - Lyrics sheet using LRCLIB-style lookup for the current track
-- Spice Connect device registration, device list refresh, command polling, and remote transport controls
+- Compact Spice Connect receiver menus in both players, with local/remote track state and transport routing
 - Settings Terms and Licenses tabs for native resolver and download dependencies
 - Media3/ExoPlayer playback service with Android media session and notification
 - Lock-screen controls, audio focus, headset/Bluetooth commands, noisy-output pause, and background playback
 - Keyboard-safe player surfaces that stay above the Android IME
 - Stable expanded full player sheet with seek, play/pause, like, download, lyrics, shuffle, previous/next, repeat, and stop controls
-- Compact mini player with duration, shuffle/repeat/play controls, and a full-width seekbar above the navigation bar
+- Compact mini player with duration, receiver selection, shuffle/repeat/play controls, and a full-width seekbar above the navigation bar
 - Debug-only local audio test for validating the native media stack without the network
 
 The app intentionally does not embed the website or use its YouTube iframe fallback. Native background playback requires a direct HTTPS audio URL.
@@ -139,7 +139,7 @@ YouTube direct resolution can still fail when YouTube changes its web/player int
 
 ## Downloads And Resolver Experiments
 
-`MediaDownloadClient` wraps `yt-dlp` for explicit user-triggered downloads. The wrapper initializes the embedded yt-dlp runtime and downloads audio to app-local music storage with metadata/thumbnail embedding. The UI exposes downloads from the full player sheet, reports progress while a single download is active, allows cancellation, and stores completed download records in the Library Downloads tab for open/share/remove actions.
+`MediaDownloadClient` wraps `yt-dlp` for explicit user-triggered downloads. The wrapper initializes the embedded yt-dlp, FFmpeg, and aria2 runtimes, uses collision-safe output names, and downloads audio with metadata to app-local music storage. If a bundled yt-dlp build fails on YouTube, Android attempts one stable runtime refresh before retrying. The compact full-player action reports progress, allows cancellation, and stores completed download records in the Library Downloads tab for open/share/remove actions.
 
 For direct SoundCloud/local streams, Android saves the resolved audio URL itself instead of forcing signed stream URLs back through yt-dlp. YouTube downloads still use yt-dlp with the provider page URL.
 
@@ -153,6 +153,6 @@ NewPipe Extractor and youtubedl-android are GPL-3.0-family dependencies, with FF
 
 ## Release Status
 
-Version 1.0.0 is a private sideload debug release target. No public store release is planned. The debug APK is installable and the native media stack is wired for direct SoundCloud, NewPipe-resolved YouTube, queue playback with next/previous, shuffle and repeat-all auto-advance, explicit downloads, account sync, profile stats, notifications, invite acceptance, member management, shared playlist editing, lyrics, Spice Connect, and local-runtime fallback streams.
+Version 1.0.4 is a private sideload release target. No public store release is planned. The APK is installable and the native media stack is wired for direct SoundCloud, NewPipe-resolved YouTube, queue playback with next/previous, shuffle and repeat-all auto-advance, explicit downloads, account sync, profile stats, notifications, invite acceptance, member management, shared playlist editing, lyrics, player-integrated Spice Connect, and local-runtime fallback streams.
 
 Remaining QA is device-side: playback, downloads, share intents, invite links, member management, shared editing, lyrics, Spice Connect command flow, and resolver stability on the target phones.

@@ -441,4 +441,66 @@ class SpiceApiParserTest {
         assertEquals(1, merged.size)
         assertEquals(listOf("remote", "local"), merged.single().tracks.map { it.id })
     }
+
+    @Test
+    fun parsesSpiceConnectDeviceQueueAndPlaybackState() {
+        val device = parseRemoteDevices(
+            JSONObject(
+                """
+                {
+                  "devices": [{
+                    "deviceId": "desktop-1",
+                    "displayName": "Studio PC",
+                    "currentTrack": {"id": "track-2", "title": "Voyager", "artist": "Daft Punk"},
+                    "queue": [
+                      {"id": "track-1", "title": "Digital Love", "artist": "Daft Punk"},
+                      {"id": "track-2", "title": "Voyager", "artist": "Daft Punk"}
+                    ],
+                    "queueIndex": 1,
+                    "isPlaying": true,
+                    "progress": 12.5,
+                    "duration": 180
+                  }]
+                }
+                """.trimIndent(),
+            ),
+        ).single()
+
+        assertEquals("Studio PC", device.displayName)
+        assertEquals(listOf("track-1", "track-2"), device.queue.map { it.id })
+        assertEquals(1, device.queueIndex)
+        assertEquals(12_500, device.progressMs)
+        assertTrue(device.isPlaying)
+    }
+
+    @Test
+    fun parsesSpiceConnectTrackHandoffAndSeekPayloads() {
+        val commands = parseRemoteCommands(
+            JSONObject(
+                """
+                {
+                  "commands": [
+                    {
+                      "id": "command-1",
+                      "command": "play_track",
+                      "payload": {
+                        "track": {"id": "track-2", "title": "Voyager", "artist": "Daft Punk"},
+                        "queue": [
+                          {"id": "track-1", "title": "Digital Love", "artist": "Daft Punk"},
+                          {"id": "track-2", "title": "Voyager", "artist": "Daft Punk"}
+                        ],
+                        "queueIndex": 1
+                      }
+                    },
+                    {"id": "command-2", "command": "seek", "payload": {"progress": 42.25}}
+                  ]
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(listOf("track-1", "track-2"), commands.first().payloadQueue.map { it.id })
+        assertEquals(1, commands.first().payloadQueueIndex)
+        assertEquals(42_250L, commands.last().seekPositionMs)
+    }
 }

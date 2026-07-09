@@ -150,6 +150,8 @@ data class RemoteDevice(
     val deviceId: String,
     val displayName: String,
     val currentTrack: Track? = null,
+    val queue: List<Track> = emptyList(),
+    val queueIndex: Int = 0,
     val isPlaying: Boolean = false,
     val progressMs: Long = 0,
     val durationMs: Long = 0,
@@ -161,6 +163,8 @@ data class RemoteCommand(
     val id: String,
     val command: String,
     val payloadTrack: Track? = null,
+    val payloadQueue: List<Track> = emptyList(),
+    val payloadQueueIndex: Int = 0,
     val seekPositionMs: Long? = null,
 )
 

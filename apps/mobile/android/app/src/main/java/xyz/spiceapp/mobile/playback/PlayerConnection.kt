@@ -146,6 +146,13 @@ class PlayerConnection(
         }
     }
 
+    fun pause() {
+        runWithController { activeController ->
+            activeController.pause()
+            publishState(activeController)
+        }
+    }
+
     fun seekTo(positionMs: Long) {
         runWithController { it.seekTo(positionMs.coerceAtLeast(0)) }
     }
