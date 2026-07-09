@@ -153,6 +153,6 @@ NewPipe Extractor and youtubedl-android are GPL-3.0-family dependencies, with FF
 
 ## Release Status
 
-Version 1.0.5 is a private sideload release target. No public store release is planned. The APK is installable and the native media stack is wired for direct SoundCloud, NewPipe-resolved YouTube, queue playback with next/previous, shuffle and repeat-all auto-advance, explicit downloads, account sync, profile stats, notifications, invite acceptance, member management, shared playlist editing, lyrics, player-integrated Spice Connect playback modes, and local-runtime fallback streams.
+Version 1.0.6 is a private sideload release target. No public store release is planned. The APK is installable and the native media stack is wired for direct SoundCloud, NewPipe-resolved YouTube, queue playback with next/previous, shuffle and repeat-all auto-advance, explicit downloads, account sync, profile stats, notifications, invite acceptance, member management, shared playlist editing, lyrics, player-integrated Spice Connect playback modes, and local-runtime fallback streams.
 
 Remaining QA is device-side: playback, downloads, share intents, invite links, member management, shared editing, lyrics, Spice Connect command flow, and resolver stability on the target phones.
