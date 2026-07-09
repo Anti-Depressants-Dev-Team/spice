@@ -27,8 +27,8 @@ android {
         applicationId "xyz.spiceapp.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 15
-        versionName "1.0.5"
+        versionCode 16
+        versionName "1.0.6"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
         buildConfigField "String", "SPICE_CLOUD_BASE_URL", buildConfigString(project.findProperty("spiceCloudBaseUrl") ?: "https://music.spice-app.xyz")
