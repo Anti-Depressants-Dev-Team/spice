@@ -259,7 +259,7 @@
 
         function runtimeLabel() {
             if (!runtimeStatus) return 'Checking local runtime';
-            if (!runtimeStatus.supported) return 'Managed install is Windows-only';
+            if (!runtimeStatus.supported) return 'Managed install is unavailable on this platform';
             if (runtimeStatus.running) return 'Running on 127.0.0.1:3939';
             if (runtimeStatus.installed) return 'Installed ' + (runtimeStatus.installedVersion || '');
             return 'Not installed';

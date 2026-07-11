@@ -372,13 +372,20 @@ function installSpiceAudioBridge() {
             }
         }
 
-        const applyRequestedVolume = () => {
+        const applyRequestedVolume = (remainingAttempts = 40) => {
             const nextVolume = normalizePayloadVolume(payload);
             if (nextVolume === null) return;
 
             const slider = findVolumeSlider();
             if (!slider) {
                 pendingAudioPayload = payload;
+                return;
+            }
+
+            const sliderMaximum = Number(slider.max);
+            if (boostEnabled && nextVolume > 200 && sliderMaximum < nextVolume && remainingAttempts > 0) {
+                pendingAudioPayload = payload;
+                setTimeout(() => applyRequestedVolume(remainingAttempts - 1), 50);
                 return;
             }
             pendingAudioPayload = null;
@@ -395,7 +402,7 @@ function installSpiceAudioBridge() {
             }
         };
 
-        if (boostClickQueued) setTimeout(applyRequestedVolume, 80);
+        if (boostClickQueued) setTimeout(() => applyRequestedVolume(), 0);
         else applyRequestedVolume();
 
         setTimeout(() => emitAudioState(true, 'desktop'), 50);

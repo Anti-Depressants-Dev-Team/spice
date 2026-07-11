@@ -47,6 +47,38 @@ jobs:
         run: npm run native:prepare-runtime
 
       - name: Build & Publish Native Release
-        run: npm run dist:native -- --publish always
+        run: npm run dist:native:windows -- --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-native-linux:
+    needs: prepare-native-release
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Linux package tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools rpm
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Prepare bundled SPICE Linux runtime
+        run: npm run native:prepare-runtime
+
+      - name: Build & Publish Native Linux Release
+        run: npm run dist:native:linux -- --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
