@@ -1,5 +1,13 @@
 # SPICE Walkthrough
 
+## v1.0.125
+
+- [Spice.Music main] Reconcile the monotonic songs-streamed counter across local state, cloud profiles, and synced history so a stale cloud zero cannot erase listener progress.
+- [Spice.Music main] Pull and push independent account datasets concurrently, and report partial syncs instead of overwriting a cloud dataset whose pull failed.
+- [Spice.Music main] Let background playlist uploads skip rebuilding and returning unused playlist snapshots, reducing Neon work and origin transfer for large imported libraries.
+- [Spice.Music main] Clarify that the account-header heart count represents profile likes received, not the listener's liked songs.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.125`.
+
 ## v1.0.124
 
 - [Spice.Music main] Defer the Native cloud token and automatic Neon sync until the saved active profile has finished hydrating, preventing startup sync from targeting the temporary default profile.

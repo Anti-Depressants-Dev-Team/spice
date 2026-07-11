@@ -95,8 +95,13 @@ export async function POST(request: Request) {
 
     const token = auth.substring(7);
     const session = await verifySession(token);
-    const { playlists: clientPlaylists, profileId: payloadProfileId } = await request.json();
+    const {
+      playlists: clientPlaylists,
+      profileId: payloadProfileId,
+      includeSnapshots: payloadIncludeSnapshots,
+    } = await request.json();
     const profileId = payloadProfileId || 'default';
+    const includeSnapshots = payloadIncludeSnapshots !== false;
 
     if (!Array.isArray(clientPlaylists)) {
       return jsonResponse({ error: 'invalid_payload', message: 'Playlists payload must be an array.' }, { status: 400 });
@@ -178,6 +183,10 @@ export async function POST(request: Request) {
     if (batch.length > 0) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await db.batch(batch as any);
+    }
+
+    if (!includeSnapshots) {
+      return jsonResponse({ success: true, count: ownedClientPlaylists.length });
     }
 
     const userPlaylists = await db.query.playlists.findMany({

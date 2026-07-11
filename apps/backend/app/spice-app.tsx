@@ -27,6 +27,7 @@ import {
 import { isSpiceConnectCommandFresh, SPICE_CONNECT_COMMAND_TTL_MS } from '@/lib/spice-connect';
 import { SPICE_MEDIA_CORE_VERSION, RELEASE_NOTIFICATION_STORAGE_KEY, type ReleaseNotification } from '@/lib/release-notifications';
 import { isHydratedCloudToken, readCloudSessionFromStorage } from '@/lib/profile-cloud-session';
+import { mergeSongsPlayedCount } from '@/lib/profile-sync';
 import {
   normalizePlayerVolume,
   playerVolumeGain,
@@ -1775,7 +1776,7 @@ export default function SpiceApp() {
     }
     return null;
   });
-  const [syncingStatus, setSyncingStatus] = useState<'idle' | 'syncing' | 'success' | 'error' | null>(null);
+  const [syncingStatus, setSyncingStatus] = useState<'idle' | 'syncing' | 'success' | 'partial' | 'error' | null>(null);
   const [dbError, setDbError] = useState<string | null>(null);
   const [isLocalDbFallback, setIsLocalDbFallback] = useState<boolean>(false);
   const [remoteControlEnabled, setRemoteControlEnabled] = useState<boolean>(() => {
@@ -2237,7 +2238,11 @@ export default function SpiceApp() {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${cloudToken}`
       },
-      body: JSON.stringify({ playlists: ownedPlaylistsOnly(updatedPlaylists), profileId: activeProfileId })
+      body: JSON.stringify({
+        playlists: ownedPlaylistsOnly(updatedPlaylists),
+        profileId: activeProfileId,
+        includeSnapshots: false,
+      })
     }).then(res => {
       if (res.ok) logDebug('database', 'Playlists configuration auto-saved to cloud database.');
     }).catch(err => {
@@ -3197,59 +3202,41 @@ export default function SpiceApp() {
         localStorage.setItem('spice_local_db_fallback', 'false');
       }
 
-      // 2. Pull active profile likes
-      let serverLikes: string[] = [];
-      let serverLikedDetails: Record<string, Track> = {};
-      try {
-        const likesRes = await fetchWithRetry(spiceApiUrl('cloud', '/sync/likes', { profileId: activeProf.id }), {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }, 'Likes pull');
-        if (likesRes.ok) {
-          const likesData = await likesRes.json();
-          serverLikes = likesData.likedTracks ?? [];
-          serverLikedDetails = likesData.likedTrackDetails ?? {};
-          logDebug('database', `[SYNC] [OK] Likes pulled (${serverLikes.length} from cloud)`);
-        } else {
-          logDebug('database', `[SYNC] [ERROR] Likes pull failed (Status ${likesRes.status}), using local only`);
+      // 2-4. Pull independent active-profile datasets concurrently.
+      const pullOptionalSyncData = async (url: string, label: string): Promise<any | null> => {
+        try {
+          const response = await fetchWithRetry(url, {
+            headers: { 'Authorization': `Bearer ${token}` },
+          }, `${label} pull`);
+          if (!response.ok) {
+            logDebug('database', `[SYNC] [ERROR] ${label} pull failed (Status ${response.status}), using local only`);
+            return null;
+          }
+          return await response.json();
+        } catch (err: any) {
+          logDebug('database', `[SYNC] [ERROR] ${label} pull error: ${err.message}, using local only`);
+          return null;
         }
-      } catch (err: any) {
-        logDebug('database', `[SYNC] [ERROR] Likes pull error: ${err.message}, using local only`);
-      }
+      };
 
-      // 3. Pull active profile history
-      let serverHistory: Track[] = [];
-      try {
-        const histRes = await fetchWithRetry(spiceApiUrl('cloud', '/sync/history', { profileId: activeProf.id }), {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }, 'History pull');
-        if (histRes.ok) {
-          const histData = await histRes.json();
-          serverHistory = histData.history ?? [];
-          logDebug('database', `[SYNC] [OK] History pulled (${serverHistory.length} from cloud)`);
-        } else {
-          logDebug('database', `[SYNC] [ERROR] History pull failed (Status ${histRes.status}), using local only`);
-        }
-      } catch (err: any) {
-        logDebug('database', `[SYNC] [ERROR] History pull error: ${err.message}, using local only`);
+      const [likesData, historyData, playlistsData] = await Promise.all([
+        pullOptionalSyncData(spiceApiUrl('cloud', '/sync/likes', { profileId: activeProf.id }), 'Likes'),
+        pullOptionalSyncData(spiceApiUrl('cloud', '/sync/history', { profileId: activeProf.id }), 'History'),
+        pullOptionalSyncData(spiceApiUrl('cloud', '/sync/playlists', { profileId: activeProf.id }), 'Playlists'),
+      ]);
+      const serverLikes: string[] = likesData?.likedTracks ?? [];
+      const serverLikedDetails: Record<string, Track> = likesData?.likedTrackDetails ?? {};
+      const serverHistory: Track[] = historyData?.history ?? [];
+      const serverPlaylists: any[] = playlistsData?.playlists ?? [];
+      const playlistsPullSucceeded = playlistsData !== null;
+      if (likesData !== null) {
+        logDebug('database', `[SYNC] [OK] Likes pulled (${serverLikes.length} from cloud)`);
       }
-
-      // 4. Pull active profile playlists
-      let serverPlaylists: any[] = [];
-      let playlistsPullSucceeded = false;
-      try {
-        const plRes = await fetchWithRetry(spiceApiUrl('cloud', '/sync/playlists', { profileId: activeProf.id }), {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }, 'Playlists pull');
-        if (plRes.ok) {
-          const plData = await plRes.json();
-          serverPlaylists = plData.playlists ?? [];
-          playlistsPullSucceeded = true;
-          logDebug('database', `[SYNC] [OK] Playlists pulled (${serverPlaylists.length} from cloud)`);
-        } else {
-          logDebug('database', `[SYNC] [ERROR] Playlists pull failed (Status ${plRes.status}), using local only`);
-        }
-      } catch (err: any) {
-        logDebug('database', `[SYNC] [ERROR] Playlists pull error: ${err.message}, using local only`);
+      if (historyData !== null) {
+        logDebug('database', `[SYNC] [OK] History pulled (${serverHistory.length} from cloud)`);
+      }
+      if (playlistsPullSucceeded) {
+        logDebug('database', `[SYNC] [OK] Playlists pulled (${serverPlaylists.length} from cloud)`);
       }
 
       // 5. Merge Active Profile Data
@@ -3315,7 +3302,10 @@ export default function SpiceApp() {
             displayName: serverProf.displayName,
             bio: serverProf.bio || '',
             gradient: serverProf.gradient,
-            songsPlayed: serverProf.songsPlayed ?? 0,
+            songsPlayed: mergeSongsPlayedCount(
+              mergedProfiles[existingIdx].songsPlayed,
+              serverProf.songsPlayed,
+            ),
             joinedAt: serverProf.joinedAt,
             passcode: serverProf.passcode || undefined,
             avatarUrl: serverProf.avatarUrl || undefined,
@@ -3330,7 +3320,7 @@ export default function SpiceApp() {
             displayName: serverProf.displayName,
             bio: serverProf.bio || '',
             gradient: serverProf.gradient,
-            songsPlayed: serverProf.songsPlayed ?? 0,
+            songsPlayed: mergeSongsPlayedCount(0, serverProf.songsPlayed),
             joinedAt: serverProf.joinedAt,
             passcode: serverProf.passcode || undefined,
             avatarUrl: serverProf.avatarUrl || undefined,
@@ -3350,6 +3340,11 @@ export default function SpiceApp() {
         if (p.id === activeProf.id) {
           return {
             ...p,
+            songsPlayed: mergeSongsPlayedCount(
+              p.songsPlayed,
+              activeProf.songsPlayed,
+              mergedHistory.length,
+            ),
             likedTracks: mergedLikesArray,
             likedTrackDetails: mergedLikedDetails,
             customPlaylists: mergedPlaylists,
@@ -3429,15 +3424,28 @@ export default function SpiceApp() {
       }
 
       // 9. Push Merged States to Cloud Database (each independently)
-      let pushFailures = 0;
-      const pushEndpoints = [
-        { label: 'Likes', url: spiceApiUrl('cloud', '/sync/likes'), body: { likedTracks: mergedLikesArray, likedTrackDetails: mergedLikedDetails, profileId: activeProf.id } },
-        { label: 'History', url: spiceApiUrl('cloud', '/sync/history'), body: { history: mergedHistory, profileId: activeProf.id } },
-        { label: 'Playlists', url: spiceApiUrl('cloud', '/sync/playlists'), body: { playlists: ownedPlaylistsOnly(mergedPlaylists), profileId: activeProf.id } },
+      const pushEndpoints: Array<{ label: string; url: string; body: unknown }> = [
         { label: 'Profiles', url: spiceApiUrl('cloud', '/sync/profiles'), body: { profiles: profilesToPersist } },
       ];
+      const skippedPushLabels: string[] = [];
 
-      for (const ep of pushEndpoints) {
+      if (likesData !== null) {
+        pushEndpoints.push({ label: 'Likes', url: spiceApiUrl('cloud', '/sync/likes'), body: { likedTracks: mergedLikesArray, likedTrackDetails: mergedLikedDetails, profileId: activeProf.id } });
+      } else {
+        skippedPushLabels.push('Likes');
+      }
+      if (historyData !== null) {
+        pushEndpoints.push({ label: 'History', url: spiceApiUrl('cloud', '/sync/history'), body: { history: mergedHistory, profileId: activeProf.id } });
+      } else {
+        skippedPushLabels.push('History');
+      }
+      if (playlistsPullSucceeded) {
+        pushEndpoints.push({ label: 'Playlists', url: spiceApiUrl('cloud', '/sync/playlists'), body: { playlists: ownedPlaylistsOnly(mergedPlaylists), profileId: activeProf.id, includeSnapshots: false } });
+      } else {
+        skippedPushLabels.push('Playlists');
+      }
+
+      const pushResults = await Promise.all(pushEndpoints.map(async (ep) => {
         try {
           const res = await fetchWithRetry(ep.url, {
             method: 'POST',
@@ -3449,22 +3457,27 @@ export default function SpiceApp() {
           }, `${ep.label} push`);
           if (res.ok) {
             logDebug('database', `[SYNC] [OK] ${ep.label} pushed successfully`);
+            return true;
           } else {
-            pushFailures++;
             logDebug('database', `[SYNC] [ERROR] ${ep.label} push failed (Status ${res.status})`);
+            return false;
           }
         } catch (err: any) {
-          pushFailures++;
           logDebug('database', `[SYNC] [ERROR] ${ep.label} push error: ${err.message}`);
+          return false;
         }
-      }
+      }));
+      const pushFailures = pushResults.filter((succeeded) => !succeeded).length;
 
-      if (pushFailures === 0) {
+      if (pushFailures === 0 && skippedPushLabels.length === 0) {
         logDebug('database', `[SYNC] Merged state with cloud database successfully. Merged: ${mergedLikesArray.length} likes, ${mergedHistory.length} history items, ${mergedPlaylists.length} playlists, ${profilesToPersist.length} profiles.`);
         setSyncingStatus('success');
       } else {
-        logDebug('database', `[SYNC] Partial sync completed with ${pushFailures} push failure(s). Local state is up-to-date.`);
-        setSyncingStatus('success');
+        const skippedSummary = skippedPushLabels.length > 0
+          ? ` Skipped ${skippedPushLabels.join(', ')} pushes because their cloud pulls failed.`
+          : '';
+        logDebug('database', `[SYNC] Partial sync completed with ${pushFailures} push failure(s).${skippedSummary}`);
+        setSyncingStatus('partial');
       }
       setTimeout(() => setSyncingStatus(null), 3000);
     } catch (err: any) {
@@ -5555,6 +5568,7 @@ export default function SpiceApp() {
           body: JSON.stringify({
             playlists: ownedPlaylistsOnly(updatedPlaylists),
             profileId: activeProfileId,
+            includeSnapshots: false,
           }),
         });
         const syncData = await syncResponse.json().catch(() => ({}));
@@ -9911,7 +9925,7 @@ const getMaskedEmail = (email: string) => {
                         }}
                       >
                         <span style={{ color: '#ef4444', display: 'inline-flex' }}>{Icons.heartFilled}</span>
-                        <span>{myLikesCount} {myLikesCount === 1 ? 'Like' : 'Likes'}</span>
+                        <span>{myLikesCount} {myLikesCount === 1 ? 'Profile Like' : 'Profile Likes'}</span>
                       </div>
                     )}
                   </div>
@@ -10060,6 +10074,11 @@ const getMaskedEmail = (email: string) => {
                           {syncingStatus === 'success' && (
                             <span style={{ color: '#34d399', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
                               {Icons.checkCircle} Synchronized successfully with the database!
+                            </span>
+                          )}
+                          {syncingStatus === 'partial' && (
+                            <span style={{ color: '#fbbf24', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                              {Icons.alertTriangle} Some data could not sync. Retry to finish safely.
                             </span>
                           )}
                           {syncingStatus === 'error' && !dbError && (
