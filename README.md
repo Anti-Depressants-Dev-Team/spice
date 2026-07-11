@@ -10,7 +10,7 @@
 *   **🚫 Ad-Free Experience**: Built-in ad-blocking for uninterupted listening on YouTube Music and SoundCloud.
 *   **🎵 Service Support**: Seamlessly switch between YouTube Music, SoundCloud, and the local SPICE runtime.
 *   **SPICE Launcher Mode**: The standard desktop app keeps the YouTube Music/SoundCloud wrapper and can launch or install the split SPICE local runtime when you choose Spice Music.
-*   **SPICE Native Mode**: Separate Windows native builds bundle the local runtime, check the hosted runtime manifest before startup, show a first-run account screen, and keep media work on the user's PC.
+*   **SPICE Native Mode**: Separate Windows and Linux native builds bundle the platform-correct local runtime, check the hosted runtime manifest before startup, show a first-run account screen, and keep media work on the user's PC.
 *   **🎮 Discord Rich Presence**: Show what you're listening to on your Discord profile with album art and track progress.
 *   **📊 Scrobbling**: Automatic scrobbling to **Last.fm** and **ListenBrainz**.
 *   **🎤 Synchronized Lyrics**:
@@ -26,7 +26,8 @@
 ## 🚀 Installation
 
 ### Download
-Grab the latest installer from the [Releases](https://github.com/Anti-Depressants-Dev-Team/spice/releases) page. Linux releases include AppImage, `.deb`, `.tar.gz`, and Flatpak bundles.
+Grab the latest installer from the [Releases](https://github.com/Anti-Depressants-Dev-Team/spice/releases) page. Native Linux releases include AppImage, `.deb`, Fedora-compatible `.rpm`, and `.tar.gz` bundles.
+AppImage builds use the in-app updater. Package-managed `.deb` and `.rpm` installs update by installing the matching package from a newer release.
 
 ### Build from Source
 
@@ -51,11 +52,13 @@ Grab the latest installer from the [Releases](https://github.com/Anti-Depressant
     npm run dist
     ```
 
-5.  **Build Native SPICE** (separate Windows build)
-    ```powershell
-    npm run dist:native
+5.  **Build Native SPICE** (separate platform build)
+    ```bash
+    npm run dist:native:windows
+    # or, on Linux
+    npm run dist:native:linux
     ```
-    This prepares `native-runtime/spice-local-windows` from a sibling backend checkout when available, or from the latest published SPICE local runtime release, then bundles it into a separate `Spice Native` package under `dist-native`. Packaged native builds also check the SPICE local runtime update manifest before starting the runtime, so backend runtime updates can ship without rebuilding this desktop repo. The normal `npm run dist` build remains the classic launcher/wrapper.
+    This prepares `native-runtime/spice-local-windows` or `native-runtime/spice-local-linux` from a sibling backend checkout when available, or from the latest platform-specific SPICE runtime release, then bundles it into `Spice Native` under `dist-native`. Packaged native builds use Electron's bundled Node runtime, so users do not need to install Node or PowerShell. The normal `npm run dist` build remains the classic launcher/wrapper.
 
 ## 🛠️ Configuration
 
@@ -63,7 +66,7 @@ Grab the latest installer from the [Releases](https://github.com/Anti-Depressant
 *   **Discord RPC**: Toggle on/off.
 *   **Scrobbling**: Log in to Last.fm or paste your ListenBrainz token.
 *   **Startup Service**: In the classic launcher, choose whether to open the home screen, YouTube Music, SoundCloud, or SPICE Music on launch. Native SPICE builds always open SPICE Music after setup and hide this legacy service setting.
-*   **SPICE Local Runtime**: The Spice Music card checks `http://127.0.0.1:3939` and auto-starts the installed runtime on Windows. If the runtime is missing or fails to start, the app offers install/update and manual setup options.
+*   **SPICE Local Runtime**: The Spice Music card checks `http://127.0.0.1:3939` and auto-starts the installed runtime on Windows and Linux. If the runtime is missing or fails to start, the app offers install/update and manual setup options.
 *   **Native SPICE Mode**: Launch with `npm run start:native` for the SPICE-only shell during development. Packaged native releases are built separately through `npm run dist:native` or the `Release Spice Native` workflow.
 
 ## ⌨️ Shortcuts

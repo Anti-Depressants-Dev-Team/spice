@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   compareVersions,
   resolveRuntimeDownloadUrl,
+  runtimePlatformConfig,
   shouldInstallRuntimeUpdate,
 } = require("../spice-local-runtime-manager");
 
@@ -30,4 +31,20 @@ test("resolveRuntimeDownloadUrl keeps runtime downloads on http origins", () => 
     ),
     "https://music.spice-app.xyz/downloads/spice-local-windows.zip",
   );
+});
+
+test("runtimePlatformConfig selects platform-correct update artifacts", () => {
+  assert.deepEqual(runtimePlatformConfig("win32"), {
+    id: "windows",
+    archiveName: "spice-local-windows.zip",
+    manifestUrl: "https://music.spice-app.xyz/api/updates/local-windows",
+    downloadUrl: "https://github.com/Anti-Depressants-Dev-Team/SPICE-but-its-crazier-cuz-yes-/releases/latest/download/spice-local-windows.zip",
+  });
+  assert.deepEqual(runtimePlatformConfig("linux"), {
+    id: "linux",
+    archiveName: "spice-local-linux.zip",
+    manifestUrl: "https://music.spice-app.xyz/api/updates/local-linux",
+    downloadUrl: "https://github.com/Anti-Depressants-Dev-Team/SPICE-but-its-crazier-cuz-yes-/releases/latest/download/spice-local-linux.zip",
+  });
+  assert.equal(runtimePlatformConfig("darwin"), null);
 });

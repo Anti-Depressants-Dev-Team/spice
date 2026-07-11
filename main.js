@@ -85,11 +85,13 @@ let downloadedUpdateInfo = null;
 let updateInstallPromptActive = false;
 let skipDownloadedUpdateOnClose = false;
 
+const SPICE_LOCAL_RUNTIME_PLATFORM = process.platform === "linux" ? "linux" : "windows";
 const APP_NATIVE_MODE =
   process.env.SPICE_NATIVE_APP === "1" ||
   process.env.SPICE_APP_MODE === "native" ||
   (app.isPackaged && hasBundledNativeRuntime());
 const UPDATE_CHANNEL = APP_NATIVE_MODE ? "native" : "latest";
+const AUTO_UPDATE_SUPPORTED = process.platform !== "linux" || Boolean(process.env.APPIMAGE);
 const SPICE_LOCAL_RUNTIME_URL = normalizeServiceUrl(
   process.env.SPICE_LOCAL_RUNTIME_URL || "http://127.0.0.1:3939/",
 );
@@ -98,7 +100,7 @@ const SPICE_INSTALL_URL = normalizeServiceUrl(
 );
 const SPICE_LOCAL_MANIFEST_URL =
   process.env.SPICE_LOCAL_UPDATE_MANIFEST_URL ||
-  "https://music.spice-app.xyz/api/updates/local-windows";
+  `https://music.spice-app.xyz/api/updates/local-${SPICE_LOCAL_RUNTIME_PLATFORM}`;
 
 const SERVICES = {
   yt: "https://music.youtube.com",
@@ -125,19 +127,20 @@ function normalizeServiceUrl(url) {
 }
 
 function bundledNativeRuntimeDir() {
+  const bundleName = `spice-local-${SPICE_LOCAL_RUNTIME_PLATFORM}`;
   const candidates = [];
   if (process.resourcesPath) {
-    candidates.push(path.join(process.resourcesPath, "native-runtime", "spice-local-windows"));
+    candidates.push(path.join(process.resourcesPath, "native-runtime", bundleName));
   }
-  candidates.push(path.join(__dirname, "native-runtime", "spice-local-windows"));
+  candidates.push(path.join(__dirname, "native-runtime", bundleName));
 
   return candidates.find((candidate) =>
-    fs.existsSync(path.join(candidate, "start-spice-local.ps1")),
+    fs.existsSync(path.join(candidate, "apps", "backend", "server.js")),
   ) || candidates[0];
 }
 
 function hasBundledNativeRuntime() {
-  return fs.existsSync(path.join(bundledNativeRuntimeDir(), "start-spice-local.ps1"));
+  return fs.existsSync(path.join(bundledNativeRuntimeDir(), "apps", "backend", "server.js"));
 }
 
 function nativeModeSettings() {
@@ -2512,6 +2515,8 @@ app.whenReady().then(async () => {
     localUrl: SPICE_LOCAL_RUNTIME_URL,
     manifestUrl: SPICE_LOCAL_MANIFEST_URL,
     bundledRuntimeDir: bundledNativeRuntimeDir(),
+    platform: process.platform,
+    execPath: process.execPath,
     onStatus: sendSpiceRuntimeStatus,
   });
 
@@ -2954,8 +2959,10 @@ app.whenReady().then(async () => {
 
   // Automatically check on startup
   try {
-    if (app.isPackaged) {
+    if (app.isPackaged && AUTO_UPDATE_SUPPORTED) {
       autoUpdater.checkForUpdatesAndNotify();
+    } else if (app.isPackaged) {
+      console.log("Skipping in-app updater for package-managed Linux install; use the matching deb or RPM release package.");
     } else {
       console.log(`Skipping auto-updater in development mode on ${UPDATE_CHANNEL} channel.`);
     }
@@ -3109,6 +3116,9 @@ app.whenReady().then(async () => {
     if (!app.isPackaged) {
       return { success: false, error: "Auto updates are only available in packaged builds." };
     }
+    if (!AUTO_UPDATE_SUPPORTED) {
+      return { success: false, error: "This Linux package is updated by installing the latest deb or RPM release." };
+    }
     try {
       const result = await autoUpdater.checkForUpdates();
       return { success: true, result };
@@ -3118,7 +3128,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on("install-update", async () => {
-    if (!app.isPackaged) return;
+    if (!app.isPackaged || !AUTO_UPDATE_SUPPORTED) return;
     await installDownloadedUpdate();
   });
 
@@ -3148,7 +3158,7 @@ app.whenReady().then(async () => {
       onboarded: store ? store.get("nativeOnboarded", false) : false,
       account: getNativeAccountSummary(),
       runtime: spiceRuntimeManager ? await spiceRuntimeManager.getStatus() : null,
-      updatesEnabled: app.isPackaged,
+      updatesEnabled: app.isPackaged && AUTO_UPDATE_SUPPORTED,
       version: app.getVersion(),
     };
   });

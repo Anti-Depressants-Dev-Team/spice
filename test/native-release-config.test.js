@@ -25,4 +25,10 @@ test("native installer identity remains separate from the wrapper", () => {
     nativeConfig.nsis.artifactName,
     "Spice-Native-Setup-${version}-${arch}.${ext}",
   );
+  assert.deepEqual(nativeConfig.linux.target, ["AppImage", "deb", "rpm", "tar.gz"]);
+  assert.equal(nativeConfig.linux.executableName, "spice-native");
+  assert.equal(nativeConfig.linux.synopsis, "SPICE Music with a bundled local runtime");
+  assert.match(nativeConfig.linux.description, /media runtime on the user's computer/);
+  assert.equal(nativeConfig.deb.packageName, "spice-native");
+  assert.equal(nativeConfig.rpm.packageName, "spice-native");
 });

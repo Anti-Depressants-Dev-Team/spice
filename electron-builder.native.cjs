@@ -29,6 +29,21 @@ module.exports = {
   directories: {
     output: "dist-native",
   },
+  linux: {
+    ...baseBuild.linux,
+    executableName: "spice-native",
+    synopsis: "SPICE Music with a bundled local runtime",
+    description: "SPICE Native runs the SPICE Music interface and media runtime on the user's computer.",
+    target: ["AppImage", "deb", "rpm", "tar.gz"],
+  },
+  deb: {
+    ...baseBuild.deb,
+    packageName: "spice-native",
+  },
+  rpm: {
+    ...baseBuild.rpm,
+    packageName: "spice-native",
+  },
   nsis: {
     ...baseBuild.nsis,
     artifactName: "Spice-Native-Setup-${version}-${arch}.${ext}",
