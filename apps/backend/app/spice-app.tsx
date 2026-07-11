@@ -26,6 +26,12 @@ import {
 } from './recommendations';
 import { isSpiceConnectCommandFresh, SPICE_CONNECT_COMMAND_TTL_MS } from '@/lib/spice-connect';
 import { SPICE_MEDIA_CORE_VERSION, RELEASE_NOTIFICATION_STORAGE_KEY, type ReleaseNotification } from '@/lib/release-notifications';
+import {
+  normalizePlayerVolume,
+  playerVolumeGain,
+  shouldUsePlayerGainPath,
+  shouldUseProxyForBoost,
+} from '@/lib/player-audio';
 
 const SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS = 30000;
 const SPICE_CONNECT_COMMAND_IDLE_POLL_INTERVAL_MS = 60000;
@@ -875,13 +881,6 @@ const isTopbarSearchMode = (value: string | null): value is TopbarSearchMode =>
 
 const isRepeatMode = (value: unknown): value is 'none' | 'all' | 'one' =>
   value === 'none' || value === 'all' || value === 'one';
-
-const normalizePlayerVolume = (value: unknown, boosterAccepted: boolean) => {
-  const numericValue = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(numericValue)) return null;
-  const maxVolume = boosterAccepted ? 1000 : 200;
-  return Math.max(0, Math.min(maxVolume, Math.round(numericValue)));
-};
 
 const playableSearchTracks = (tracks: Track[]) =>
   tracks.filter((track) => !track.previewOnly);
@@ -2113,7 +2112,7 @@ export default function SpiceApp() {
     if (!audio) return;
 
     const safeVolume = normalizePlayerVolume(nextVolume, volumeBoosterAccepted) ?? 100;
-    const shouldUseGainNode = safeVolume > 100 || volumeBoosterAccepted;
+    const shouldUseGainNode = shouldUsePlayerGainPath(safeVolume, volumeBoosterAccepted);
     if (!shouldUseGainNode) {
       audio.volume = safeVolume / 100;
       if (gainNodeRef.current) {
@@ -2154,7 +2153,7 @@ export default function SpiceApp() {
     }
 
     if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = safeVolume / 100;
+      gainNodeRef.current.gain.value = playerVolumeGain(safeVolume);
     } else {
       audio.volume = Math.min(1, safeVolume / 100);
     }
@@ -2538,13 +2537,20 @@ export default function SpiceApp() {
       const savedQuality = localStorage.getItem('spice_audio_quality');
       if (savedQuality) setAudioQuality(savedQuality as any);
 
+      const savedPlayerVolume = normalizePlayerVolume(
+        localStorage.getItem(PLAYER_VOLUME_STORAGE_KEY),
+        restoredVolumeBoosterAccepted,
+      );
       const savedProtocol = localStorage.getItem('spice_stream_protocol');
       const embedTransportMigrationComplete = localStorage.getItem('spice_stream_embed_migration_v1034') === 'true';
-      if (savedProtocol === 'embed' && !embedTransportMigrationComplete) {
+      const boostedPlaybackRequiresProxy = savedPlayerVolume !== null
+        && shouldUseProxyForBoost(savedPlayerVolume, savedProtocol || '');
+      if (savedProtocol === 'embed' && (!embedTransportMigrationComplete || boostedPlaybackRequiresProxy)) {
         localStorage.setItem('spice_stream_protocol', 'proxy');
         localStorage.setItem('spice_stream_embed_migration_v1034', 'true');
         setStreamProtocol('proxy');
         streamProtocolRef.current = 'proxy';
+        setShowVideoPlayer(false);
       } else if (isStreamProtocol(savedProtocol)) {
         setStreamProtocol(savedProtocol);
         streamProtocolRef.current = savedProtocol;
@@ -2610,8 +2616,10 @@ export default function SpiceApp() {
       const savedRepeat = localStorage.getItem(PLAYER_REPEAT_STORAGE_KEY);
       if (isRepeatMode(savedRepeat)) setRepeatMode(savedRepeat);
 
-      const savedVolume = normalizePlayerVolume(localStorage.getItem(PLAYER_VOLUME_STORAGE_KEY), restoredVolumeBoosterAccepted);
-      if (savedVolume !== null) setVolume(savedVolume);
+      if (savedPlayerVolume !== null) {
+        volumeRef.current = savedPlayerVolume;
+        setVolume(savedPlayerVolume);
+      }
 
       const savedProfiles = localStorage.getItem('spice_profiles_list');
       const savedActiveId = localStorage.getItem('spice_active_profile_id') || 'default';
@@ -2676,7 +2684,10 @@ export default function SpiceApp() {
           if (isRepeatMode(savedPlayback.repeatMode)) setRepeatMode(savedPlayback.repeatMode);
           if (typeof savedPlayback.isShuffle === 'boolean') setIsShuffle(savedPlayback.isShuffle);
           const savedPlaybackVolume = normalizePlayerVolume(savedPlayback.volume, restoredVolumeBoosterAccepted);
-          if (savedPlaybackVolume !== null) setVolume(savedPlaybackVolume);
+          if (savedPlaybackVolume !== null) {
+            volumeRef.current = savedPlaybackVolume;
+            setVolume(savedPlaybackVolume);
+          }
         } else if (hydratedHistory.length > 0) {
           setCurrentTrack(hydratedHistory[0]);
           setQueue([hydratedHistory[0]]);
@@ -3758,6 +3769,7 @@ export default function SpiceApp() {
       activeTrack.id !== 'placeholder'
       && isYouTubeTrack(activeTrack)
       && streamProtocolRef.current !== 'embed'
+      && volumeRef.current <= 100
       && !directEmbedRetryRef.current.has(activeTrackKey)
     ) {
       directEmbedRetryRef.current.add(activeTrackKey);
@@ -4244,7 +4256,11 @@ export default function SpiceApp() {
       console.error(err);
       logDebug('error', `Track streaming failed: ${err.message || err}`);
 
-      if (isYouTubeTrack(track) && streamProtocolRef.current !== 'embed') {
+      if (
+        isYouTubeTrack(track)
+        && streamProtocolRef.current !== 'embed'
+        && volumeRef.current <= 100
+      ) {
         logDebug('diagnostics', `Direct stream resolution failed. Retrying this track in the YouTube Embedded Player...`);
         const shouldStartNow = shouldAutoPlayRef.current;
         setStreamProtocol('embed');
@@ -6531,7 +6547,32 @@ export default function SpiceApp() {
       void sendRemoteCommand('volume', { volume: safeVolume });
       return;
     }
+
+    volumeRef.current = safeVolume;
     setVolume(safeVolume);
+
+    if (shouldUseProxyForBoost(safeVolume, streamProtocolRef.current)) {
+      streamProtocolRef.current = 'proxy';
+      setStreamProtocol('proxy');
+      setShowVideoPlayer(false);
+      localStorage.setItem('spice_stream_protocol', 'proxy');
+      logDebug('player', 'Volume Boost switched playback from YouTube embed to the gain-capable proxy path.');
+
+      const activeTrack = currentTrackRef.current;
+      if (activeTrack && activeTrack.id !== 'placeholder') {
+        if (isPlayingRef.current) {
+          setTimeout(() => {
+            void playTrackRef.current(activeTrack, queueRef.current, queueIndexRef.current);
+          }, 0);
+        } else {
+          if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
+            ytPlayerRef.current.pauseVideo();
+          }
+          setStreamUrl(null);
+          streamUrlRef.current = null;
+        }
+      }
+    }
   };
 
   const adjustReceiverVolumeByWheel = (event: any) => {

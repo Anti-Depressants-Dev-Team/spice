@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  buildLocalLinuxUpdateManifest,
   buildLocalWindowsUpdateManifest,
   compareVersions,
+  localLinuxDownloadUrl,
   localUpdateManifestUrl,
   localWindowsDownloadUrl,
 } from '../lib/local-updates.ts';
@@ -50,6 +52,26 @@ test('localWindowsDownloadUrl rejects non-http configured URLs', () => {
   );
 
   restoreEnv('SPICE_LOCAL_WINDOWS_DOWNLOAD_URL', originalUrl);
+});
+
+test('local Linux updates use a separate public artifact and manifest route', () => {
+  const originalUrl = process.env.SPICE_LOCAL_LINUX_DOWNLOAD_URL;
+  const originalManifest = process.env.SPICE_LOCAL_UPDATE_MANIFEST_URL;
+  delete process.env.SPICE_LOCAL_LINUX_DOWNLOAD_URL;
+  delete process.env.SPICE_LOCAL_UPDATE_MANIFEST_URL;
+
+  assert.equal(
+    localLinuxDownloadUrl(),
+    'https://github.com/Anti-Depressants-Dev-Team/SPICE-but-its-crazier-cuz-yes-/releases/latest/download/spice-local-linux.zip',
+  );
+  assert.equal(
+    localUpdateManifestUrl('https://music.spice-app.xyz', 'linux'),
+    'https://music.spice-app.xyz/api/updates/local-linux',
+  );
+  assert.equal(buildLocalLinuxUpdateManifest().platform, 'linux');
+
+  restoreEnv('SPICE_LOCAL_LINUX_DOWNLOAD_URL', originalUrl);
+  restoreEnv('SPICE_LOCAL_UPDATE_MANIFEST_URL', originalManifest);
 });
 
 test('buildLocalWindowsUpdateManifest uses configured artifact metadata without requiring a database', () => {

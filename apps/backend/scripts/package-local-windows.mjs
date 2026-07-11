@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -8,7 +8,10 @@ const standaloneDir = path.join(appRoot, '.next', 'standalone');
 const staticDir = path.join(appRoot, '.next', 'static');
 const publicDir = path.join(appRoot, 'public');
 const distRoot = path.join(appRoot, 'dist');
-const packageDir = path.join(distRoot, 'spice-local-windows');
+const packagePlatform = process.env.SPICE_LOCAL_PACKAGE_PLATFORM === 'linux' ? 'linux' : 'windows';
+const packageName = `spice-local-${packagePlatform}`;
+const defaultUpdateManifestUrl = `https://music.spice-app.xyz/api/updates/local-${packagePlatform}`;
+const packageDir = path.join(distRoot, packageName);
 const packagedBackendDir = path.join(packageDir, 'apps', 'backend');
 const cloudApiPrefixes = [
   '/api/account',
@@ -221,11 +224,14 @@ async function sanitizeStandaloneMetadata(root) {
     },
     spice: {
       runtimeTarget: 'local',
-      version: process.env.SPICE_LOCAL_RUNTIME_VERSION || process.env.SPICE_LOCAL_WINDOWS_VERSION || localRuntimeVersion,
+      platform: packagePlatform,
+      version: process.env.SPICE_LOCAL_RUNTIME_VERSION
+        || process.env[`SPICE_LOCAL_${packagePlatform.toUpperCase()}_VERSION`]
+        || localRuntimeVersion,
       localApiPrefix: '/api/local',
       cloudApiPrefix: '/api/cloud',
       cloudApiOrigin: 'https://music.spice-app.xyz',
-      updateManifestUrl: process.env.SPICE_LOCAL_UPDATE_MANIFEST_URL || 'https://music.spice-app.xyz/api/updates/local-windows',
+      updateManifestUrl: process.env.SPICE_LOCAL_UPDATE_MANIFEST_URL || defaultUpdateManifestUrl,
     },
   };
 
@@ -382,16 +388,58 @@ function hasForbiddenDbMarker(text) {
 }
 
 async function writeLaunchers(root) {
+  const manifestUrl = process.env.SPICE_LOCAL_UPDATE_MANIFEST_URL || defaultUpdateManifestUrl;
+  const version = process.env.SPICE_LOCAL_RUNTIME_VERSION
+    || process.env[`SPICE_LOCAL_${packagePlatform.toUpperCase()}_VERSION`]
+    || localRuntimeVersion;
   const envExample = [
     'SPICE_RUNTIME_TARGET=local',
     'HOSTNAME=127.0.0.1',
     'PORT=3939',
     'SPICE_CLOUD_API_ORIGIN=https://music.spice-app.xyz',
-    'SPICE_LOCAL_UPDATE_MANIFEST_URL=https://music.spice-app.xyz/api/updates/local-windows',
+    `SPICE_LOCAL_UPDATE_MANIFEST_URL=${manifestUrl}`,
     'SPICE_LOCAL_UPDATE_CHECK_MIN_HOURS=12',
     'SPICE_STREAM_HMAC_SECRET=replace-with-a-random-local-secret',
     '',
-  ].join('\r\n');
+  ].join(packagePlatform === 'linux' ? '\n' : '\r\n');
+
+  const manifest = {
+    name: `SPICE Local ${packagePlatform === 'linux' ? 'Linux' : 'Windows'} Runtime`,
+    runtimeTarget: 'local',
+    platform: packagePlatform,
+    version,
+    host: '127.0.0.1',
+    port: 3939,
+    localApiPrefix: '/api/local',
+    cloudApiPrefix: '/api/cloud',
+    cloudApiOrigin: 'https://music.spice-app.xyz',
+    updateManifestUrl: manifestUrl,
+    startScript: packagePlatform === 'linux' ? 'start-spice-local.sh' : 'start-spice-local.ps1',
+    updateCheckScript: packagePlatform === 'windows' ? 'check-spice-local-update.ps1' : null,
+  };
+
+  await writeFile(path.join(root, '.env.local.example'), envExample);
+  await writeFile(path.join(root, 'spice-local-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+
+  if (packagePlatform === 'linux') {
+    const sh = [
+      '#!/usr/bin/env sh',
+      'set -eu',
+      'SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)',
+      'export SPICE_RUNTIME_TARGET=local',
+      'export HOSTNAME="${SPICE_LOCAL_HOSTNAME:-127.0.0.1}"',
+      'export PORT="${SPICE_LOCAL_PORT:-3939}"',
+      'export SPICE_CLOUD_API_ORIGIN="${SPICE_CLOUD_API_ORIGIN:-https://music.spice-app.xyz}"',
+      `export SPICE_LOCAL_UPDATE_MANIFEST_URL="\${SPICE_LOCAL_UPDATE_MANIFEST_URL:-${manifestUrl}}"`,
+      'exec "${SPICE_NODE_BINARY:-node}" "$SCRIPT_DIR/apps/backend/server.js"',
+      '',
+    ].join('\n');
+
+    const launcherPath = path.join(root, 'start-spice-local.sh');
+    await writeFile(launcherPath, sh);
+    await chmod(launcherPath, 0o755);
+    return;
+  }
 
   const cmd = [
     '@echo off',
@@ -399,7 +447,7 @@ async function writeLaunchers(root) {
     'if "%HOSTNAME%"=="" set HOSTNAME=127.0.0.1',
     'if "%PORT%"=="" set PORT=3939',
     'if "%SPICE_CLOUD_API_ORIGIN%"=="" set SPICE_CLOUD_API_ORIGIN=https://music.spice-app.xyz',
-    'if "%SPICE_LOCAL_UPDATE_MANIFEST_URL%"=="" set SPICE_LOCAL_UPDATE_MANIFEST_URL=https://music.spice-app.xyz/api/updates/local-windows',
+    `if "%SPICE_LOCAL_UPDATE_MANIFEST_URL%"=="" set SPICE_LOCAL_UPDATE_MANIFEST_URL=${manifestUrl}`,
     'if "%SPICE_LOCAL_UPDATE_CHECK_MIN_HOURS%"=="" set SPICE_LOCAL_UPDATE_CHECK_MIN_HOURS=12',
     'if exist "%~dp0check-spice-local-update.ps1" powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0check-spice-local-update.ps1" -Quiet',
     'node "%~dp0apps\\backend\\server.js"',
@@ -411,7 +459,7 @@ async function writeLaunchers(root) {
     'if (-not $env:HOSTNAME) { $env:HOSTNAME = "127.0.0.1" }',
     'if (-not $env:PORT) { $env:PORT = "3939" }',
     'if (-not $env:SPICE_CLOUD_API_ORIGIN) { $env:SPICE_CLOUD_API_ORIGIN = "https://music.spice-app.xyz" }',
-    'if (-not $env:SPICE_LOCAL_UPDATE_MANIFEST_URL) { $env:SPICE_LOCAL_UPDATE_MANIFEST_URL = "https://music.spice-app.xyz/api/updates/local-windows" }',
+    `if (-not $env:SPICE_LOCAL_UPDATE_MANIFEST_URL) { $env:SPICE_LOCAL_UPDATE_MANIFEST_URL = "${manifestUrl}" }`,
     'if (-not $env:SPICE_LOCAL_UPDATE_CHECK_MIN_HOURS) { $env:SPICE_LOCAL_UPDATE_CHECK_MIN_HOURS = "12" }',
     '$updateCheck = Join-Path $PSScriptRoot "check-spice-local-update.ps1"',
     'if (Test-Path -LiteralPath $updateCheck) { & $updateCheck -Quiet }',
@@ -420,23 +468,8 @@ async function writeLaunchers(root) {
     '',
   ].join('\r\n');
 
-  const manifest = {
-    name: 'SPICE Local PC Runtime',
-    runtimeTarget: 'local',
-    version: process.env.SPICE_LOCAL_RUNTIME_VERSION || process.env.SPICE_LOCAL_WINDOWS_VERSION || localRuntimeVersion,
-    host: '127.0.0.1',
-    port: 3939,
-    localApiPrefix: '/api/local',
-    cloudApiPrefix: '/api/cloud',
-    cloudApiOrigin: 'https://music.spice-app.xyz',
-    updateManifestUrl: process.env.SPICE_LOCAL_UPDATE_MANIFEST_URL || 'https://music.spice-app.xyz/api/updates/local-windows',
-    updateCheckScript: 'check-spice-local-update.ps1',
-  };
-
-  await writeFile(path.join(root, '.env.local.example'), envExample);
   await writeFile(path.join(root, 'start-spice-local.cmd'), cmd);
   await writeFile(path.join(root, 'start-spice-local.ps1'), ps1);
-  await writeFile(path.join(root, 'spice-local-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   await writeFile(path.join(root, 'check-spice-local-update.ps1'), updateCheckScript());
 }
 

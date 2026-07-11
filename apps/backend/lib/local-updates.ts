@@ -8,7 +8,7 @@ export interface LocalRuntimeUpdateDownload {
 
 export interface LocalRuntimeUpdateManifest {
   runtime: 'spice-local';
-  platform: 'windows';
+  platform: LocalRuntimePlatform;
   channel: string;
   version: string;
   minimumSupportedVersion: string;
@@ -29,17 +29,23 @@ export interface LocalRuntimeUpdateStatus {
 const DEFAULT_CLOUD_API_ORIGIN = 'https://music.spice-app.xyz';
 const DEFAULT_INSTALL_ORIGIN = 'https://install.spice-app.xyz';
 const DEFAULT_CHANNEL = 'stable';
+export type LocalRuntimePlatform = 'windows' | 'linux';
 const DEFAULT_LOCAL_WINDOWS_DOWNLOAD_URL =
   'https://github.com/Anti-Depressants-Dev-Team/SPICE-but-its-crazier-cuz-yes-/releases/latest/download/spice-local-windows.zip';
+const DEFAULT_LOCAL_LINUX_DOWNLOAD_URL =
+  'https://github.com/Anti-Depressants-Dev-Team/SPICE-but-its-crazier-cuz-yes-/releases/latest/download/spice-local-linux.zip';
 
 export function currentLocalRuntimeVersion() {
   return normalizeVersion(process.env.SPICE_LOCAL_RUNTIME_VERSION || SPICE_MEDIA_CORE_VERSION);
 }
 
-export function localUpdateManifestUrl(cloudApiOrigin = defaultCloudApiOrigin()) {
+export function localUpdateManifestUrl(
+  cloudApiOrigin = defaultCloudApiOrigin(),
+  platform: LocalRuntimePlatform = 'windows',
+) {
   const configured = process.env.SPICE_LOCAL_UPDATE_MANIFEST_URL?.trim();
   if (configured) return configured;
-  return `${trimTrailingSlash(cloudApiOrigin)}/api/updates/local-windows`;
+  return `${trimTrailingSlash(cloudApiOrigin)}/api/updates/local-${platform}`;
 }
 
 export function localWindowsDownloadUrl() {
@@ -48,22 +54,37 @@ export function localWindowsDownloadUrl() {
   return isHttpUrl(configured) ? configured : DEFAULT_LOCAL_WINDOWS_DOWNLOAD_URL;
 }
 
+export function localLinuxDownloadUrl() {
+  const configured = process.env.SPICE_LOCAL_LINUX_DOWNLOAD_URL?.trim();
+  if (!configured) return DEFAULT_LOCAL_LINUX_DOWNLOAD_URL;
+  return isHttpUrl(configured) ? configured : DEFAULT_LOCAL_LINUX_DOWNLOAD_URL;
+}
+
 export function buildLocalWindowsUpdateManifest(): LocalRuntimeUpdateManifest {
-  const version = normalizeVersion(process.env.SPICE_LOCAL_WINDOWS_VERSION || currentLocalRuntimeVersion());
-  const downloadUrl = localWindowsDownloadUrl();
-  const sha256 = process.env.SPICE_LOCAL_WINDOWS_SHA256?.trim();
-  const sizeBytes = Number(process.env.SPICE_LOCAL_WINDOWS_SIZE_BYTES);
+  return buildLocalUpdateManifest('windows');
+}
+
+export function buildLocalLinuxUpdateManifest(): LocalRuntimeUpdateManifest {
+  return buildLocalUpdateManifest('linux');
+}
+
+function buildLocalUpdateManifest(platform: LocalRuntimePlatform): LocalRuntimeUpdateManifest {
+  const prefix = platform === 'linux' ? 'SPICE_LOCAL_LINUX' : 'SPICE_LOCAL_WINDOWS';
+  const version = normalizeVersion(process.env[`${prefix}_VERSION`] || currentLocalRuntimeVersion());
+  const downloadUrl = platform === 'linux' ? localLinuxDownloadUrl() : localWindowsDownloadUrl();
+  const sha256 = process.env[`${prefix}_SHA256`]?.trim();
+  const sizeBytes = Number(process.env[`${prefix}_SIZE_BYTES`]);
 
   return {
     runtime: 'spice-local',
-    platform: 'windows',
+    platform,
     channel: process.env.SPICE_LOCAL_UPDATE_CHANNEL?.trim() || DEFAULT_CHANNEL,
     version,
     minimumSupportedVersion: normalizeVersion(
-      process.env.SPICE_LOCAL_WINDOWS_MIN_VERSION || SPICE_MEDIA_CORE_VERSION,
+      process.env[`${prefix}_MIN_VERSION`] || SPICE_MEDIA_CORE_VERSION,
     ),
     releaseNotesUrl:
-      process.env.SPICE_LOCAL_WINDOWS_RELEASE_NOTES_URL?.trim() ||
+      process.env[`${prefix}_RELEASE_NOTES_URL`]?.trim() ||
       installGuideUrl(),
     generatedAt: new Date().toISOString(),
     download: downloadUrl

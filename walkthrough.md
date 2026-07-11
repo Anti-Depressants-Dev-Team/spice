@@ -1,5 +1,13 @@
 # SPICE Walkthrough
 
+## v1.0.122
+
+- [Spice.Music main] Make `1000%` Boost apply a real `10x` gain and move boosted YouTube embed playback onto the gain-capable local proxy path.
+- [Spice.Music main] Add a platform-specific Linux local runtime package with a portable shell launcher and no bundled cloud/database code.
+- [Spice.Music main] Add cached cloud manifest and download routes for Linux runtime updates alongside the existing Windows routes.
+- [Spice.Music main] Publish Windows and Linux runtime ZIPs and checksums together from CI so Native Linux builds receive platform-correct dependencies.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.122`.
+
 ## v1.0.121
 
 - [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.121`.
