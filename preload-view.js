@@ -8,6 +8,249 @@ const { ipcRenderer, webFrame } = require('electron');
 const IS_SPICE_LOCAL_RUNTIME =
     (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') &&
     window.location.port === '3939';
+const IS_SPICE_MUSIC =
+    IS_SPICE_LOCAL_RUNTIME || window.location.hostname === 'music.spice-app.xyz';
+
+if (IS_SPICE_LOCAL_RUNTIME) {
+    window.__spiceDesktopAudioReady = false;
+    window.__spiceDesktopAudioSettingsQueued = false;
+}
+
+const NATIVE_STARTUP_PLAYBACK_GUARD_MS = 60 * 1000;
+const NATIVE_REMOTE_SUPPRESS_KEY = 'spice_update_reload_remote_suppress_until';
+const NATIVE_STARTUP_GUARD_KEY = 'spice_native_startup_playback_guard_until';
+
+function installNativeStartupPlaybackGuard() {
+    if (!IS_SPICE_LOCAL_RUNTIME || window.__spiceNativeStartupPlaybackGuardInstalled) return;
+    window.__spiceNativeStartupPlaybackGuardInstalled = true;
+
+    const guardUntil = Date.now() + NATIVE_STARTUP_PLAYBACK_GUARD_MS;
+    let userPlaybackIntent = false;
+    let loggedBlockedPlayback = false;
+
+    function readStoredGuardUntil() {
+        try {
+            const value = Number(window.localStorage.getItem(NATIVE_STARTUP_GUARD_KEY) || 0);
+            return Number.isFinite(value) ? value : 0;
+        } catch (_) {
+            return 0;
+        }
+    }
+
+    function writeStartupGuards() {
+        try {
+            const suppressUntil = String(guardUntil);
+            window.localStorage.setItem(NATIVE_REMOTE_SUPPRESS_KEY, suppressUntil);
+            window.localStorage.setItem(NATIVE_STARTUP_GUARD_KEY, suppressUntil);
+        } catch (error) {
+            console.warn('[Preload] Native startup playback guard could not write localStorage:', error && error.message);
+        }
+    }
+
+    function isGuardActive() {
+        return Date.now() < Math.max(guardUntil, readStoredGuardUntil());
+    }
+
+    function shouldBlockStartupPlayback() {
+        const waitingForAudioSettings = window.__spiceDesktopAudioReady === false;
+        return waitingForAudioSettings || (isGuardActive() && !userPlaybackIntent);
+    }
+
+    function allowPlaybackIntent(reason) {
+        userPlaybackIntent = true;
+        try {
+            window.localStorage.removeItem(NATIVE_STARTUP_GUARD_KEY);
+        } catch (_) {}
+        console.log(`[Preload] Native startup playback guard released by ${reason || 'user intent'}.`);
+    }
+
+    function isEditableTarget(target) {
+        const element = target && target.nodeType === Node.ELEMENT_NODE
+            ? target
+            : target && target.parentElement;
+        if (!element || !element.closest) return false;
+        const editable = element.closest('input, textarea, select, [contenteditable="true"]');
+        return Boolean(editable);
+    }
+
+    function looksLikePlaybackTarget(target) {
+        const element = target && target.nodeType === Node.ELEMENT_NODE
+            ? target
+            : target && target.parentElement;
+        if (!element || !element.closest) return false;
+
+        const candidate = element.closest([
+            'button',
+            'a',
+            '[role="button"]',
+            '[data-track-id]',
+            '[data-song-id]',
+            '.queue-item',
+            '.search-result',
+            '.track-card',
+            '.track-row',
+            '.playlist-track',
+            '.recommendation-card',
+            '.chart-card',
+            '.now-playing__control',
+            '.mini-player__control',
+            '.player-controls',
+            '.playback-control'
+        ].join(','));
+
+        if (!candidate) return false;
+
+        const label = [
+            candidate.getAttribute('aria-label'),
+            candidate.getAttribute('title'),
+            candidate.getAttribute('data-action'),
+            candidate.className,
+            candidate.textContent
+        ].filter(Boolean).join(' ').toLowerCase();
+
+        if (candidate.matches('[data-track-id], [data-song-id], .queue-item, .search-result, .track-card, .track-row, .playlist-track, .recommendation-card, .chart-card')) {
+            return true;
+        }
+
+        return /play|pause|track|song|queue|listen|album|artist|result/.test(label);
+    }
+
+    function noteTrustedPlaybackIntent(event) {
+        if (!event || event.defaultPrevented || !event.isTrusted) return;
+
+        if (event.type === 'keydown') {
+            const playbackKeys = new Set([' ', 'Enter', 'MediaPlayPause', 'MediaPlay', 'MediaTrackNext', 'MediaTrackPrevious']);
+            if (!playbackKeys.has(event.key)) return;
+            if (isEditableTarget(event.target) && !event.key.startsWith('Media')) return;
+            allowPlaybackIntent(`trusted ${event.type}`);
+            return;
+        }
+
+        if (looksLikePlaybackTarget(event.target)) {
+            allowPlaybackIntent(`trusted ${event.type}`);
+        }
+    }
+
+    function blockPlayback(media) {
+        try {
+            if (media && typeof media.pause === 'function') media.pause();
+        } catch (_) {}
+        if (!loggedBlockedPlayback) {
+            loggedBlockedPlayback = true;
+            console.warn('[Preload] Blocked native startup playback until the user starts playback.');
+        }
+    }
+
+    function pauseUnexpectedMedia() {
+        if (!shouldBlockStartupPlayback() || !document.querySelectorAll) return;
+        document.querySelectorAll('audio, video').forEach((media) => {
+            if (!media.paused) blockPlayback(media);
+        });
+    }
+
+    function patchHtmlMediaPlayback() {
+        const prototype = window.HTMLMediaElement && window.HTMLMediaElement.prototype;
+        if (!prototype || typeof prototype.play !== 'function' || prototype.play.__spiceNativeGuardPatched) return;
+
+        const originalPlay = prototype.play;
+        const guardedPlay = function(...args) {
+            if (shouldBlockStartupPlayback()) {
+                blockPlayback(this);
+                const error = new DOMException(
+                    'Native startup playback is blocked until the user starts playback.',
+                    'NotAllowedError'
+                );
+                return Promise.reject(error);
+            }
+            return originalPlay.apply(this, args);
+        };
+
+        guardedPlay.__spiceNativeGuardPatched = true;
+        prototype.play = guardedPlay;
+    }
+
+    function patchYouTubePlayerInstance(player) {
+        if (!player || player.__spiceNativeGuardPatched) return player;
+        player.__spiceNativeGuardPatched = true;
+
+        ['playVideo', 'loadVideoById'].forEach((method) => {
+            const original = player[method];
+            if (typeof original !== 'function') return;
+
+            player[method] = function(...args) {
+                if (shouldBlockStartupPlayback()) {
+                    if (method === 'loadVideoById' && typeof this.cueVideoById === 'function') {
+                        try {
+                            return this.cueVideoById(...args);
+                        } catch (_) {}
+                    }
+                    if (!loggedBlockedPlayback) {
+                        loggedBlockedPlayback = true;
+                        console.warn('[Preload] Blocked native startup YouTube playback until the user starts playback.');
+                    }
+                    return undefined;
+                }
+                return original.apply(this, args);
+            };
+        });
+
+        return player;
+    }
+
+    function patchYouTubeApi(value) {
+        if (!value || typeof value.Player !== 'function' || value.Player.__spiceNativeGuardPatched) return;
+
+        const OriginalPlayer = value.Player;
+        function GuardedPlayer(...args) {
+            const player = new OriginalPlayer(...args);
+            return patchYouTubePlayerInstance(player);
+        }
+
+        Object.setPrototypeOf(GuardedPlayer, OriginalPlayer);
+        GuardedPlayer.prototype = OriginalPlayer.prototype;
+        GuardedPlayer.__spiceNativeGuardPatched = true;
+        value.Player = GuardedPlayer;
+    }
+
+    function patchYouTubeApiWhenAvailable() {
+        let ytValue = window.YT;
+        try {
+            Object.defineProperty(window, 'YT', {
+                configurable: true,
+                get() {
+                    return ytValue;
+                },
+                set(value) {
+                    ytValue = value;
+                    patchYouTubeApi(value);
+                },
+            });
+        } catch (_) {}
+
+        patchYouTubeApi(ytValue);
+        const interval = window.setInterval(() => patchYouTubeApi(window.YT), 250);
+        window.setTimeout(() => window.clearInterval(interval), NATIVE_STARTUP_PLAYBACK_GUARD_MS);
+    }
+
+    writeStartupGuards();
+    window.__spiceNativeAllowPlaybackIntent = allowPlaybackIntent;
+    window.addEventListener('pointerdown', noteTrustedPlaybackIntent, true);
+    window.addEventListener('click', noteTrustedPlaybackIntent, true);
+    window.addEventListener('keydown', noteTrustedPlaybackIntent, true);
+
+    patchHtmlMediaPlayback();
+    patchYouTubeApiWhenAvailable();
+
+    const pauseInterval = window.setInterval(pauseUnexpectedMedia, 250);
+    window.setTimeout(() => window.clearInterval(pauseInterval), NATIVE_STARTUP_PLAYBACK_GUARD_MS);
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', pauseUnexpectedMedia);
+    } else {
+        pauseUnexpectedMedia();
+    }
+}
+
+installNativeStartupPlaybackGuard();
 
 function installNativeSessionSnapshot() {
     if (!IS_SPICE_LOCAL_RUNTIME) return;
@@ -27,12 +270,74 @@ function installNativeSessionSnapshot() {
 
 installNativeSessionSnapshot();
 
+function installSpiceDesktopUiBridge() {
+    if (!IS_SPICE_MUSIC) return;
+
+    const validAccents = new Set([
+        'pink', 'blue', 'orange', 'green', 'gold', 'crimson', 'deeppurple'
+    ]);
+    const validSurfaces = new Set(['midnight', 'glass', 'solid', 'aurora']);
+    let lastThemeSignature = '';
+
+    window.spiceDesktopWindow = {
+        getAlwaysOnTop: async () => Boolean(await ipcRenderer.invoke('get-always-on-top')),
+        setAlwaysOnTop: async (enabled) => Boolean(
+            await ipcRenderer.invoke('set-always-on-top', enabled === true)
+        ),
+    };
+
+    function emitTheme() {
+        let accent = 'pink';
+        let surface = 'midnight';
+        try {
+            const savedAccent = window.localStorage.getItem('spice_accent_theme');
+            const savedSurface = window.localStorage.getItem('spice_visual_surface');
+            if (validAccents.has(savedAccent)) accent = savedAccent;
+            if (validSurfaces.has(savedSurface)) surface = savedSurface;
+        } catch (_) {}
+
+        const signature = `${accent}:${surface}`;
+        if (signature === lastThemeSignature) return;
+        lastThemeSignature = signature;
+        ipcRenderer.send('spice-theme-changed', { accent, surface });
+    }
+
+    // Older packaged runtimes used a complete purple app icon inside the
+    // themed logo tile. Keep those installs visually correct until updated.
+    webFrame.insertCSS(`
+        .sidebar__logo-icon:has(> .sidebar__logo-image) > .sidebar__logo-image {
+            display: none !important;
+        }
+        .sidebar__logo-icon:has(> .sidebar__logo-image)::after {
+            content: '';
+            width: 20px;
+            height: 20px;
+            background: #fff;
+            -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath d='M256 128v176.8c-9.44-5.44-20.32-8.8-32-8.8-35.36 0-64 28.64-64 64s28.64 64 64 64 64-28.64 64-64V192h64v-64h-96z' fill='black'/%3E%3C/svg%3E") center / contain no-repeat;
+            mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath d='M256 128v176.8c-9.44-5.44-20.32-8.8-32-8.8-35.36 0-64 28.64-64 64s28.64 64 64 64 64-28.64 64-64V192h64v-64h-96z' fill='black'/%3E%3C/svg%3E") center / contain no-repeat;
+        }
+    `).catch((error) => {
+        console.warn('[Preload] Could not install legacy logo compatibility CSS:', error && error.message);
+    });
+
+    emitTheme();
+    window.addEventListener('DOMContentLoaded', emitTheme, { once: true });
+    window.addEventListener('storage', emitTheme);
+    window.setInterval(emitTheme, 350);
+}
+
+installSpiceDesktopUiBridge();
+
 function installSpiceAudioBridge() {
     if (!IS_SPICE_LOCAL_RUNTIME) return;
 
+    const PLAYER_VOLUME_STORAGE_KEY = 'spice_player_volume';
     let lastSignature = '';
     let listenerAttached = false;
     let pendingAudioPayload = null;
+    let desktopAudioPayload = null;
+    let desktopAudioPayloadApplied = false;
+    let applyingDesktopAudioPayload = false;
 
     function readBoostEnabled() {
         return window.localStorage.getItem('spice_volume_booster_accepted') === 'true';
@@ -52,17 +357,50 @@ function installSpiceAudioBridge() {
         return Number.isFinite(value) ? value : null;
     }
 
-    function emitAudioState(force = false) {
+    function normalizePayloadVolume(payload) {
+        const boostEnabled = Boolean(payload && payload.boostEnabled);
+        const maxVolume = boostEnabled ? 1000 : 200;
+        const requested = Number(payload && payload.volume);
+        if (!Number.isFinite(requested)) return null;
+        return Math.max(0, Math.min(maxVolume, Math.round(requested)));
+    }
+
+    function writeDesktopAudioPayloadToStorage(payload) {
+        const volume = normalizePayloadVolume(payload);
+        if (volume === null) return;
+        try {
+            window.localStorage.setItem(PLAYER_VOLUME_STORAGE_KEY, String(volume));
+            window.localStorage.setItem('spice_volume_booster_accepted', String(Boolean(payload && payload.boostEnabled)));
+        } catch {
+            // LocalStorage may be unavailable on early navigation; the DOM bridge still applies the payload.
+        }
+    }
+
+    function emitAudioState(force = false, source = 'observer') {
+        if (!desktopAudioPayloadApplied) return;
         const volume = readVolume();
         const boostEnabled = readBoostEnabled();
         if (volume === null) return;
 
+        const isUserSource = source === 'user';
+        if (!isUserSource && desktopAudioPayload) {
+            const expectedVolume = normalizePayloadVolume(desktopAudioPayload);
+            const expectedBoost = Boolean(desktopAudioPayload.boostEnabled);
+            if (expectedVolume !== null && (volume !== expectedVolume || boostEnabled !== expectedBoost)) {
+                applyAudioSettingsPayload(desktopAudioPayload);
+            }
+            return;
+        }
+
         const signature = `${volume}:${boostEnabled}`;
         if (!force && signature === lastSignature) return;
         lastSignature = signature;
+        desktopAudioPayload = { volume, boostEnabled };
+        writeDesktopAudioPayloadToStorage(desktopAudioPayload);
         ipcRenderer.send('spice-audio-state-changed', {
             volume,
             boostEnabled,
+            desktopReady: true,
         });
     }
 
@@ -75,6 +413,12 @@ function installSpiceAudioBridge() {
     }
 
     function applyAudioSettingsPayload(payload) {
+        desktopAudioPayload = {
+            volume: Number(payload && payload.volume),
+            boostEnabled: Boolean(payload && payload.boostEnabled),
+        };
+        writeDesktopAudioPayloadToStorage(desktopAudioPayload);
+
         const boostEnabled = Boolean(payload && payload.boostEnabled);
         const currentBoost = readBoostEnabled();
         let boostClickQueued = false;
@@ -88,29 +432,45 @@ function installSpiceAudioBridge() {
             }
         }
 
-        const applyRequestedVolume = () => {
-            const maxVolume = boostEnabled ? 1000 : 200;
-            const requested = Number(payload && payload.volume);
-            if (!Number.isFinite(requested)) return;
+        const applyRequestedVolume = (remainingAttempts = 40) => {
+            const nextVolume = normalizePayloadVolume(payload);
+            if (nextVolume === null) return;
 
             const slider = findVolumeSlider();
             if (!slider) {
                 pendingAudioPayload = payload;
                 return;
             }
+
+            const sliderMaximum = Number(slider.max);
+            if (boostEnabled && nextVolume > 200 && sliderMaximum < nextVolume && remainingAttempts > 0) {
+                pendingAudioPayload = payload;
+                setTimeout(() => applyRequestedVolume(remainingAttempts - 1), 50);
+                return;
+            }
             pendingAudioPayload = null;
-            const nextVolume = Math.max(0, Math.min(maxVolume, Math.round(requested)));
-            setNativeRangeValue(slider, nextVolume);
+            desktopAudioPayloadApplied = true;
+            window.__spiceDesktopAudioReady = true;
+            lastSignature = `${nextVolume}:${boostEnabled}`;
+            applyingDesktopAudioPayload = true;
+            try {
+                setNativeRangeValue(slider, nextVolume);
+            } finally {
+                setTimeout(() => {
+                    applyingDesktopAudioPayload = false;
+                }, 0);
+            }
         };
 
-        if (boostClickQueued) setTimeout(applyRequestedVolume, 80);
+        if (boostClickQueued) setTimeout(() => applyRequestedVolume(), 0);
         else applyRequestedVolume();
 
-        setTimeout(() => emitAudioState(true), 50);
+        setTimeout(() => emitAudioState(true, 'desktop'), 50);
     }
 
     window.__spiceDesktopSetAudioSettings = function(payload) {
         pendingAudioPayload = payload;
+        window.__spiceDesktopAudioSettingsQueued = true;
         applyAudioSettingsPayload(payload);
     };
 
@@ -121,8 +481,12 @@ function installSpiceAudioBridge() {
         }
         if (slider && !slider.dataset.spiceDesktopAudioBridge) {
             slider.dataset.spiceDesktopAudioBridge = '1';
-            slider.addEventListener('input', () => emitAudioState());
-            slider.addEventListener('change', () => emitAudioState(true));
+            slider.addEventListener('input', (event) => {
+                emitAudioState(false, event.isTrusted && !applyingDesktopAudioPayload ? 'user' : 'programmatic');
+            });
+            slider.addEventListener('change', (event) => {
+                emitAudioState(true, event.isTrusted && !applyingDesktopAudioPayload ? 'user' : 'programmatic');
+            });
         }
 
         if (!listenerAttached) {
@@ -130,12 +494,12 @@ function installSpiceAudioBridge() {
             document.addEventListener('click', (event) => {
                 const target = event.target;
                 if (target && target.closest && target.closest('button[title="Toggle Volume Booster"]')) {
-                    setTimeout(() => emitAudioState(true), 50);
+                    setTimeout(() => emitAudioState(true, event.isTrusted ? 'user' : 'programmatic'), 50);
                 }
             }, true);
         }
 
-        emitAudioState();
+        emitAudioState(false, 'observer');
     }
 
     function startBridgeObserver() {

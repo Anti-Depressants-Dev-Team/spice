@@ -24,7 +24,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { SpiceTheme { SpiceRoot(viewModel) } }
+        setContent { SpiceRoot(viewModel) }
         viewModel.openPlaylistInviteFromUri(intent?.data)
     }
 
@@ -53,63 +53,73 @@ private fun SpiceRoot(viewModel: SpiceViewModel) {
         }
     }
 
-    SpiceApp(
-        uiState = uiState,
-        playerState = playerState,
-        onScreenSelected = viewModel::selectScreen,
-        onSearchQueryChanged = viewModel::setSearchQuery,
-        onSearch = viewModel::search,
-        onTrackSelected = { track, queue ->
-            ensureNotificationPermission()
-            viewModel.play(track, queue)
-        },
-        onTogglePlayback = viewModel::togglePlayback,
-        onPlayNext = viewModel::playNext,
-        onPlayPrevious = viewModel::playPrevious,
-        onSeekTo = viewModel::seekTo,
-        onSeekBy = viewModel::seekBy,
-        onToggleShuffle = viewModel::toggleShuffle,
-        onCycleRepeat = viewModel::cycleRepeat,
-        onStopPlayback = viewModel::stopPlayback,
-        onToggleLike = viewModel::toggleLike,
-        onLibraryTabSelected = viewModel::setLibraryTab,
-        onCreatePlaylist = viewModel::createPlaylist,
-        onAddCurrentTrackToPlaylist = viewModel::addCurrentTrackToPlaylist,
-        onSharePlaylist = viewModel::sharePlaylist,
-        onAcceptPlaylistInvite = viewModel::acceptPlaylistInvite,
-        onDismissPlaylistInvite = viewModel::dismissPlaylistInvite,
-        onRefreshPendingInvites = viewModel::refreshPendingAccountInvites,
-        onAcceptPendingInvite = viewModel::acceptPendingPlaylistInvite,
-        onRejectPendingInvite = viewModel::rejectPendingPlaylistInvite,
-        onOpenPlaylistMembers = viewModel::openPlaylistMembers,
-        onDismissPlaylistMembers = viewModel::dismissPlaylistMembers,
-        onMemberInviteUsernameChanged = viewModel::setMemberInviteUsername,
-        onInvitePlaylistMember = viewModel::invitePlaylistMember,
-        onRemovePlaylistMember = viewModel::removePlaylistMember,
-        onLeaveSharedPlaylist = viewModel::leaveActiveSharedPlaylist,
-        onRemoveSharedPlaylistTrack = viewModel::removeSharedPlaylistTrack,
-        onRefreshSharedPlaylistTracks = viewModel::refreshActiveSharedPlaylistTracks,
-        onAuthModeSelected = viewModel::setAuthMode,
-        onAuthEmailChanged = viewModel::setAuthEmail,
-        onAuthPasswordChanged = viewModel::setAuthPassword,
-        onAuthUsernameChanged = viewModel::setAuthUsername,
-        onSubmitAccount = viewModel::submitAccount,
-        onSignOut = viewModel::signOut,
-        onSyncNow = viewModel::syncNow,
-        onRefreshSpiceConnect = viewModel::refreshSpiceConnect,
-        onSendSpiceConnectCommand = viewModel::sendSpiceConnectCommand,
-        onTestEngine = {
-            ensureNotificationPermission()
-            viewModel.playEngineTest()
-        },
-        onDownloadTrack = viewModel::downloadTrack,
-        onCancelDownload = viewModel::cancelDownload,
-        onLoadLyrics = viewModel::loadCurrentLyrics,
-        onDismissLyrics = viewModel::dismissLyrics,
-        onOpenDownload = viewModel::openDownload,
-        onShareDownload = viewModel::shareDownload,
-        onRemoveDownload = viewModel::removeDownload,
-        onRetryHome = viewModel::retryHome,
-        onClearMessage = viewModel::clearMessage,
-    )
+    SpiceTheme(uiState.accentTheme) {
+        SpiceApp(
+            uiState = uiState,
+            playerState = playerState,
+            onScreenSelected = viewModel::selectScreen,
+            onSearchQueryChanged = viewModel::setSearchQuery,
+            onSearch = viewModel::search,
+            onTrackSelected = { track, queue ->
+                ensureNotificationPermission()
+                viewModel.play(track, queue)
+            },
+            onTogglePlayback = viewModel::togglePlayback,
+            onPlayNext = viewModel::playNext,
+            onPlayPrevious = viewModel::playPrevious,
+            onSeekTo = viewModel::seekTo,
+            onToggleShuffle = viewModel::toggleShuffle,
+            onCycleRepeat = viewModel::cycleRepeat,
+            onStopPlayback = viewModel::stopPlayback,
+            onToggleLike = viewModel::toggleLike,
+            onAccentSelected = viewModel::setAccentTheme,
+            onLibraryTabSelected = viewModel::setLibraryTab,
+            onCreatePlaylist = viewModel::createPlaylist,
+            onAddCurrentTrackToPlaylist = viewModel::addCurrentTrackToPlaylist,
+            onSharePlaylist = viewModel::sharePlaylist,
+            onAcceptPlaylistInvite = viewModel::acceptPlaylistInvite,
+            onDismissPlaylistInvite = viewModel::dismissPlaylistInvite,
+            onRefreshPendingInvites = viewModel::refreshPendingAccountInvites,
+            onAcceptPendingInvite = viewModel::acceptPendingPlaylistInvite,
+            onRejectPendingInvite = viewModel::rejectPendingPlaylistInvite,
+            onOpenPlaylistMembers = viewModel::openPlaylistMembers,
+            onDismissPlaylistMembers = viewModel::dismissPlaylistMembers,
+            onMemberInviteUsernameChanged = viewModel::setMemberInviteUsername,
+            onInvitePlaylistMember = viewModel::invitePlaylistMember,
+            onRemovePlaylistMember = viewModel::removePlaylistMember,
+            onLeaveSharedPlaylist = viewModel::leaveActiveSharedPlaylist,
+            onRemoveSharedPlaylistTrack = viewModel::removeSharedPlaylistTrack,
+            onRefreshSharedPlaylistTracks = viewModel::refreshActiveSharedPlaylistTracks,
+            onAuthModeSelected = viewModel::setAuthMode,
+            onAuthEmailChanged = viewModel::setAuthEmail,
+            onAuthPasswordChanged = viewModel::setAuthPassword,
+            onAuthUsernameChanged = viewModel::setAuthUsername,
+            onSubmitAccount = viewModel::submitAccount,
+            onSignOut = viewModel::signOut,
+            onOpenProfileEditor = viewModel::openProfileEditor,
+            onDismissProfileEditor = viewModel::dismissProfileEditor,
+            onProfileDisplayNameChanged = viewModel::setProfileEditDisplayName,
+            onProfileUsernameChanged = viewModel::setProfileEditUsername,
+            onProfileAvatarUrlChanged = viewModel::setProfileEditAvatarUrl,
+            onProfileBioChanged = viewModel::setProfileEditBio,
+            onProfilePrivateChanged = viewModel::setProfileEditPrivate,
+            onSaveProfile = viewModel::saveProfileEdit,
+            onSyncNow = viewModel::syncNow,
+            onRefreshSpiceConnect = viewModel::refreshSpiceConnect,
+            onPlaybackDeviceSelected = viewModel::selectPlaybackDevice,
+            onTestEngine = {
+                ensureNotificationPermission()
+                viewModel.playEngineTest()
+            },
+            onDownloadTrack = viewModel::downloadTrack,
+            onCancelDownload = viewModel::cancelDownload,
+            onLoadLyrics = viewModel::loadCurrentLyrics,
+            onDismissLyrics = viewModel::dismissLyrics,
+            onOpenDownload = viewModel::openDownload,
+            onShareDownload = viewModel::shareDownload,
+            onRemoveDownload = viewModel::removeDownload,
+            onRetryHome = viewModel::retryHome,
+            onClearMessage = viewModel::clearMessage,
+        )
+    }
 }

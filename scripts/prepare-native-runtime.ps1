@@ -1,6 +1,6 @@
 param(
   [string]$BackendRepo = "",
-  [string]$RuntimeZipUrl = "https://github.com/Anti-Depressants-Dev-Team/SPICE-but-its-crazier-cuz-yes-/releases/latest/download/spice-local-windows.zip",
+  [string]$RuntimeZipUrl = "",
   [switch]$SkipBackendBuild
 )
 
@@ -9,6 +9,30 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")
 $targetRoot = Join-Path $repoRoot "native-runtime"
 $targetRuntime = Join-Path $targetRoot "spice-local-windows"
+
+if (-not $RuntimeZipUrl) {
+  $RuntimeZipUrl = $env:SPICE_NATIVE_RUNTIME_ZIP_URL
+}
+if (-not $RuntimeZipUrl) {
+  $RuntimeZipUrl = "https://github.com/Anti-Depressants-Dev-Team/spice/releases/download/spice-local-runtime/spice-local-windows.zip"
+}
+
+function Invoke-BackendScript {
+  param(
+    [string]$BackendPath,
+    [string]$Script
+  )
+
+  Push-Location $BackendPath
+  try {
+    & npm --workspace "@spice/backend" run $Script
+    if ($LASTEXITCODE -ne 0) {
+      throw "npm workspace script '$Script' exited with code $LASTEXITCODE."
+    }
+  } finally {
+    Pop-Location
+  }
+}
 
 function Reset-TargetRuntime {
   $resolvedTargetRoot = Resolve-Path -LiteralPath $targetRoot -ErrorAction SilentlyContinue
@@ -33,13 +57,8 @@ function Copy-RuntimeFromBackend {
 
   $backendFull = Resolve-Path -LiteralPath $BackendPath
   if (-not $SkipBackendBuild) {
-    Push-Location $backendFull.Path
-    try {
-      pnpm --filter "@spice/backend" build:local
-      pnpm --filter "@spice/backend" package:local:windows
-    } finally {
-      Pop-Location
-    }
+    Invoke-BackendScript -BackendPath $backendFull.Path -Script "build:local"
+    Invoke-BackendScript -BackendPath $backendFull.Path -Script "package:local:windows"
   }
 
   $sourceRuntime = Join-Path $backendFull.Path "apps/backend/dist/spice-local-windows"
@@ -84,7 +103,10 @@ function Copy-RuntimeFromRelease {
 }
 
 if (-not $BackendRepo) {
-  $BackendRepo = Join-Path $repoRoot "..\SPICE-but-its-crazier-and-closed-source-cuz-yes-"
+  $BackendRepo = $env:SPICE_BACKEND_REPO
+}
+if (-not $BackendRepo) {
+  $BackendRepo = $repoRoot.Path
 }
 
 if (Test-Path -LiteralPath (Join-Path $BackendRepo "apps/backend/package.json")) {

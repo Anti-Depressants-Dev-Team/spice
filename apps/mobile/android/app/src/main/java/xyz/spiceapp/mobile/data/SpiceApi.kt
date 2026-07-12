@@ -23,6 +23,7 @@ import xyz.spiceapp.mobile.model.ProfileStats
 import xyz.spiceapp.mobile.model.ProfileSummary
 import xyz.spiceapp.mobile.model.RemoteCommand
 import xyz.spiceapp.mobile.model.RemoteDevice
+import xyz.spiceapp.mobile.model.RepeatMode
 import xyz.spiceapp.mobile.model.ResolvedStream
 import xyz.spiceapp.mobile.model.SharedPlaylistTrack
 import xyz.spiceapp.mobile.model.SharedPlaylistTracks
@@ -216,6 +217,31 @@ class SpiceApi(
             )
         }
 
+    suspend fun fetchProfiles(token: String): List<SpiceProfile> = withContext(Dispatchers.IO) {
+        parseProfiles(getJson("/api/sync/profiles", token))
+    }
+
+    suspend fun syncProfiles(token: String, profiles: List<SpiceProfile>) = withContext(Dispatchers.IO) {
+        postJson(
+            "/api/sync/profiles",
+            JSONObject().put("profiles", JSONArray(profiles.map { it.toSyncProfileJson() })),
+            token,
+        )
+        Unit
+    }
+
+    suspend fun updateUsername(token: String, username: String, profileId: String = "default") = withContext(Dispatchers.IO) {
+        requestJson(
+            "/api/account/username",
+            method = "PUT",
+            body = JSONObject()
+                .put("username", username)
+                .put("profileId", profileId),
+            bearerToken = token,
+        )
+        Unit
+    }
+
     suspend fun fetchRemoteDevices(token: String): List<RemoteDevice> = withContext(Dispatchers.IO) {
         parseRemoteDevices(getJson("/api/remote/devices", token))
     }
@@ -226,6 +252,8 @@ class SpiceApi(
         displayName: String,
         currentTrack: Track?,
         isPlaying: Boolean,
+        shuffleEnabled: Boolean = false,
+        repeatMode: RepeatMode = RepeatMode.Off,
         progressMs: Long,
         durationMs: Long,
         volume: Int = 70,
@@ -241,6 +269,8 @@ class SpiceApi(
                 .put("queue", JSONArray(queue.map { it.toRemoteTrackJson() }))
                 .put("queueIndex", queueIndex.coerceIn(0, queue.lastIndex.coerceAtLeast(0)))
                 .put("isPlaying", isPlaying)
+                .put("shuffleEnabled", shuffleEnabled)
+                .put("repeatMode", repeatMode.toRemoteValue())
                 .put("progress", progressMs.coerceAtLeast(0) / 1000.0)
                 .put("duration", durationMs.coerceAtLeast(0) / 1000.0)
                 .put("volume", volume.coerceIn(0, 100)),
@@ -856,8 +886,11 @@ internal fun parseProfileSummary(payload: JSONObject): ProfileSummary {
             username = profile.optString("username").trim(),
             avatarUrl = profile.optString("avatarUrl").trim(),
             bio = profile.optString("bio").trim(),
+            gradient = profile.optString("gradient").trim().ifEmpty { "linear-gradient(135deg, #a855f7, #ec4899)" },
             joinedAt = profile.optString("joinedAt").trim(),
             isPrivate = profile.optBoolean("isPrivate", false),
+            songsPlayed = stats.optInt("songsPlayed", profile.optInt("songsPlayed", 0)).coerceAtLeast(0),
+            passcode = profile.optString("passcode").trim(),
         ),
         stats = ProfileStats(
             songsPlayed = stats.optInt("songsPlayed", 0).coerceAtLeast(0),
@@ -865,6 +898,32 @@ internal fun parseProfileSummary(payload: JSONObject): ProfileSummary {
             playlistsCount = stats.optInt("playlistsCount", 0).coerceAtLeast(0),
         ),
     )
+}
+
+internal fun parseProfiles(payload: JSONObject): List<SpiceProfile> {
+    val profiles = payload.optJSONArray("profiles") ?: return emptyList()
+    return buildList {
+        for (index in 0 until profiles.length()) {
+            val item = profiles.optJSONObject(index) ?: continue
+            add(
+                SpiceProfile(
+                    id = item.optString("id").trim().ifEmpty { "default" },
+                    displayName = item.optString("displayName").trim()
+                        .ifEmpty { item.optString("username").trim() }
+                        .ifEmpty { "Spice Listener" },
+                    username = item.optString("username").trim()
+                        .ifEmpty { item.optString("cloudUsername").trim() },
+                    avatarUrl = item.optString("avatarUrl").trim(),
+                    bio = item.optString("bio").trim(),
+                    gradient = item.optString("gradient").trim().ifEmpty { "linear-gradient(135deg, #a855f7, #ec4899)" },
+                    joinedAt = item.optString("joinedAt").trim(),
+                    isPrivate = item.optBoolean("isPrivate", false),
+                    songsPlayed = item.optInt("songsPlayed", 0).coerceAtLeast(0),
+                    passcode = item.optString("passcode").trim(),
+                ),
+            )
+        }
+    }
 }
 
 internal fun parseRemoteDevices(payload: JSONObject): List<RemoteDevice> {
@@ -880,7 +939,11 @@ internal fun parseRemoteDevices(payload: JSONObject): List<RemoteDevice> {
                     deviceId = deviceId,
                     displayName = displayName,
                     currentTrack = parseRemoteTrack(item.optJSONObject("currentTrack")),
+                    queue = parseRemoteTracks(item.optJSONArray("queue")),
+                    queueIndex = item.optInt("queueIndex", 0).coerceAtLeast(0),
                     isPlaying = item.optBoolean("isPlaying", false),
+                    shuffleEnabled = item.optBoolean("shuffleEnabled", false),
+                    repeatMode = parseRemoteRepeatMode(item.optString("repeatMode")),
                     progressMs = (item.optDouble("progress", 0.0) * 1000).toLong().coerceAtLeast(0),
                     durationMs = (item.optDouble("duration", 0.0) * 1000).toLong().coerceAtLeast(0),
                     volume = item.optInt("volume", 70).coerceIn(0, 100),
@@ -904,13 +967,52 @@ internal fun parseRemoteCommands(payload: JSONObject): List<RemoteCommand> {
                 commandPayload.optJSONObject("track")
                     ?: commandPayload.optJSONObject("currentTrack"),
             )
+            val payloadQueue = parseRemoteTracks(commandPayload.optJSONArray("queue"))
+            val payloadQueueIndex = commandPayload.optInt("queueIndex", 0).coerceAtLeast(0)
             val seekPositionMs = when {
                 commandPayload.has("positionMs") -> commandPayload.optLong("positionMs").coerceAtLeast(0)
                 commandPayload.has("progressMs") -> commandPayload.optLong("progressMs").coerceAtLeast(0)
+                commandPayload.has("progress") -> (commandPayload.optDouble("progress", 0.0) * 1000).toLong().coerceAtLeast(0)
                 commandPayload.has("position") -> (commandPayload.optDouble("position", 0.0) * 1000).toLong().coerceAtLeast(0)
                 else -> null
             }
-            add(RemoteCommand(id, command, payloadTrack, seekPositionMs))
+            val shuffleEnabled = commandPayload.optBoolean("enabled").takeIf { commandPayload.has("enabled") }
+            val repeatMode = parseRemoteRepeatMode(commandPayload.optString("mode")).takeIf {
+                commandPayload.has("mode")
+            }
+            add(
+                RemoteCommand(
+                    id = id,
+                    command = command,
+                    payloadTrack = payloadTrack,
+                    payloadQueue = payloadQueue,
+                    payloadQueueIndex = payloadQueueIndex,
+                    seekPositionMs = seekPositionMs,
+                    shuffleEnabled = shuffleEnabled,
+                    repeatMode = repeatMode,
+                ),
+            )
+        }
+    }
+}
+
+internal fun parseRemoteRepeatMode(value: String): RepeatMode = when (value.trim().lowercase()) {
+    "all" -> RepeatMode.All
+    "one" -> RepeatMode.One
+    else -> RepeatMode.Off
+}
+
+internal fun RepeatMode.toRemoteValue(): String = when (this) {
+    RepeatMode.Off -> "none"
+    RepeatMode.All -> "all"
+    RepeatMode.One -> "one"
+}
+
+private fun parseRemoteTracks(payload: JSONArray?): List<Track> {
+    val tracks = payload ?: return emptyList()
+    return buildList {
+        for (index in 0 until tracks.length()) {
+            parseRemoteTrack(tracks.optJSONObject(index))?.let(::add)
         }
     }
 }
@@ -1112,6 +1214,19 @@ internal fun Playlist.toSnapshotJson(): JSONObject =
         .put("shareRole", shareRole)
         .put("isPublic", isPublic)
         .put("tracks", JSONArray(tracks.map { it.toSnapshotJson() }))
+
+internal fun SpiceProfile.toSyncProfileJson(): JSONObject =
+    JSONObject()
+        .put("id", id.ifBlank { "default" })
+        .put("displayName", displayName.ifBlank { "Spice Listener" })
+        .put("cloudUsername", username.takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+        .put("bio", bio)
+        .put("gradient", gradient.ifBlank { "linear-gradient(135deg, #a855f7, #ec4899)" })
+        .put("songsPlayed", songsPlayed.coerceAtLeast(0))
+        .put("joinedAt", joinedAt.ifBlank { "July 2026" })
+        .put("passcode", passcode.takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+        .put("avatarUrl", avatarUrl.takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+        .put("isPrivate", isPrivate)
 
 internal fun mergeSyncTracks(remote: List<Track>, local: List<Track>): List<Track> {
     val merged = linkedMapOf<String, Track>()

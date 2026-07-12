@@ -11,6 +11,13 @@ const path = require("path");
 const fs = require("fs");
 const { autoUpdater } = require("electron-updater");
 const { SpiceLocalRuntimeManager } = require("./spice-local-runtime-manager");
+const {
+  DEFAULT_SHELL_THEME,
+  normalizeShellTheme,
+  parseSupportedServiceUrl,
+  getNavigationHistory,
+  navigateHistory,
+} = require("./desktop-helpers");
 
 // Simple File Logger for Production Debugging - INITIALIZE FIRST
 const logFile = path.join(app.getPath("userData"), "debug.log");
@@ -66,6 +73,7 @@ try {
 let store;
 let mainWindow;
 let view;
+let viewHiddenForModal = false;
 let settingsWindow = null;
 let toolbarSettingsWindow = null;
 let adBlocker = null;
@@ -78,11 +86,20 @@ let currentVolume = 1.0; // Volume gain value (0.0 - 10.0), shared across scopes
 let currentBoostEnabled = false;
 let spiceRuntimeManager = null;
 let applyVolumeToActiveView = () => {};
+let updateInstallInProgress = false;
+let updateInstallCleanupPromise = null;
+let updateInstallCleanupCompleted = false;
+let downloadedUpdateInfo = null;
+let updateInstallPromptActive = false;
+let skipDownloadedUpdateOnClose = false;
 
+const SPICE_LOCAL_RUNTIME_PLATFORM = process.platform === "linux" ? "linux" : "windows";
 const APP_NATIVE_MODE =
   process.env.SPICE_NATIVE_APP === "1" ||
   process.env.SPICE_APP_MODE === "native" ||
   (app.isPackaged && hasBundledNativeRuntime());
+const UPDATE_CHANNEL = APP_NATIVE_MODE ? "native" : "latest";
+const AUTO_UPDATE_SUPPORTED = process.platform !== "linux" || Boolean(process.env.APPIMAGE);
 const SPICE_LOCAL_RUNTIME_URL = normalizeServiceUrl(
   process.env.SPICE_LOCAL_RUNTIME_URL || "http://127.0.0.1:3939/",
 );
@@ -91,7 +108,7 @@ const SPICE_INSTALL_URL = normalizeServiceUrl(
 );
 const SPICE_LOCAL_MANIFEST_URL =
   process.env.SPICE_LOCAL_UPDATE_MANIFEST_URL ||
-  "https://music.spice-app.xyz/api/updates/local-windows";
+  `https://music.spice-app.xyz/api/updates/local-${SPICE_LOCAL_RUNTIME_PLATFORM}`;
 
 const SERVICES = {
   yt: "https://music.youtube.com",
@@ -112,32 +129,81 @@ const DEFAULT_TOOLBAR_BUTTONS = {
   queue: true,
 };
 
+function getShellTheme() {
+  return normalizeShellTheme(
+    store ? store.get("shellTheme", DEFAULT_SHELL_THEME) : DEFAULT_SHELL_THEME,
+  );
+}
+
+function sendShellTheme(webContents) {
+  if (!webContents || webContents.isDestroyed()) return;
+  webContents.send("shell-theme-changed", getShellTheme());
+}
+
+function broadcastShellTheme() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    sendShellTheme(mainWindow.webContents);
+  }
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    sendShellTheme(settingsWindow.webContents);
+  }
+  if (toolbarSettingsWindow && !toolbarSettingsWindow.isDestroyed()) {
+    sendShellTheme(toolbarSettingsWindow.webContents);
+  }
+}
+
+function updateShellTheme(value) {
+  const next = normalizeShellTheme(value);
+  if (store) store.set("shellTheme", next);
+  broadcastShellTheme();
+  return next;
+}
+
+function getAlwaysOnTop() {
+  return store ? store.get("alwaysOnTop", false) === true : false;
+}
+
+function setAlwaysOnTop(enabled) {
+  const next = enabled === true;
+  if (store) store.set("alwaysOnTop", next);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setAlwaysOnTop(next);
+  }
+  return next;
+}
+
 function normalizeServiceUrl(url) {
   const value = String(url || "").trim();
   return value.endsWith("/") ? value : `${value}/`;
 }
 
 function bundledNativeRuntimeDir() {
+  const bundleName = `spice-local-${SPICE_LOCAL_RUNTIME_PLATFORM}`;
   const candidates = [];
   if (process.resourcesPath) {
-    candidates.push(path.join(process.resourcesPath, "native-runtime", "spice-local-windows"));
+    candidates.push(path.join(process.resourcesPath, "native-runtime", bundleName));
   }
-  candidates.push(path.join(__dirname, "native-runtime", "spice-local-windows"));
+  candidates.push(path.join(__dirname, "native-runtime", bundleName));
 
   return candidates.find((candidate) =>
-    fs.existsSync(path.join(candidate, "start-spice-local.ps1")),
+    fs.existsSync(path.join(candidate, "apps", "backend", "server.js")),
   ) || candidates[0];
 }
 
 function hasBundledNativeRuntime() {
-  return fs.existsSync(path.join(bundledNativeRuntimeDir(), "start-spice-local.ps1"));
+  return fs.existsSync(path.join(bundledNativeRuntimeDir(), "apps", "backend", "server.js"));
 }
 
 function nativeModeSettings() {
   return {
     nativeMode: APP_NATIVE_MODE,
     bundledRuntimeAvailable: hasBundledNativeRuntime(),
+    autoOpen: getNativeAutoOpen(),
   };
+}
+
+function getNativeAutoOpen() {
+  return store ? store.get("nativeAutoOpen", true) !== false : true;
 }
 
 function getNativeAccountSnapshot() {
@@ -171,6 +237,7 @@ function saveNativeAccount(token, user) {
   };
   store.set("nativeAccount", snapshot);
   store.set("nativeOnboarded", true);
+  store.set("nativeAutoOpen", true);
   return getNativeAccountSummary();
 }
 
@@ -184,8 +251,18 @@ async function ensureNativeRuntimeReady() {
     throw new Error("SPICE local runtime manager is not ready yet.");
   }
   await spiceRuntimeManager.ensureBundledRuntimeInstalled();
+  let updateError = null;
+  try {
+    await spiceRuntimeManager.installLatestIfAvailable();
+  } catch (error) {
+    updateError = error;
+    console.error("Native runtime update check failed:", error);
+  }
   const status = await spiceRuntimeManager.getStatus();
   if (!status.installed && !status.running) {
+    if (updateError) {
+      throw updateError;
+    }
     await spiceRuntimeManager.installOrUpdate();
   }
   await spiceRuntimeManager.start();
@@ -244,19 +321,6 @@ function getFetchImplementation() {
   return null;
 }
 
-function isAllowedSpiceUrl(parsed) {
-  const host = parsed.hostname.toLowerCase();
-  const isLocalRuntime =
-    (host === "127.0.0.1" || host === "localhost") &&
-    parsed.port === "3939";
-
-  return (
-    isLocalRuntime ||
-    host === "music.spice-app.xyz" ||
-    host === "install.spice-app.xyz"
-  );
-}
-
 async function isLocalSpiceRuntimeReady() {
   const fetchFn = getFetchImplementation();
   if (!fetchFn) return false;
@@ -277,6 +341,15 @@ async function isLocalSpiceRuntimeReady() {
 async function resolveServiceUrl(serviceKey) {
   if (serviceKey !== "spice_crazy") return SERVICES[serviceKey];
   if (await isLocalSpiceRuntimeReady()) return SPICE_LOCAL_RUNTIME_URL;
+
+  if (APP_NATIVE_MODE && spiceRuntimeManager) {
+    try {
+      await ensureNativeRuntimeReady();
+      return SPICE_LOCAL_RUNTIME_URL;
+    } catch (error) {
+      console.warn("Native runtime prepare failed before loading SPICE Music:", error && error.message);
+    }
+  }
 
   if (spiceRuntimeManager) {
     const status = await spiceRuntimeManager.getStatus();
@@ -366,6 +439,7 @@ function initStore() {
     const savedVolume = Number(store.get("volume", currentVolume));
     if (Number.isFinite(savedVolume)) currentVolume = Math.max(0, Math.min(10, savedVolume));
     currentBoostEnabled = Boolean(store.get("boostEnabled", false));
+    syncMiniPlayerAudioState();
     // Initialize scrobbler after store
     scrobbler = new Scrobbler(store);
     console.log("Scrobbler initialized");
@@ -415,6 +489,7 @@ function createWindow() {
     frame: false, // Frameless window
     titleBarStyle: "hidden", // Hide default title bar, but keep traffic lights on macOS (we'll implement custom anyway)
     titleBarOverlay: false,
+    alwaysOnTop: getAlwaysOnTop(),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -448,11 +523,12 @@ function createWindow() {
   mainWindow.loadURL(APP_NATIVE_MODE ? "http://localhost:6969/?native=1" : "http://localhost:6969/").then(() => {
     mainWindow.show();
     applyCustomCssToWebContents(mainWindow.webContents);
+    sendShellTheme(mainWindow.webContents);
     // mainWindow.webContents.openDevTools({ mode: "detach" }); // Disabled to stop DevTools console from popping up automatically
 
     // Check for Default Service Startup.
     const startupService = APP_NATIVE_MODE
-      ? (store && store.get("nativeOnboarded", false) ? "spice_crazy" : DEFAULT_NATIVE_STARTUP_SERVICE)
+      ? (store && store.get("nativeOnboarded", false) && getNativeAutoOpen() ? "spice_crazy" : DEFAULT_NATIVE_STARTUP_SERVICE)
       : (store ? store.get("defaultService", DEFAULT_STARTUP_SERVICE) : DEFAULT_STARTUP_SERVICE);
 
     if (
@@ -480,6 +556,43 @@ function createWindow() {
     }
   });
 
+  mainWindow.on("close", async (event) => {
+    if (
+      !downloadedUpdateInfo ||
+      !app.isPackaged ||
+      updateInstallInProgress ||
+      skipDownloadedUpdateOnClose
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    if (updateInstallPromptActive) return;
+
+    updateInstallPromptActive = true;
+    try {
+      const result = await dialog.showMessageBox(mainWindow, {
+        type: "info",
+        buttons: ["Install update", "Quit without installing", "Cancel"],
+        defaultId: 0,
+        cancelId: 2,
+        title: "SPICE update ready",
+        message: "A downloaded SPICE update is ready to install.",
+        detail:
+          "Install it now to start the new version, or quit without installing if you want to keep this build for now.",
+      });
+
+      if (result.response === 0) {
+        await installDownloadedUpdate();
+      } else if (result.response === 1) {
+        skipDownloadedUpdateOnClose = true;
+        mainWindow.close();
+      }
+    } finally {
+      updateInstallPromptActive = false;
+    }
+  });
+
   // Handle Main Window Close - Ensure App Quits
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -497,7 +610,9 @@ function createWindow() {
       discordRpc.disconnect();
     }
     // Force quit to ensure no background processes remain
-    app.quit();
+    if (!updateInstallInProgress) {
+      app.quit();
+    }
   });
 }
 
@@ -568,8 +683,17 @@ function sendActiveServiceState(active) {
 
 function sendAudioControlState() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  syncMiniPlayerAudioState();
   mainWindow.webContents.send("volume-changed", currentVolume);
   mainWindow.webContents.send("boost-changed", currentBoostEnabled);
+}
+
+function syncMiniPlayerAudioState() {
+  try {
+    miniPlayerServer.updateState({ volume: currentVolume });
+  } catch (error) {
+    console.error("Failed to sync mini player audio state:", error.message);
+  }
 }
 
 function getToolbarButtons() {
@@ -668,15 +792,37 @@ function supportsInjectedPlayback(serviceKey) {
   );
 }
 
-function resetTrackedPlayback() {
-  stopTrackPolling();
+function resetActiveScrobbleState() {
+  if (!scrobbler) return;
+  scrobbler.currentTrack = null;
+  scrobbler.trackStartTime = null;
+  scrobbler.hasScrobbled = false;
+}
+
+function clearPlaybackSurfaces(rawData = {}, options = {}) {
   lastTrack = null;
+  lastPolledTrackKey = null;
+  lastScrobbledTrackKey = null;
+  lastPolledTime = 0;
   lastInlineLyricsKey = null;
+  if (options.resetScrobbler) {
+    resetActiveScrobbleState();
+  }
   discordRpc.clearPresence();
   miniPlayerServer.updateState({
     track: null,
     currentTime: 0,
     paused: true,
+    volume: currentVolume,
+    shuffle: rawData.shuffle || false,
+    repeat: rawData.repeat || "off",
+    likeStatus: false,
+  });
+}
+
+function resetTrackedPlayback() {
+  stopTrackPolling();
+  clearPlaybackSurfaces({
     shuffle: false,
     repeat: "off",
   });
@@ -685,6 +831,128 @@ function resetTrackedPlayback() {
 // Helper: returns the correct backend view for track detection/polling
 function getActiveBackendView() {
   return view;
+}
+
+function markSpiceNativePlaybackIntent(reason = "shell") {
+  if (currentService !== "spice_crazy" || !view || !view.webContents || view.webContents.isDestroyed()) {
+    return;
+  }
+
+  view.webContents
+    .executeJavaScript(
+      `
+        if (typeof window.__spiceNativeAllowPlaybackIntent === 'function') {
+          window.__spiceNativeAllowPlaybackIntent(${JSON.stringify(reason)});
+        }
+        true;
+      `,
+    )
+    .catch(() => {});
+}
+
+async function prepareForUpdateInstall() {
+  if (updateInstallCleanupPromise) return updateInstallCleanupPromise;
+
+  updateInstallInProgress = true;
+  updateInstallCleanupCompleted = false;
+  updateInstallCleanupPromise = (async () => {
+    const closeChildWindow = async (childWindow) => {
+      if (!childWindow || childWindow.isDestroyed()) return;
+      try {
+        childWindow.close();
+      } catch (_) {}
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      if (!childWindow.isDestroyed()) {
+        try {
+          childWindow.destroy();
+        } catch (_) {}
+      }
+    };
+
+    stopTrackPolling();
+    clearPlaybackSurfaces();
+
+    if (mainWindow && view) {
+      try {
+        mainWindow.setBrowserView(null);
+      } catch (_) {}
+    }
+
+    if (view && view.webContents && !view.webContents.isDestroyed()) {
+      try {
+        view.webContents.destroy();
+      } catch (_) {}
+    }
+    view = null;
+
+    for (const childWindow of [lyricsWindow, miniPlayerWindow, queueWindow, settingsWindow, toolbarSettingsWindow]) {
+      await closeChildWindow(childWindow);
+    }
+    lyricsWindow = null;
+    miniPlayerWindow = null;
+    queueWindow = null;
+    settingsWindow = null;
+    toolbarSettingsWindow = null;
+
+    if (spiceRuntimeManager) {
+      try {
+        await spiceRuntimeManager.stop();
+      } catch (_) {}
+    }
+
+    if (discordRpc) {
+      try {
+        discordRpc.disconnect();
+      } catch (_) {}
+    }
+
+    try {
+      app.releaseSingleInstanceLock();
+    } catch (_) {}
+
+    updateInstallCleanupCompleted = true;
+  })();
+
+  return updateInstallCleanupPromise;
+}
+
+async function installDownloadedUpdate() {
+  if (!app.isPackaged || updateInstallInProgress) return;
+  try {
+    await prepareForUpdateInstall();
+  } catch (error) {
+    console.error("Failed to prepare for update install:", error);
+  }
+  autoUpdater.quitAndInstall(false, true);
+}
+
+async function promptForDownloadedUpdate(info) {
+  if (!app.isPackaged || updateInstallInProgress || updateInstallPromptActive) return;
+  const parentWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+
+  updateInstallPromptActive = true;
+  try {
+    const version = info && info.version ? ` ${info.version}` : "";
+    const options = {
+      type: "info",
+      buttons: ["Restart and install", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+      title: "SPICE update ready",
+      message: `SPICE update${version} is ready to install.`,
+      detail:
+        "Restart SPICE now to apply it. If you choose Later, SPICE will ask again when you close the app.",
+    };
+    const result = parentWindow
+      ? await dialog.showMessageBox(parentWindow, options)
+      : await dialog.showMessageBox(options);
+
+    if (result.response === 0) {
+      await installDownloadedUpdate();
+    }
+  } finally {
+    updateInstallPromptActive = false;
+  }
 }
 
 // Send VK track info to the main window's renderer (for the app-frame player bar)
@@ -908,7 +1176,6 @@ ipcMain.on("vk-player-command", (event, cmd) => {
           if (el && el.offsetParent !== null) {
               const inner = el.querySelector('button') || el;
               inner.click();
-              if (el.click && el !== inner) el.click();
               return true;
           }
           return false;
@@ -924,8 +1191,8 @@ ipcMain.on("vk-player-command", (event, cmd) => {
           v.paused ? v.play() : v.pause();
       }
     })()`,
-    next: `document.querySelector('.next-button')?.click() || document.querySelector('[aria-label="Next"]')?.click()`,
-    prev: `document.querySelector('.previous-button')?.click() || document.querySelector('[aria-label="Previous"]')?.click()`,
+    next: `(document.querySelector('.next-button') || document.querySelector('[aria-label="Next"]'))?.click()`,
+    prev: `(document.querySelector('.previous-button') || document.querySelector('[aria-label="Previous"]'))?.click()`,
     like: `(function(){
       const bar = document.querySelector('ytmusic-player-bar');
       if (!bar) return;
@@ -1029,6 +1296,9 @@ ipcMain.on("vk-player-command", (event, cmd) => {
     })()`,
   };
   if (code[cmd]) {
+    if (cmd === "playpause") {
+      markSpiceNativePlaybackIntent("app-frame playpause");
+    }
     view.webContents
       .executeJavaScript(code[cmd])
       .then((res) => {
@@ -1166,9 +1436,87 @@ async function loadService(serviceKey) {
     });
 }
 
+async function loadSupportedUrl(rawUrl) {
+  const target = parseSupportedServiceUrl(rawUrl, { nativeMode: APP_NATIVE_MODE });
+  if (!target) {
+    console.log("Invalid or unsupported URL rejected:", rawUrl);
+    return { success: false, error: "Only supported HTTPS service URLs are allowed." };
+  }
+
+  const previousService = currentService;
+  const shouldRecreateView =
+    !view || view.webContents.isDestroyed() || previousService !== target.serviceKey;
+
+  if (shouldRecreateView && view) {
+    console.log("Destroying BrowserView before switching services...");
+    mainWindow.setBrowserView(null);
+    if (!view.webContents.isDestroyed()) view.webContents.destroy();
+    view = null;
+  }
+
+  if (previousService && previousService !== target.serviceKey) {
+    resetTrackedPlayback();
+  }
+  currentService = target.serviceKey;
+
+  if (!view) {
+    console.log("Creating BrowserView for supported URL...");
+    view = new BrowserView({
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: false,
+        partition: "persist:main",
+        preload: path.join(__dirname, "preload-view.js"),
+      },
+    });
+  }
+
+  if (!viewHiddenForModal) mainWindow.setBrowserView(view);
+  updateViewBounds();
+  sendActiveServiceState(true);
+
+  const viewSession = view.webContents.session;
+  const adBlockerEnabled = store ? store.get("adBlockerEnabled", true) : true;
+  if (adBlockerEnabled && adBlocker) {
+    adBlocker.enableBlockingInSession(viewSession);
+  }
+
+  view.webContents.once("dom-ready", () => {
+    const vkPlayerEnabled = store ? store.get("vkPlayerEnabled", false) : false;
+    view.webContents.send("vk-player-config", vkPlayerEnabled);
+  });
+
+  try {
+    console.log(`Loading URL: ${target.url}`);
+    await view.webContents.loadURL(target.url);
+    updateViewBounds();
+    applyCustomCssToWebContents(view.webContents);
+
+    if (supportsInjectedPlayback(target.serviceKey)) {
+      if (target.serviceKey !== "spice_crazy") {
+        view.webContents.insertCSS(AD_CSS);
+        injectAdSkipper(view);
+      }
+      injectTrackDetection(target.serviceKey);
+      startTrackPolling();
+    } else {
+      resetTrackedPlayback();
+    }
+
+    applyVolumeToActiveView();
+    return { success: true, serviceKey: target.serviceKey, url: target.url };
+  } catch (error) {
+    console.error("Failed to load supported URL:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to load URL.",
+    };
+  }
+}
+
 function goHome() {
   console.log("goHome() called");
-  stopTrackPolling(); // Stop polling when navigating away
+  resetTrackedPlayback();
 
   if (view) {
     mainWindow.setBrowserView(null);
@@ -1178,15 +1526,69 @@ function goHome() {
   }
   if (store) store.delete("lastService");
   currentService = null;
-  // Clear Discord RPC
-  discordRpc.clearPresence();
   sendActiveServiceState(false);
+}
+
+async function dispatchSpiceDesktopNavigation(action) {
+  if (
+    currentService !== "spice_crazy" ||
+    !view ||
+    view.webContents.isDestroyed()
+  ) {
+    return false;
+  }
+
+  try {
+    return Boolean(
+      await view.webContents.executeJavaScript(`
+        (() => {
+          const detail = { action: ${JSON.stringify(action)}, handled: false };
+          window.dispatchEvent(new CustomEvent('spice-desktop-navigation', { detail }));
+          return detail.handled === true;
+        })();
+      `),
+    );
+  } catch (error) {
+    console.error("[Navigation] SPICE navigation bridge failed:", error.message);
+    return false;
+  }
+}
+
+async function navigateActiveView(action) {
+  if (action === "home") {
+    goHome();
+    return true;
+  }
+
+  if (!view || view.webContents.isDestroyed()) return false;
+
+  if (action === "reload") {
+    view.webContents.reload();
+    return true;
+  }
+
+  if (action === "back" && (await dispatchSpiceDesktopNavigation("back"))) {
+    return true;
+  }
+
+  if (action === "back" || action === "forward") {
+    const history = getNavigationHistory(view.webContents);
+    if (navigateHistory(history, action)) return true;
+
+    if (action === "back") {
+      goHome();
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // ============== MAIN PROCESS TRACK POLLING ==============
 // This bypasses the broken preload IPC by polling directly from main
 let trackPollingInterval = null;
 let lastPolledTrackKey = null;
+let lastScrobbledTrackKey = null;
 let lastPolledTime = 0;
 
 let queuePollingInterval = null;
@@ -1463,8 +1865,11 @@ function startTrackPolling() {
                                     'spice music',
                                     'spice listener',
                                     'local profile',
+                                    'sidebar',
                                     'playlists',
                                     'no playlists yet',
+                                    'welcome back',
+                                    'discover, stream, and sync your favorite music across all your devices.',
                                     'home',
                                     'search',
                                     'library',
@@ -1472,6 +1877,48 @@ function startTrackPolling() {
                                     'settings',
                                     'hybrid'
                                 ].includes(text);
+                            }
+
+                            function firstText(selector) {
+                                const element = document.querySelector(selector);
+                                return cleanLine(element && element.textContent);
+                            }
+
+                            function isShellTrackCandidate(songTitle, songArtist) {
+                                const titleText = normalize(songTitle);
+                                const artistText = normalize(songArtist);
+                                const hardShellTitles = [
+                                    'select a track to play',
+                                    'spice player'
+                                ];
+                                const uiTitles = [
+                                    'spice',
+                                    'spice music',
+                                    'search',
+                                    'library',
+                                    'profile',
+                                    'settings',
+                                    'home',
+                                    'local profile',
+                                    'spice listener'
+                                ];
+                                const shellArtists = [
+                                    '',
+                                    'spice player',
+                                    'spice',
+                                    'spice music',
+                                    'spice listener',
+                                    'local profile',
+                                    'sidebar',
+                                    'library',
+                                    'search',
+                                    'profile',
+                                    'settings',
+                                    'home',
+                                    'hybrid'
+                                ];
+                                if (!titleText || hardShellTitles.includes(titleText)) return true;
+                                return uiTitles.includes(titleText) && shellArtists.includes(artistText);
                             }
 
                             function bottomDistance(el) {
@@ -1512,9 +1959,21 @@ function startTrackPolling() {
                                 ? mediaSession.artwork[mediaSession.artwork.length - 1].src
                                 : '';
 
-                            let title = metadataTitle || lines[0] || '';
-                            let artist = metadataArtist || lines.find((line) => line !== title) || '';
+                            const explicitTitle = firstText('.now-playing__title, .mini-player__title, [data-now-playing-title]');
+                            const explicitArtist = firstText('.now-playing__artist, .mini-player__artist, [data-now-playing-artist]');
+
+                            let title = metadataTitle || explicitTitle || lines[0] || '';
+                            let artist = metadataArtist || explicitArtist || lines.find((line) => line !== title) || '';
                             let album = metadataAlbum || '';
+                            const hasPlayableMedia = Boolean(media && (
+                                media.currentSrc ||
+                                media.src ||
+                                (Number.isFinite(media.duration) && media.duration > 0)
+                            ));
+                            const hasTrustedMediaSession = Boolean(
+                                metadataTitle &&
+                                !isShellTrackCandidate(metadataTitle, metadataArtist)
+                            );
 
                             const img = player
                                 ? player.querySelector('img[src]')
@@ -1527,6 +1986,25 @@ function startTrackPolling() {
                                 title = cleanLine(parts.slice(1).join(' - '));
                             }
 
+                            if (isShellTrackCandidate(title, artist) || (!hasPlayableMedia && !hasTrustedMediaSession)) {
+                                return {
+                                    sourceService: 'spice_crazy',
+                                    shellOnly: true,
+                                    title: '',
+                                    artist: '',
+                                    album: '',
+                                    albumArt: '',
+                                    duration: media && Number.isFinite(media.duration) && media.duration > 0 ? media.duration : uiDuration,
+                                    paused: true,
+                                    currentTime: media && Number.isFinite(media.currentTime) ? media.currentTime : uiCurrentTime,
+                                    listenUrl: '',
+                                    shuffle: false,
+                                    repeat: 'off',
+                                    likeStatus: false,
+                                    repeatDebug: ''
+                                };
+                            }
+
                             const listenUrl = buildListenUrl(title, artist, player);
 
                             return {
@@ -1537,7 +2015,7 @@ function startTrackPolling() {
                                 album: album,
                                 albumArt: albumArt,
                                 duration: media && Number.isFinite(media.duration) && media.duration > 0 ? media.duration : uiDuration,
-                                paused: media ? media.paused : false,
+                                paused: media ? media.paused : true,
                                 currentTime: media && Number.isFinite(media.currentTime) ? media.currentTime : uiCurrentTime,
                                 listenUrl: listenUrl,
                                 shuffle: false,
@@ -1659,6 +2137,8 @@ function startTrackPolling() {
           likeStatus: false,
           repeatDebug: "",
         };
+      } else if (rawData && rawData.sourceService === "spice_crazy") {
+        track = null;
       } else if (rawData && rawData.rawText) {
         const lines = rawData.rawText.split("\n");
         let title = rawData.title || (lines.length > 1 ? lines[1].trim() : "");
@@ -1765,8 +2245,10 @@ function startTrackPolling() {
         // Update lastPolledTime
         lastPolledTime = currentTime;
 
+        const trackChangedOrRepeated = trackKey !== lastPolledTrackKey || isRepeat;
+
         // Update components on track change OR repeat
-        if (trackKey !== lastPolledTrackKey || isRepeat) {
+        if (trackChangedOrRepeated) {
           lastPolledTrackKey = trackKey;
           console.log(
             "[Main] TRACK POLLED:",
@@ -1775,18 +2257,13 @@ function startTrackPolling() {
             track.artist,
             isRepeat ? "(REPEAT)" : "",
           );
+          applyVolumeToActiveView();
 
           // Enhance album art
           if (track.albumArt && track.albumArt.includes("ggpht.com")) {
             track.albumArt = track.albumArt.replace(/w\d+-h\d+/, "w1200-h1200");
             track.artwork = track.albumArt;
             lastTrack.artwork = track.albumArt;
-          }
-
-          // Update Scrobbler
-          console.log("[Main Poll] Updating scrobbler...");
-          if (scrobbler) {
-            scrobbler.updateNowPlaying(track);
           }
 
           // Update Lyrics Window
@@ -1796,6 +2273,12 @@ function startTrackPolling() {
           }
 
           injectInlineLyrics(track);
+        }
+
+        if (scrobbler && !track.paused && (trackChangedOrRepeated || trackKey !== lastScrobbledTrackKey)) {
+          console.log("[Main Poll] Updating scrobbler...");
+          scrobbler.updateNowPlaying(track);
+          lastScrobbledTrackKey = trackKey;
         }
 
         // ALWAYS update Mini Player and Discord (for progress/time sync)
@@ -1846,12 +2329,16 @@ function startTrackPolling() {
       // ALWAYS send basic playback state to mini player, even when track is null
       // This ensures play/pause, shuffle, repeat, and volume stay in sync
       if (!track && rawData) {
-        miniPlayerServer.updateState({
-          paused: rawData.paused,
-          volume: currentVolume,
-          shuffle: rawData.shuffle || false,
-          repeat: rawData.repeat || "off",
-        });
+        if (rawData.shellOnly || rawData.sourceService === "spice_crazy") {
+          clearPlaybackSurfaces(rawData, { resetScrobbler: true });
+        } else {
+          miniPlayerServer.updateState({
+            paused: rawData.paused,
+            volume: currentVolume,
+            shuffle: rawData.shuffle || false,
+            repeat: rawData.repeat || "off",
+          });
+        }
       }
     } catch (e) {
       console.log("[Main Poll] Error:", e.message);
@@ -1869,6 +2356,7 @@ function stopTrackPolling() {
     queuePollingInterval = null;
   }
   lastPolledTrackKey = null;
+  lastScrobbledTrackKey = null;
 }
 // ============== END TRACK POLLING ==============
 
@@ -2197,6 +2685,8 @@ app.whenReady().then(async () => {
     localUrl: SPICE_LOCAL_RUNTIME_URL,
     manifestUrl: SPICE_LOCAL_MANIFEST_URL,
     bundledRuntimeDir: bundledNativeRuntimeDir(),
+    platform: process.platform,
+    execPath: process.execPath,
     onStatus: sendSpiceRuntimeStatus,
   });
 
@@ -2226,22 +2716,10 @@ app.whenReady().then(async () => {
         const navAction = action.navAction || (action.args && action.args[0]);
         if (navAction) {
           console.log(`[Server] Remote navigate: ${navAction}`);
-          if (navAction === "home") {
-            goHome();
-          } else if (view) {
-            switch (navAction) {
-              case "back":
-                if (view.webContents.canGoBack()) view.webContents.goBack();
-                break;
-              case "forward":
-                if (view.webContents.canGoForward())
-                  view.webContents.goForward();
-                break;
-              case "reload":
-                app.relaunch();
-                app.exit();
-                break;
-            }
+          if (["back", "forward", "reload", "home"].includes(navAction)) {
+            navigateActiveView(navAction).catch((error) => {
+              console.error("[Navigation] Remote navigation failed:", error);
+            });
           }
         }
         return;
@@ -2250,21 +2728,42 @@ app.whenReady().then(async () => {
       const playerView = getActiveBackendView();
       if (!playerView) return;
 
+      const remoteAction = String(action.action || "");
+      const allowedPlayerActions = new Set([
+        "playpause",
+        "next",
+        "prev",
+        "playQueueIndex",
+        "volume",
+        "shuffle",
+        "repeat",
+        "queue",
+      ]);
+      if (!allowedPlayerActions.has(remoteAction)) {
+        console.warn(`[Server] Rejected unknown remote action: ${remoteAction}`);
+        return;
+      }
+      const requestedQueueIndex = Number(action.index);
+      const safeQueueIndex = Number.isSafeInteger(requestedQueueIndex)
+        ? requestedQueueIndex
+        : -1;
+
+      if (remoteAction === "playpause" || remoteAction === "playQueueIndex") {
+        markSpiceNativePlaybackIntent(`mini-player ${remoteAction}`);
+      }
+
       // Execute actions on the main player view
       const code = `
             (function() {
                 const click = (sel) => document.querySelector(sel)?.click();
 
-                if ('${action.action}' === 'playpause') {
+                if ('${remoteAction}' === 'playpause') {
                    const findAndClick = (selector) => {
                        const el = document.querySelector(selector);
                        if (el && el.offsetParent !== null) {
                            // Sometimes the button itself is what we want, sometimes the inner
                            const inner = el.querySelector('button') || el;
                            inner.click();
-                           // As a fallback, also click the element itself if it has a click method
-                           // because some shadow dom implementations require clicking the host
-                           if (el.click && el !== inner) el.click();
                            return true;
                        }
                        return false;
@@ -2282,18 +2781,18 @@ app.whenReady().then(async () => {
                            }
                        }
                    }
-                }                else if ('${action.action}' === 'next') {
+                }                else if ('${remoteAction}' === 'next') {
                     const ytm = document.querySelector('.next-button');
                     if (ytm) ytm.click();
                     else click('.skipControl__next');
                 }
-                else if ('${action.action}' === 'prev') {
+                else if ('${remoteAction}' === 'prev') {
                     const ytm = document.querySelector('.previous-button');
                     if (ytm) ytm.click();
                     else click('.skipControl__previous');
                 }
-                else if ('${action.action}' === 'playQueueIndex') {
-                    const index = ${action.index !== undefined ? action.index : -1};
+                else if ('${remoteAction}' === 'playQueueIndex') {
+                    const index = ${safeQueueIndex};
                     if (index >= 0) {
                         const items = document.querySelectorAll('ytmusic-player-queue-item');
                         if (items && items[index]) {
@@ -2302,10 +2801,10 @@ app.whenReady().then(async () => {
                         }
                     }
                 }
-                else if ('${action.action}' === 'volume') {
+                else if ('${remoteAction}' === 'volume') {
                     // Handled in main process below
                 }
-                else if ('${action.action}' === 'shuffle') {
+                else if ('${remoteAction}' === 'shuffle') {
                     console.log('[MiniPlayer] Shuffle requested');
 
                     const findBtn = (selectors) => {
@@ -2337,7 +2836,7 @@ app.whenReady().then(async () => {
                     const scShuffle = document.querySelector('.shuffleControl');
                     if (scShuffle) scShuffle.click();
                 }
-                else if ('${action.action}' === 'repeat') {
+                else if ('${remoteAction}' === 'repeat') {
                     console.log('[MiniPlayer] Repeat requested');
 
                     const findBtn = (selectors) => {
@@ -2378,11 +2877,12 @@ app.whenReady().then(async () => {
 
       // Handle volume separately in main process (uses AudioContext gain, not video.volume)
       if (
-        action.action === "volume" &&
+        remoteAction === "volume" &&
         (action.value !== undefined ||
           (action.args && action.args[0] !== undefined))
       ) {
-        const val = action.value !== undefined ? action.value : action.args[0];
+        const val = Number(action.value !== undefined ? action.value : action.args[0]);
+        if (!Number.isFinite(val)) return;
         // Emit internally — picked up by ipcMain.on('set-volume') which calls applyVolume
         ipcMain.emit("set-volume", { sender: mainWindow?.webContents }, val);
         // Immediately update mini player server state so slider doesn't reset on next poll
@@ -2391,7 +2891,7 @@ app.whenReady().then(async () => {
         if (mainWindow) mainWindow.webContents.send("volume-changed", val);
       }
 
-      if (action.action === "queue") {
+      if (remoteAction === "queue") {
         if (queueWindow) {
           queueWindow.focus();
         } else {
@@ -2435,11 +2935,14 @@ app.whenReady().then(async () => {
         try {
           const res = await fetch(url);
           if (res && res.ok) {
-            existingServerDetected = true;
-            console.log(
-              `[Server] Port 6969 is already in use by a compatible local server (${url}). Continuing startup.`,
-            );
-            break;
+            const status = await res.json().catch(() => null);
+            if (status && status.spiceServer === true && status.protocolVersion === 1) {
+              existingServerDetected = true;
+              console.log(
+                `[Server] Port 6969 is already in use by a compatible local server (${url}). Continuing startup.`,
+              );
+              break;
+            }
           }
         } catch (_) {
           // Keep probing alternatives
@@ -2484,6 +2987,13 @@ app.whenReady().then(async () => {
     adBlockerType = enabled ? "spice" : "none";
     // Persist migration
     if (store) store.set("adBlockerType", adBlockerType);
+  }
+  if (adBlockerType === "ublock_lite") {
+    adBlockerType = "spice";
+    if (store) {
+      store.set("adBlockerType", adBlockerType);
+      store.set("adBlockerEnabled", true);
+    }
   }
   if (APP_NATIVE_MODE) {
     adBlockerType = "none";
@@ -2558,13 +3068,20 @@ app.whenReady().then(async () => {
   // 2. uBlock Origin (Extension)
   else if (adBlockerType === "ublock") {
     try {
-      const extPath = path.join(
-        __dirname,
-        "src",
-        "extensions",
-        "ublock0",
-        "uBlock0.chromium",
-      );
+      const extPath = app.isPackaged
+        ? path.join(
+            process.resourcesPath,
+            "extensions",
+            "ublock0",
+            "uBlock0.chromium",
+          )
+        : path.join(
+            __dirname,
+            "src",
+            "extensions",
+            "ublock0",
+            "uBlock0.chromium",
+          );
       console.log(`Loading uBlock Origin from: ${extPath} `);
       await session.defaultSession.loadExtension(extPath);
       console.log("uBlock Origin loaded successfully.");
@@ -2572,18 +3089,7 @@ app.whenReady().then(async () => {
       console.error("Failed to load uBlock Origin extension:", e);
     }
   }
-  // 3. uBlock Origin Lite (Extension)
-  else if (adBlockerType === "ublock_lite") {
-    try {
-      const extPath = path.join(__dirname, "src", "extensions", "ubolite");
-      console.log(`Loading uBlock Origin Lite from: ${extPath} `);
-      await session.defaultSession.loadExtension(extPath);
-      console.log("uBlock Origin Lite loaded successfully.");
-    } catch (e) {
-      console.error("Failed to load uBlock Origin Lite extension:", e);
-    }
-  }
-  // 4. Disabled
+  // 3. Disabled
   else {
     console.log("AdBlocker is DISABLED.");
   }
@@ -2591,6 +3097,9 @@ app.whenReady().then(async () => {
   createWindow();
 
   // Initialize Auto Updater
+  autoUpdater.channel = UPDATE_CHANNEL;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.on("checking-for-update", () => {
     if (mainWindow) mainWindow.webContents.send("update-status", { status: "checking" });
   });
@@ -2607,12 +3116,38 @@ app.whenReady().then(async () => {
     if (mainWindow) mainWindow.webContents.send("update-status", { status: "downloading", progress: progressObj });
   });
   autoUpdater.on("update-downloaded", (info) => {
+    downloadedUpdateInfo = info;
+    skipDownloadedUpdateOnClose = false;
     if (mainWindow) mainWindow.webContents.send("update-status", { status: "downloaded", info });
+    setTimeout(() => {
+      promptForDownloadedUpdate(info).catch((error) => {
+        console.error("Failed to prompt for downloaded update:", error);
+      });
+    }, 250);
+  });
+  autoUpdater.on("before-quit-for-update", () => {
+    updateInstallInProgress = true;
+    if (!updateInstallCleanupCompleted) {
+      console.warn("Updater quit started before cleanup completed; running synchronous cleanup fallback.");
+      stopTrackPolling();
+      clearPlaybackSurfaces();
+      if (discordRpc) {
+        try {
+          discordRpc.disconnect();
+        } catch (_) {}
+      }
+    }
   });
 
   // Automatically check on startup
   try {
-    autoUpdater.checkForUpdatesAndNotify();
+    if (app.isPackaged && AUTO_UPDATE_SUPPORTED) {
+      autoUpdater.checkForUpdatesAndNotify();
+    } else if (app.isPackaged) {
+      console.log("Skipping in-app updater for package-managed Linux install; use the matching deb or RPM release package.");
+    } else {
+      console.log(`Skipping auto-updater in development mode on ${UPDATE_CHANNEL} channel.`);
+    }
   } catch(e) {
     console.error("Auto-updater error on startup:", e);
   }
@@ -2633,133 +3168,36 @@ app.whenReady().then(async () => {
     loadService(service);
   });
 
-  // Load a specific URL (only supported services allowed)
-  ipcMain.on("load-url", (event, url) => {
-    try {
-      const parsed = new URL(url);
-      const host = parsed.hostname.toLowerCase();
-
-      // Validate URL
-      const isYtMusic =
-        host === "music.youtube.com" || host === "www.music.youtube.com";
-      const isSoundCloud =
-        host === "soundcloud.com" ||
-        host === "www.soundcloud.com" ||
-        host === "m.soundcloud.com";
-      const isSpiceCrazy = isAllowedSpiceUrl(parsed);
-
-      if (APP_NATIVE_MODE && !isSpiceCrazy) {
-        console.log("Native mode rejected legacy URL:", url);
-        return;
-      }
-
-      if (!isYtMusic && !isSoundCloud && !isSpiceCrazy) {
-        console.log("Invalid URL rejected:", url);
-        return;
-      }
-
-      // Determine service for track detection
-      const serviceKey = isYtMusic ? "yt" : isSoundCloud ? "sc" : "spice_crazy";
-      currentService = serviceKey;
-
-      // Force recreate BrowserView to ensure clean state (fixes AdBlock/Interactivity issues)
-      if (view) {
-        console.log("Destroying existing BrowserView before loading URL...");
-        mainWindow.setBrowserView(null);
-        view.webContents.destroy();
-        view = null;
-      }
-
-      console.log("Creating new BrowserView for URL...");
-      view = new BrowserView({
-        webPreferences: {
-          nodeIntegration: false,
-          contextIsolation: false,
-          partition: "persist:main",
-          preload: path.join(__dirname, "preload-view.js"),
-        },
-      });
-      mainWindow.setBrowserView(view);
-
-      const viewSession = view.webContents.session;
-      const enabled = store ? store.get("adBlockerEnabled", true) : true;
-      if (enabled && adBlocker) {
-        adBlocker.enableBlockingInSession(viewSession);
-      }
-
-      // Ensure the view is attached (in case it was hidden by modal)
-      mainWindow.setBrowserView(view);
-      updateViewBounds();
-      sendActiveServiceState(true);
-
-      // Dispatch settings once DOM is interactive
-      view.webContents.on("dom-ready", () => {
-        const vkPlayerEnabled = store
-          ? store.get("vkPlayerEnabled", false)
-          : false;
-        console.log(
-          `[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`,
-        );
-        view.webContents.send("vk-player-config", vkPlayerEnabled);
-      });
-
-      console.log(`Loading URL: ${url} `);
-      view.webContents
-        .loadURL(url)
-        .then(() => {
-          console.log(`Successfully loaded URL: ${url} `);
-          applyCustomCssToWebContents(view.webContents);
-
-          // Open DevTools for debugging - REMOVED for "Settings Only" restriction
-          // view.webContents.openDevTools({ mode: 'detach' });
-
-          if (supportsInjectedPlayback(serviceKey)) {
-            if (serviceKey !== "spice_crazy") {
-              view.webContents.insertCSS(AD_CSS);
-              injectAdSkipper(view);
-            }
-
-            injectTrackDetection(serviceKey);
-
-            // Start main process polling (bypasses broken preload IPC)
-            startTrackPolling();
-          } else {
-            resetTrackedPlayback();
-          }
-
-          applyVolume();
-        })
-        .catch((e) => {
-          console.error(`Failed to load URL: `, e);
-        });
-    } catch (e) {
-      console.error("Invalid URL:", e.message);
-    }
-  });
+  // Load a specific URL (only exact supported service origins are allowed).
+  ipcMain.handle("load-url", (event, url) => loadSupportedUrl(url));
 
   ipcMain.on("navigate", (event, action) => {
-    if (!view) return;
-    switch (action) {
-      case "back":
-        if (view.webContents.canGoBack()) view.webContents.goBack();
-        break;
-      case "forward":
-        if (view.webContents.canGoForward()) view.webContents.goForward();
-        break;
-      case "reload":
-        // NUCLEAR RELOAD: User requested full app restart to fix breakage
-        console.log("User requested Reload - Relaunching App...");
-        app.relaunch();
-        app.exit();
-        break;
-      case "home":
-        goHome();
-        break;
+    if (!["back", "forward", "reload", "home"].includes(action)) return;
+    navigateActiveView(action).catch((error) => {
+      console.error("[Navigation] Navigation failed:", error);
+    });
+  });
+
+  ipcMain.on("spice-theme-changed", (event, theme) => {
+    if (
+      currentService !== "spice_crazy" ||
+      !view ||
+      view.webContents.isDestroyed() ||
+      event.sender !== view.webContents
+    ) {
+      return;
     }
+    updateShellTheme(theme);
   });
 
   // Auto Updater
   ipcMain.handle("check-for-updates", async () => {
+    if (!app.isPackaged) {
+      return { success: false, error: "Auto updates are only available in packaged builds." };
+    }
+    if (!AUTO_UPDATE_SUPPORTED) {
+      return { success: false, error: "This Linux package is updated by installing the latest deb or RPM release." };
+    }
     try {
       const result = await autoUpdater.checkForUpdates();
       return { success: true, result };
@@ -2768,8 +3206,9 @@ app.whenReady().then(async () => {
     }
   });
 
-  ipcMain.on("install-update", () => {
-    autoUpdater.quitAndInstall(false, true);
+  ipcMain.on("install-update", async () => {
+    if (!app.isPackaged || !AUTO_UPDATE_SUPPORTED) return;
+    await installDownloadedUpdate();
   });
 
   ipcMain.handle("spice-runtime-status", async () => {
@@ -2798,7 +3237,7 @@ app.whenReady().then(async () => {
       onboarded: store ? store.get("nativeOnboarded", false) : false,
       account: getNativeAccountSummary(),
       runtime: spiceRuntimeManager ? await spiceRuntimeManager.getStatus() : null,
-      updatesEnabled: app.isPackaged,
+      updatesEnabled: app.isPackaged && AUTO_UPDATE_SUPPORTED,
       version: app.getVersion(),
     };
   });
@@ -2814,11 +3253,22 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle("native-continue-offline", async () => {
-    if (store) store.set("nativeOnboarded", true);
+    if (store) {
+      store.set("nativeOnboarded", true);
+      store.set("nativeAutoOpen", true);
+    }
     await ensureNativeRuntimeReady();
     return {
       account: null,
       runtime: spiceRuntimeManager ? await spiceRuntimeManager.getStatus() : null,
+    };
+  });
+
+  ipcMain.handle("native-set-auto-open", async (event, enabled) => {
+    if (store) store.set("nativeAutoOpen", enabled !== false);
+    return {
+      ...nativeModeSettings(),
+      account: getNativeAccountSummary(),
     };
   });
 
@@ -2843,6 +3293,7 @@ app.whenReady().then(async () => {
   // Hide/Show BrowserView (for modals)
   ipcMain.on("hide-view", () => {
     console.log("IPC: hide-view received");
+    viewHiddenForModal = true;
     if (view && mainWindow) {
       mainWindow.setBrowserView(null);
       console.log("BrowserView hidden for modal");
@@ -2850,6 +3301,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on("show-view", () => {
+    viewHiddenForModal = false;
     if (view && mainWindow) {
       mainWindow.setBrowserView(view);
       updateViewBounds();
@@ -2888,6 +3340,7 @@ app.whenReady().then(async () => {
 
   ipcMain.on("play-queue-index", (event, index) => {
     if (view && view.webContents) {
+      markSpiceNativePlaybackIntent("queue index");
       view.webContents
         .executeJavaScript(
           `
@@ -3150,6 +3603,7 @@ app.whenReady().then(async () => {
     settingsWindow.loadURL("http://localhost:6969/settings");
     settingsWindow.webContents.on("did-finish-load", () => {
       applyCustomCssToWebContents(settingsWindow.webContents);
+      sendShellTheme(settingsWindow.webContents);
     });
 
     settingsWindow.on("closed", () => {
@@ -3181,6 +3635,7 @@ app.whenReady().then(async () => {
     toolbarSettingsWindow.loadFile(path.join(__dirname, "toolbar-icons.html"));
     toolbarSettingsWindow.webContents.on("did-finish-load", () => {
       applyCustomCssToWebContents(toolbarSettingsWindow.webContents);
+      sendShellTheme(toolbarSettingsWindow.webContents);
     });
 
     toolbarSettingsWindow.on("closed", () => {
@@ -3211,6 +3666,7 @@ app.whenReady().then(async () => {
                 try {
                     const media = document.querySelector('video') || document.querySelector('audio');
                     if (!media) return;
+                    media.volume = Math.max(0, Math.min(1, window.spiceVolume));
 
                     if (!window.boostCtx) {
                         const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -3262,12 +3718,21 @@ app.whenReady().then(async () => {
         })();
     `;
 
-  function applySpiceAudioControls() {
+  function applySpiceAudioControls(retries = 60) {
     const targetView = getActiveBackendView();
     if (!targetView) return;
     targetView.webContents
       .executeJavaScript(getSpiceAudioSyncScript(currentVolume, currentBoostEnabled))
-      .catch(() => {});
+      .then((applied) => {
+        if (!applied && retries > 0) {
+          setTimeout(() => applySpiceAudioControls(retries - 1), 250);
+        }
+      })
+      .catch(() => {
+        if (retries > 0) {
+          setTimeout(() => applySpiceAudioControls(retries - 1), 250);
+        }
+      });
   }
 
   // Apply volume to current view
@@ -3306,6 +3771,9 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on("spice-audio-state-changed", (event, state) => {
+    if (currentService === "spice_crazy" && !(state && state.desktopReady)) {
+      return;
+    }
     const volume = Number(state && state.volume);
     if (Number.isFinite(volume)) {
       currentVolume = Math.max(0, Math.min(10, volume / 100));
@@ -3324,6 +3792,7 @@ app.whenReady().then(async () => {
     const target = currentVolume > 1.0 ? 1.0 : 10.0;
     currentVolume = target;
     applyVolume(target);
+    if (store) store.set("volume", currentVolume);
     sendAudioControlState();
   });
 
@@ -3335,18 +3804,26 @@ app.whenReady().then(async () => {
 
   // Settings IPC
   ipcMain.handle("get-settings", () => {
+    const storedAdBlockerType = store
+      ? store.get("adBlockerType", "spice")
+      : "spice";
     return {
       ...nativeModeSettings(),
       nativeAccount: getNativeAccountSummary(),
       nativeOnboarded: store ? store.get("nativeOnboarded", false) : false,
       adBlockerEnabled: store ? store.get("adBlockerEnabled", true) : true,
       // Return type explicitly so UI can show correct state
-      adBlockerType: store ? store.get("adBlockerType", "spice") : "spice",
+      adBlockerType:
+        storedAdBlockerType === "ublock_lite"
+          ? "spice"
+          : storedAdBlockerType,
       defaultService: store
         ? store.get("defaultService", DEFAULT_STARTUP_SERVICE)
         : DEFAULT_STARTUP_SERVICE,
       toolbarButtons: getToolbarButtons(),
       boostEnabled: currentBoostEnabled,
+      alwaysOnTop: getAlwaysOnTop(),
+      shellTheme: getShellTheme(),
       customCss: store ? store.get("customCss", "") : "",
       discordRpcEnabled: store ? store.get("discordRpcEnabled", true) : true,
       vkPlayerEnabled: store ? store.get("vkPlayerEnabled", false) : false,
@@ -3398,12 +3875,22 @@ app.whenReady().then(async () => {
         })();
       `;
       view.webContents.executeJavaScript(code).catch((e) => {
-        console.error("SPA Search failed, falling back to load-url:", e);
-        ipcMain.emit("load-url", event, searchUrl);
+        console.error("SPA Search failed, falling back to direct URL load:", e);
+        loadSupportedUrl(searchUrl).catch((error) => {
+          console.error("Search URL fallback failed:", error);
+        });
       });
     } else {
-      ipcMain.emit("load-url", event, searchUrl);
+      loadSupportedUrl(searchUrl).catch((error) => {
+        console.error("Search URL load failed:", error);
+      });
     }
+  });
+
+  ipcMain.handle("get-always-on-top", () => getAlwaysOnTop());
+
+  ipcMain.handle("set-always-on-top", (event, enabled) => {
+    return setAlwaysOnTop(enabled);
   });
 
   ipcMain.on("set-vk-player", (event, enabled) => {
@@ -3420,6 +3907,9 @@ app.whenReady().then(async () => {
       type = value ? "spice" : "none";
     } else if (typeof value === "string") {
       type = value;
+    }
+    if (type === "ublock_lite") {
+      type = "spice";
     }
 
     console.log(`IPC: Setting AdBlocker to [${type}]`);
@@ -3438,6 +3928,10 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on("set-default-service", (event, service) => {
+    if (APP_NATIVE_MODE) {
+      console.log("Native mode ignores default service changes; SPICE Music is the only startup service.");
+      return;
+    }
     if (store) store.set("defaultService", service);
     console.log(`Default Service set to ${service}. Restarting...`);
     app.relaunch();

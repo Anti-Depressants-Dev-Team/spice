@@ -1,89 +1,114 @@
-# Spice 🌶️
+# Spice
 
-**Spice** is a beautiful, minimalist desktop client for **YouTube Music** and **SoundCloud**, built with Electron. It enhances your listening experience with powerful features like successful ad-blocking, Discord Rich Presence, Last.fm scrobbling, and a dedicated Lyrics window.
+Spice is a unified music application repository containing:
 
-![Spice App](https://github.com/Anti-Depressants-Dev-Team/spice/raw/main/resources/preview.png)
-*(Note: Add a screenshot to a `resources` folder in your repo for this image to show)*
+- an Electron desktop client for YouTube Music, SoundCloud, and SPICE Music;
+- the SPICE web and local runtime backend;
+- an Android preview client.
 
-## ✨ Features
+The desktop app includes ad blocking, Discord Rich Presence, Last.fm and ListenBrainz scrobbling, synchronized lyrics, and classic wrapper and native SPICE modes.
 
-*   **🚫 Ad-Free Experience**: Built-in ad-blocking for uninterupted listening on YouTube Music and SoundCloud.
-*   **🎵 Service Support**: Seamlessly switch between YouTube Music, SoundCloud, and the local SPICE runtime.
-*   **SPICE Launcher Mode**: The standard desktop app keeps the YouTube Music/SoundCloud wrapper and can launch or install the split SPICE local runtime when you choose Spice Music.
-*   **SPICE Native Mode**: Separate Windows native builds bundle the local runtime, start it on first launch, show a first-run account screen, and keep media work on the user's PC.
-*   **🎮 Discord Rich Presence**: Show what you're listening to on your Discord profile with album art and track progress.
-*   **📊 Scrobbling**: Automatic scrobbling to **Last.fm** and **ListenBrainz**.
-*   **🎤 Synchronized Lyrics**:
-    *   Dedicated floating lyrics window.
-    *   **LRCLIB**: Time-synced, animated lyrics (Default).
-    *   **Genius**: Fallback for text-based lyrics.
-    *   **MusixMatch**: experimental support.
-*   **🎨 Modern UI**:
-    *   Frameless, dark-themed design that blends with the services.
-    *   Custom title bar and window controls.
-    *   "Mini-player" feel with a focus on content.
+## Repository layout
 
-## 🚀 Installation
+- The repository root contains the CommonJS Electron desktop app (`main.js`, `preload.js`, and the desktop HTML/CSS files).
+- `apps/backend` contains the Next.js backend and the build scripts for local Windows and Linux runtimes.
+- `apps/mobile` contains the native Android client and its npm command wrappers.
+- `native-runtime` receives a prepared local runtime for native Electron builds. Its generated contents are not source files.
+- `test` contains the desktop Node test suite.
 
-### Download
-Grab the latest installer from the [Releases](https://github.com/Anti-Depressants-Dev-Team/spice/releases) page. Linux releases include AppImage, `.deb`, `.tar.gz`, and Flatpak bundles.
+## Prerequisites
 
-### Build from Source
+- Node.js 24 and npm.
+- JDK 21 and Android SDK compile SDK 36 for Android work.
+- Platform packaging tools required by Electron Builder when producing installers.
 
-1.  **Clone the repository**
-    ```bash
-    git clone https://github.com/Anti-Depressants-Dev-Team/spice.git
-    cd spice
-    ```
+## Install
 
-2.  **Install dependencies**
-    ```bash
-    npm install
-    ```
+One root install covers both the desktop app and the backend workspace:
 
-3.  **Run the app**
-    ```bash
-    npm start
-    ```
+```bash
+git clone https://github.com/Anti-Depressants-Dev-Team/spice.git
+cd spice
+npm ci
+```
 
-4.  **Build Installer** (Windows)
-    ```bash
-    npm run dist
-    ```
+Use `npm install` when intentionally changing dependencies and updating `package-lock.json`.
 
-5.  **Build Native SPICE** (separate Windows build)
-    ```powershell
-    npm run dist:native
-    ```
-    This prepares `native-runtime/spice-local-windows` from a sibling backend checkout when available, or from the latest published SPICE local runtime release, then bundles it into a separate `Spice Native` package under `dist-native`. The normal `npm run dist` build remains the classic launcher/wrapper.
+## Desktop commands
 
-## 🛠️ Configuration
+```bash
+npm start                 # Standard Electron wrapper
+npm run start:native      # SPICE-only desktop development mode
+npm test                  # Desktop Node tests
+npm run dist              # Standard desktop package
+npm run dist:native       # Native package for the current platform
+npm run dist:native:windows
+npm run dist:native:linux
+```
 
-**Spice** works out of the box, but you can customize your experience in the **Settings** menu:
-*   **Discord RPC**: Toggle on/off.
-*   **Scrobbling**: Log in to Last.fm or paste your ListenBrainz token.
-*   **Startup Service**: Choose whether to open YouTube Music or SoundCloud on launch.
-*   **SPICE Local Runtime**: The Spice Music card checks `http://127.0.0.1:3939` and auto-starts the installed runtime on Windows. If the runtime is missing or fails to start, the app offers install/update and manual setup options.
-*   **Native SPICE Mode**: Launch with `npm run start:native` for the SPICE-only shell during development. Packaged native releases are built separately through `npm run dist:native` or the `Release Spice Native` workflow.
+Native builds use distinct application metadata and update channels, so publishing a native build does not replace the classic desktop updater release.
 
-## ⌨️ Shortcuts
-*   `Ctrl + R`: Reload current page.
-*   `Alt + Left`: Go Back.
-*   `Alt + Right`: Go Forward.
+## Backend commands
 
-## 🤝 Contributing
+Run backend work through the root npm wrappers:
 
-Contributions are welcome! Feel free to submit a Pull Request.
+```bash
+npm run backend:dev
+npm run backend:test
+npm run backend:typecheck
+npm run backend:lint
+npm run backend:build:local
+npm run backend:build:vercel
+npm run backend:package:local:windows
+npm run backend:package:local:linux
+```
 
-1.  Fork the Project
-2.  Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3.  Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4.  Push to the Branch (`git push origin feature/AmazingFeature`)
-5.  Open a Pull Request
+The Vercel project root remains `apps/backend` inside this unified repository.
 
-## 📜 License
+## Local runtime preparation
 
-Distributed under the ISC License.
+`npm run native:prepare-runtime` now builds and packages `apps/backend` from this repository by default, then copies the result into `native-runtime/spice-local-windows` or `native-runtime/spice-local-linux`. `dist:native:*` already invokes this preparation step; do not run it separately before a native distribution command.
 
----
-*Built with ❤️ by the Anti-Depressants Dev Team*
+For an intentional external backend checkout, set `SPICE_BACKEND_REPO` to that repository root. If no usable checkout is available, preparation can download the matching artifact from the dedicated [`spice-local-runtime`](https://github.com/Anti-Depressants-Dev-Team/spice/releases/tag/spice-local-runtime) release. `SPICE_NATIVE_RUNTIME_ZIP_URL` can override that artifact URL for testing.
+
+The stable runtime release is separate from versioned desktop releases and is deliberately not marked as GitHub's latest release.
+
+## Android commands
+
+```bash
+npm run mobile:test
+npm run mobile:build
+npm run mobile:android:debug
+npm run mobile:android:check
+npm run mobile:android:release
+```
+
+The debug APK is written under `apps/mobile/android/app/build/outputs/apk/debug/`.
+
+## Verification
+
+Before submitting a change, run the checks for the areas you touched:
+
+```bash
+npm test
+npm run backend:test
+npm run backend:typecheck
+npm run backend:lint
+npm run backend:build:local
+npm run backend:build:vercel
+npm run mobile:android:check   # for mobile changes
+```
+
+For native runtime or packaging changes, also run `npm run start:native` or the relevant `npm run dist:native:*` command when practical.
+
+## Migration note
+
+The former separate SPICE backend repository has been merged into `apps/backend`. The root `package.json` and `package-lock.json` are now the single npm workspace authority for desktop and backend dependencies. A sibling backend checkout is no longer expected, and pnpm workspace files or separate backend lockfiles should not be reintroduced.
+
+## Releases
+
+Installers and APKs are available from [GitHub Releases](https://github.com/Anti-Depressants-Dev-Team/spice/releases). AppImage builds use the in-app updater; `.deb` and `.rpm` installs are updated through the matching package format.
+
+## License
+
+Distributed under the MIT License.

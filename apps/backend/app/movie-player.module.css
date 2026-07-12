@@ -1,0 +1,105 @@
+.shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: #05080a;
+  color: #f7f2ea;
+}
+
+.topbar {
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: #080c0f;
+}
+
+.brand {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: #fff;
+  font-family: "Outfit", "Inter", sans-serif;
+  font-weight: 900;
+}
+
+.brand > span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.brand strong {
+  color: #f8c77d;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.logoMark {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #9f2f35, #f5b45d);
+}
+
+.sourceMeta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #b7b0a7;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.sourceMeta a {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 14px;
+  border: 1px solid rgba(248, 199, 125, 0.28);
+  border-radius: 8px;
+  color: #f8c77d;
+}
+
+.player {
+  min-height: 0;
+  padding: 18px;
+}
+
+.player iframe {
+  width: 100%;
+  height: 100%;
+  min-height: calc(100vh - 112px);
+  display: block;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: #000;
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    min-height: 68px;
+    padding: 10px 12px;
+  }
+
+  .sourceMeta span {
+    display: none;
+  }
+
+  .player {
+    padding: 0;
+  }
+
+  .player iframe {
+    min-height: calc(100vh - 68px);
+    border: 0;
+    border-radius: 0;
+  }
+}

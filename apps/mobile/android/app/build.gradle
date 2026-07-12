@@ -17,6 +17,7 @@ def hasReleaseSigning = releaseSigningStoreFile &&
     releaseSigningStorePassword &&
     releaseSigningKeyAlias &&
     releaseSigningKeyPassword
+def allowDebugReleaseSigning = (project.findProperty("spiceAndroidDebugSignRelease") ?: System.getenv("SPICE_ANDROID_DEBUG_SIGN_RELEASE") ?: "false").toString().toBoolean()
 
 android {
     namespace = "xyz.spiceapp.mobile"
@@ -26,8 +27,8 @@ android {
         applicationId "xyz.spiceapp.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10
-        versionName "1.0.0"
+        versionCode 18
+        versionName "1.0.8"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
         buildConfigField "String", "SPICE_CLOUD_BASE_URL", buildConfigString(project.findProperty("spiceCloudBaseUrl") ?: "https://music.spice-app.xyz")
@@ -51,6 +52,8 @@ android {
             minifyEnabled false
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.releaseUpload
+            } else if (allowDebugReleaseSigning) {
+                signingConfig signingConfigs.debug
             }
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
@@ -68,6 +71,7 @@ android {
 
     packaging {
         resources.excludes += '/META-INF/{AL2.0,LGPL2.1}'
+        jniLibs.useLegacyPackaging = true
     }
 }
 

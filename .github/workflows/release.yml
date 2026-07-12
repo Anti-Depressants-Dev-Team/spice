@@ -43,17 +43,18 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
+          cache: npm
 
       - name: Install dependencies (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libarchive-tools libdbus-1-dev flatpak flatpak-builder elfutils
+          sudo apt-get install -y libarchive-tools libdbus-1-dev flatpak flatpak-builder elfutils rpm
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 
-      - name: Install Dependencies
-        run: npm install
+      - name: Install unified workspace
+        run: npm ci
 
       # Builds and publishes depending on the runner OS
       - name: Build & Publish Release (Windows)
@@ -89,7 +90,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Setup JDK 21
         uses: actions/setup-java@v4
@@ -118,6 +119,7 @@ jobs:
 
       - name: Build Android Release APK
         env:
+          GRADLE_OPTS: -Dorg.gradle.daemon=false
           SPICE_ANDROID_SIGNING_STORE_FILE: ${{ github.workspace }}/apps/mobile/android/app/signing/release.jks
           SPICE_ANDROID_SIGNING_STORE_PASSWORD: ${{ secrets.SPICE_ANDROID_KEYSTORE_PASSWORD }}
           SPICE_ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.SPICE_ANDROID_KEY_ALIAS }}
@@ -130,16 +132,13 @@ jobs:
         run: |
           VERSION="v$(node -p "require('./package.json').version")"
           SIGNED_APK="apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
-          UNSIGNED_APK="apps/mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk"
           ASSET_DIR="dist-mobile"
           if [ -f "$SIGNED_APK" ]; then
             APK="$SIGNED_APK"
             SIGNING_KIND="signed"
-          elif [ -f "$UNSIGNED_APK" ]; then
-            APK="$UNSIGNED_APK"
-            SIGNING_KIND="unsigned"
           else
-            echo "Expected release APK not found."
+            echo "Expected signed release APK not found."
+            find apps/mobile/android/app/build/outputs/apk/release -type f -maxdepth 3 || true
             find apps/mobile/android/app/build/outputs -type f || true
             exit 1
           fi

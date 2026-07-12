@@ -1,17 +1,51 @@
 {
   "name": "spice",
-  "version": "1.4.14",
-  "description": "",
+  "version": "1.4.25",
+  "description": "Unified Electron, web runtime, and Android music client.",
+  "workspaces": [
+    "apps/backend"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "overrides": {
+    "@discordjs/rest": {
+      "undici": "6.27.0"
+    },
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.12"
+    },
+    "@vercel/routing-utils": {
+      "path-to-regexp": "6.3.0"
+    },
+    "next": {
+      "postcss": "8.5.18"
+    }
+  },
   "main": "main.js",
   "scripts": {
+    "backend:install": "npm install --workspace @spice/backend",
+    "backend:dev": "npm --workspace @spice/backend run dev",
+    "backend:build": "npm --workspace @spice/backend run build",
+    "backend:build:local": "npm --workspace @spice/backend run build:local",
+    "backend:build:vercel": "npm --workspace @spice/backend run build:vercel",
+    "backend:lint": "npm --workspace @spice/backend run lint",
+    "backend:typecheck": "npm --workspace @spice/backend run typecheck",
+    "backend:test": "npm --workspace @spice/backend run test",
+    "backend:package:local:windows": "npm --workspace @spice/backend run package:local:windows",
+    "backend:package:local:windows:full": "npm --workspace @spice/backend run package:local:windows:full",
+    "backend:package:local:linux": "npm --workspace @spice/backend run package:local:linux",
+    "backend:package:local:linux:full": "npm --workspace @spice/backend run package:local:linux:full",
     "start": "electron .",
     "start:native": "node scripts/start-native.js",
     "start:hidden": "npx cross-env ELECTRON_RUN_AS_NODE=1 node -e \"require('child_process').spawn(require('electron'), ['.'], {detached: true, stdio: 'ignore'}).unref()\"",
     "start:vbs": "echo Set WshShell = CreateObject(\"WScript.Shell\") > start.vbs && echo WshShell.Run \"npm start\", 0, false >> start.vbs && cscript start.vbs && del start.vbs",
     "dist": "electron-builder",
-    "native:prepare-runtime": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-native-runtime.ps1",
-    "dist:native": "npm run native:prepare-runtime && electron-builder --win --config electron-builder.native.cjs",
-    "test": "node --test test/lyrics-core.test.js",
+    "native:prepare-runtime": "node scripts/prepare-native-runtime.js",
+    "dist:native": "npm run native:prepare-runtime && electron-builder --config electron-builder.native.cjs",
+    "dist:native:windows": "npm run native:prepare-runtime && electron-builder --win --config electron-builder.native.cjs",
+    "dist:native:linux": "npm run native:prepare-runtime && electron-builder --linux --config electron-builder.native.cjs",
+    "test": "node --test test/*.test.js",
     "mobile:test": "npm --prefix apps/mobile test",
     "mobile:build": "npm --prefix apps/mobile run android:debug",
     "mobile:android:debug": "npm --prefix apps/mobile run android:debug",
@@ -29,13 +63,40 @@
       }
     ],
     "files": [
-      "**/*",
-      "!native-runtime/**",
-      "!dist/**",
-      "!dist-native/**"
+      "main.js",
+      "preload.js",
+      "preload-view.js",
+      "discord-rpc.js",
+      "scrobbler.js",
+      "spice-local-runtime-manager.js",
+      "runtime-archive.js",
+      "desktop-helpers.js",
+      "index.html",
+      "settings.html",
+      "queue.html",
+      "lyrics.html",
+      "lyrics.js",
+      "lyrics-core.js",
+      "toolbar-icons.html",
+      "styles.css",
+      "icon.png",
+      "src/server.js",
+      "src/mini-player/**/*",
+      "src/obs/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "src/extensions/ublock0/uBlock0.chromium",
+        "to": "extensions/ublock0/uBlock0.chromium",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "appId": "com.spice.app",
     "productName": "Spice",
+    "artifactName": "Spice-Setup-${version}.${ext}",
     "win": {
       "target": "nsis",
       "icon": "icon.png"
@@ -53,10 +114,14 @@
         "AppImage",
         "flatpak",
         "deb",
+        "rpm",
         "tar.gz"
       ],
       "icon": "icon.png",
       "category": "AudioVideo"
+    },
+    "rpm": {
+      "packageName": "spice"
     },
     "nsis": {
       "oneClick": false,
@@ -70,14 +135,14 @@
   },
   "keywords": [],
   "author": "Spice Developer <lutylutanu0@gmail.com>",
-  "license": "ISC",
+  "license": "MIT",
   "type": "commonjs",
   "bugs": {
     "url": "https://github.com/Anti-Depressants-Dev-Team/spice/issues"
   },
   "homepage": "https://github.com/Anti-Depressants-Dev-Team/spice#readme",
   "devDependencies": {
-    "electron": "^40.0.0",
+    "electron": "^40.10.6",
     "electron-builder": "^26.4.0"
   },
   "dependencies": {
@@ -85,6 +150,7 @@
     "@xhayper/discord-rpc": "^1.3.0",
     "electron-store": "^8.1.0",
     "electron-updater": "^6.8.3",
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^2.7.0",
+    "yauzl": "^2.10.0"
   }
 }

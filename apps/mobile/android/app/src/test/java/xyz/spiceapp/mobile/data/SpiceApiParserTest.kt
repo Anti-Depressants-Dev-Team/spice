@@ -4,6 +4,7 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import xyz.spiceapp.mobile.model.RepeatMode
 import xyz.spiceapp.mobile.model.StreamQuality
 
 class SpiceApiParserTest {
@@ -440,5 +441,77 @@ class SpiceApiParserTest {
 
         assertEquals(1, merged.size)
         assertEquals(listOf("remote", "local"), merged.single().tracks.map { it.id })
+    }
+
+    @Test
+    fun parsesSpiceConnectDeviceQueueAndPlaybackState() {
+        val device = parseRemoteDevices(
+            JSONObject(
+                """
+                {
+                  "devices": [{
+                    "deviceId": "desktop-1",
+                    "displayName": "Studio PC",
+                    "currentTrack": {"id": "track-2", "title": "Voyager", "artist": "Daft Punk"},
+                    "queue": [
+                      {"id": "track-1", "title": "Digital Love", "artist": "Daft Punk"},
+                      {"id": "track-2", "title": "Voyager", "artist": "Daft Punk"}
+                    ],
+                    "queueIndex": 1,
+                    "isPlaying": true,
+                    "shuffleEnabled": true,
+                    "repeatMode": "one",
+                    "progress": 12.5,
+                    "duration": 180
+                  }]
+                }
+                """.trimIndent(),
+            ),
+        ).single()
+
+        assertEquals("Studio PC", device.displayName)
+        assertEquals(listOf("track-1", "track-2"), device.queue.map { it.id })
+        assertEquals(1, device.queueIndex)
+        assertEquals(12_500, device.progressMs)
+        assertTrue(device.isPlaying)
+        assertTrue(device.shuffleEnabled)
+        assertEquals(RepeatMode.One, device.repeatMode)
+    }
+
+    @Test
+    fun parsesSpiceConnectTrackHandoffAndSeekPayloads() {
+        val commands = parseRemoteCommands(
+            JSONObject(
+                """
+                {
+                  "commands": [
+                    {
+                      "id": "command-1",
+                      "command": "play_track",
+                      "payload": {
+                        "track": {"id": "track-2", "title": "Voyager", "artist": "Daft Punk"},
+                        "queue": [
+                          {"id": "track-1", "title": "Digital Love", "artist": "Daft Punk"},
+                          {"id": "track-2", "title": "Voyager", "artist": "Daft Punk"}
+                        ],
+                        "queueIndex": 1
+                      }
+                    },
+                    {"id": "command-2", "command": "seek", "payload": {"progress": 42.25}},
+                    {"id": "command-3", "command": "shuffle", "payload": {"enabled": true}},
+                    {"id": "command-4", "command": "repeat", "payload": {"mode": "all"}}
+                  ]
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals(listOf("track-1", "track-2"), commands.first().payloadQueue.map { it.id })
+        assertEquals(1, commands.first().payloadQueueIndex)
+        assertEquals(42_250L, commands[1].seekPositionMs)
+        assertEquals(true, commands[2].shuffleEnabled)
+        assertEquals(RepeatMode.All, commands[3].repeatMode)
+        assertEquals("one", RepeatMode.One.toRemoteValue())
+        assertEquals(RepeatMode.Off, parseRemoteRepeatMode("invalid"))
     }
 }

@@ -11,7 +11,7 @@
                 flex-direction: column;
                 margin: 0;
                 padding: 0;
-                background-color: #0a0a0c;
+                background: var(--shell-background);
                 color: #ffffff;
                 height: 100vh;
                 overflow: hidden;
@@ -21,8 +21,8 @@
                 height: 40px;
                 display: flex;
                 align-items: center;
-                background: rgba(0, 0, 0, 0.94);
-                border-bottom: 1px solid rgba(168, 85, 247, 0.22);
+                background: var(--shell-surface);
+                border-bottom: 1px solid rgba(var(--accent-rgb), 0.22);
                 -webkit-app-region: drag;
                 flex-shrink: 0;
             }
@@ -33,7 +33,7 @@
                 align-items: center;
                 flex: 1;
                 padding-left: 14px;
-                color: #b9a8c9;
+                color: var(--accent-hover);
                 font-size: 13px;
                 font-weight: 600;
                 letter-spacing: 0.01em;
@@ -120,8 +120,7 @@
             }
 
             input:checked + .slider {
-                background-color: #ba2f2f;
-                /* Deep Red Accent */
+                background: var(--accent-gradient);
             }
 
             input:checked + .slider:before {
@@ -143,7 +142,7 @@
 
             select:focus {
                 outline: none;
-                border-color: #ba2f2f;
+                border-color: var(--accent);
             }
 
             /* Input Fields */
@@ -165,7 +164,7 @@
             input[type="password"]:focus,
             textarea:focus {
                 outline: none;
-                border-color: #ba2f2f;
+                border-color: var(--accent);
             }
 
             textarea {
@@ -178,7 +177,7 @@
 
             /* Buttons */
             .btn {
-                background-color: #ba2f2f;
+                background: var(--accent-gradient);
                 color: #fff;
                 border: none;
                 padding: 8px 16px;
@@ -190,7 +189,7 @@
             }
 
             .btn:hover {
-                background-color: #d43d3d;
+                background-color: var(--accent-hover);
             }
 
             .btn:disabled {
@@ -288,7 +287,7 @@
                 <h2>Preferences</h2>
             </div>
 
-            <div class="settings-section">
+            <div class="settings-section native-legacy-setting" id="adblock-section">
                 <label for="adblock-type" style="font-size: 16px"
                     >AdBlocker Type</label
                 >
@@ -301,14 +300,11 @@
                     <option value="ublock">
                         uBlock Origin (Best Protection)
                     </option>
-                    <option value="ublock_lite">
-                        uBlock Origin Lite (Faster)
-                    </option>
                     <option value="none">Disabled</option>
                 </select>
             </div>
 
-            <div class="settings-section">
+            <div class="settings-section native-legacy-setting" id="default-service-section">
                 <label for="default-service" style="font-size: 16px"
                     >Default Startup Service</label
                 >
@@ -341,7 +337,7 @@
                 </p>
             </div>
 
-            <div class="settings-section">
+            <div class="settings-section native-legacy-setting" id="vk-player-section">
                 <div class="toggle-container">
                     <label
                         for="vk-player-toggle"
@@ -373,6 +369,24 @@
                 </div>
                 <p style="color: #666; font-size: 12px; margin-top: 5px">
                     Enable a quick search bar in the top navigation bar.
+                </p>
+            </div>
+
+            <div class="settings-section">
+                <div class="toggle-container">
+                    <label
+                        for="always-on-top-toggle"
+                        style="margin: 0; font-size: 16px"
+                        >Always on Top</label
+                    >
+                    <label class="switch">
+                        <input type="checkbox" id="always-on-top-toggle" />
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <p style="color: #666; font-size: 12px; margin-top: 5px">
+                    Keep the main Spice window above other applications. This
+                    setting applies immediately and is remembered after restart.
                 </p>
             </div>
 
@@ -433,7 +447,7 @@
                     <button id="check-updates-btn" class="btn" style="margin-top: 0;">Check for Updates</button>
                     <span id="update-status-text" class="status" style="background-color: transparent; color: #aaa;">Up to date</span>
                 </div>
-                <button id="install-update-btn" class="btn btn-secondary hidden" style="width: 100%; margin-top: 15px; background-color: #ba2f2f; color: white;">
+                <button id="install-update-btn" class="btn btn-secondary hidden" style="width: 100%; margin-top: 15px; background: var(--accent-gradient); color: white;">
                     Restart and Install Update
                 </button>
             </div>
@@ -474,11 +488,7 @@
                         class="btn"
                         style="
                             width: 100%;
-                            background: linear-gradient(
-                                135deg,
-                                #ba2f2f 0%,
-                                #d43d3d 100%
-                            );
+                            background: var(--accent-gradient);
                             font-weight: bold;
                         "
                     >
@@ -549,20 +559,20 @@
             <div class="settings-section">
                 <p style="color: #ccc; font-size: 14px; margin: 0">
                     The mini player is available remotely at:
-                    <strong style="color: #ba2f2f"
+                    <strong style="color: var(--accent)"
                         >http://localhost:6969/mini-player/</strong
                     >
                     <button class="btn btn-secondary" style="margin-left: 10px; padding: 4px 8px; font-size: 12px;" onclick="navigator.clipboard.writeText('http://localhost:6969/mini-player/')">Copy Link</button>
                 </p>
                 <p style="color: #666; font-size: 12px; margin-top: 8px">
                     Open this URL in any browser or another PC on your network (using your local IP) to control playback. 
-                    The full app UI is also accessible at <strong style="color: #ba2f2f">http://localhost:6969/</strong>
+                    The full app UI is also accessible at <strong style="color: var(--accent)">http://localhost:6969/</strong>
                 </p>
                 
                 <div style="margin-top: 20px;">
                     <p style="color: #ccc; font-size: 14px; margin: 0">
                         A control-free <strong>OBS Widget</strong> is available at:
-                        <strong style="color: #ba2f2f"
+                        <strong style="color: var(--accent)"
                             >http://localhost:6969/obs/</strong
                         >
                         <button class="btn btn-secondary" style="margin-left: 10px; padding: 4px 8px; font-size: 12px;" onclick="navigator.clipboard.writeText('http://localhost:6969/obs/')">Copy Link</button>
@@ -607,6 +617,9 @@
             const topbarSearchToggle = document.getElementById(
                 "topbar-search-toggle",
             );
+            const alwaysOnTopToggle = document.getElementById(
+                "always-on-top-toggle",
+            );
             const openToolbarSettingsBtn = document.getElementById(
                 "open-toolbar-settings-btn",
             );
@@ -616,11 +629,31 @@
             const clearCustomCssBtn = document.getElementById(
                 "clear-custom-css-btn",
             );
+            const nativeLegacySections = document.querySelectorAll(
+                ".native-legacy-setting",
+            );
+
+            function applyNativeModeSettings(settings) {
+                const isNativeMode = Boolean(settings && settings.nativeMode);
+                document.body.classList.toggle("native-mode", isNativeMode);
+                nativeLegacySections.forEach((section) => {
+                    section.classList.toggle("hidden", isNativeMode);
+                });
+                if (isNativeMode) {
+                    defaultServiceSelect.value = "spice_crazy";
+                    defaultServiceSelect.disabled = true;
+                    adBlockTypeSelect.disabled = true;
+                    vkPlayerToggle.disabled = true;
+                }
+            }
 
             // Load settings
             window.api.getSettings().then((settings) => {
-                // Migration: if adBlockerType is undefined, map boolean to 'spice' or 'none'
-                if (settings.adBlockerType) {
+                applyNativeModeSettings(settings);
+                // Normalize legacy choices and fall back to the old boolean setting.
+                if (settings.adBlockerType === "ublock_lite") {
+                    adBlockTypeSelect.value = "spice";
+                } else if (settings.adBlockerType) {
                     adBlockTypeSelect.value = settings.adBlockerType;
                 } else {
                     adBlockTypeSelect.value = settings.adBlockerEnabled
@@ -628,12 +661,29 @@
                         : "none";
                 }
 
-                defaultServiceSelect.value = settings.defaultService;
+                defaultServiceSelect.value = settings.nativeMode ? "spice_crazy" : settings.defaultService;
                 discordToggle.checked = settings.discordRpcEnabled;
                 vkPlayerToggle.checked = settings.vkPlayerEnabled;
                 topbarSearchToggle.checked = settings.topBarSearchEnabled;
+                alwaysOnTopToggle.checked = settings.alwaysOnTop === true;
                 customCssInput.value = settings.customCss || "";
+                applySettingsTheme(settings.shellTheme);
             });
+
+            function applySettingsTheme(theme) {
+                const accents = ["pink", "blue", "orange", "green", "gold", "crimson", "deeppurple"];
+                const surfaces = ["midnight", "glass", "solid", "aurora"];
+                document.documentElement.dataset.spiceAccent = accents.includes(theme && theme.accent)
+                    ? theme.accent
+                    : "deeppurple";
+                document.documentElement.dataset.spiceSurface = surfaces.includes(theme && theme.surface)
+                    ? theme.surface
+                    : "midnight";
+            }
+
+            if (window.api.onShellThemeChanged) {
+                window.api.onShellThemeChanged(applySettingsTheme);
+            }
 
             adBlockTypeSelect.addEventListener("change", (e) => {
                 if (
@@ -645,7 +695,9 @@
                 } else {
                     // Revert
                     window.api.getSettings().then((settings) => {
-                        if (settings.adBlockerType) {
+                        if (settings.adBlockerType === "ublock_lite") {
+                            adBlockTypeSelect.value = "spice";
+                        } else if (settings.adBlockerType) {
                             adBlockTypeSelect.value = settings.adBlockerType;
                         } else {
                             adBlockTypeSelect.value = settings.adBlockerEnabled
@@ -667,6 +719,19 @@
 
             topbarSearchToggle.addEventListener("change", (e) => {
                 window.api.setTopBarSearch(e.target.checked);
+            });
+
+            alwaysOnTopToggle.addEventListener("change", async (e) => {
+                const requested = e.target.checked;
+                e.target.disabled = true;
+                try {
+                    e.target.checked = await window.api.setAlwaysOnTop(requested);
+                } catch (error) {
+                    e.target.checked = !requested;
+                    console.error("Could not update Always on Top:", error);
+                } finally {
+                    e.target.disabled = false;
+                }
             });
 
             openToolbarSettingsBtn.addEventListener("click", () => {
@@ -918,7 +983,7 @@
                         break;
                     case "downloaded":
                         updateStatusText.textContent = "Update ready to install";
-                        updateStatusText.style.color = "#ba2f2f";
+                        updateStatusText.style.color = "var(--accent)";
                         installUpdateBtn.classList.remove("hidden");
                         checkUpdatesBtn.classList.add("hidden");
                         break;

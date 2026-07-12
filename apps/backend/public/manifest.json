@@ -1,0 +1,18 @@
+{
+  "name": "Spice Music",
+  "short_name": "Spice",
+  "description": "The SPICE web and local music runtime for discovery, streaming, and playback.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

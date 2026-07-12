@@ -111,8 +111,11 @@ data class SpiceProfile(
     val username: String = "",
     val avatarUrl: String = "",
     val bio: String = "",
+    val gradient: String = "linear-gradient(135deg, #a855f7, #ec4899)",
     val joinedAt: String = "",
     val isPrivate: Boolean = false,
+    val songsPlayed: Int = 0,
+    val passcode: String = "",
 )
 
 data class ProfileStats(
@@ -147,7 +150,11 @@ data class RemoteDevice(
     val deviceId: String,
     val displayName: String,
     val currentTrack: Track? = null,
+    val queue: List<Track> = emptyList(),
+    val queueIndex: Int = 0,
     val isPlaying: Boolean = false,
+    val shuffleEnabled: Boolean = false,
+    val repeatMode: RepeatMode = RepeatMode.Off,
     val progressMs: Long = 0,
     val durationMs: Long = 0,
     val volume: Int = 70,
@@ -158,13 +165,27 @@ data class RemoteCommand(
     val id: String,
     val command: String,
     val payloadTrack: Track? = null,
+    val payloadQueue: List<Track> = emptyList(),
+    val payloadQueueIndex: Int = 0,
     val seekPositionMs: Long? = null,
+    val shuffleEnabled: Boolean? = null,
+    val repeatMode: RepeatMode? = null,
 )
 
 enum class RepeatMode {
     Off,
     All,
     One,
+}
+
+enum class AccentTheme(val label: String) {
+    NeonSpice("Neon Spice (Pink)"),
+    OceanBreeze("Ocean Breeze (Blue)"),
+    SolarFire("Solar Fire (Orange)"),
+    JadeEmerald("Jade Emerald (Green)"),
+    ImperialGold("Imperial Gold (Gold)"),
+    CrimsonMoon("Crimson Moon (Red)"),
+    MidnightVelvet("Midnight Velvet (Dark Purple)"),
 }
 
 enum class AppScreen(val label: String) {

@@ -1,0 +1,295 @@
+.shell {
+  min-height: 100vh;
+  background: #050509;
+  color: #f8fafc;
+  font-family: var(--font-geist-sans), Inter, sans-serif;
+  padding: 32px;
+}
+
+.hero {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  padding: 46px 0 28px;
+}
+
+.brandRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.logoMark {
+  display: grid;
+  width: 50px;
+  height: 50px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #ec4899, #2563eb);
+  color: #ffffff;
+  font-size: 1.35rem;
+  font-weight: 900;
+}
+
+.eyebrow,
+.kicker {
+  margin: 0;
+  color: #93c5fd;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  margin: 4px 0 0;
+  color: #ffffff;
+  font-size: clamp(2.25rem, 6vw, 4.8rem);
+  line-height: 0.96;
+  letter-spacing: 0;
+}
+
+.lede {
+  max-width: 780px;
+  margin: 0 0 28px;
+  color: #cbd5e1;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.primaryButton,
+.secondaryButton,
+.disabledButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.primaryButton {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.secondaryButton {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+}
+
+.disabledButton {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(148, 163, 184, 0.1);
+  color: #94a3b8;
+}
+
+.statusGrid,
+.grid,
+.commandPanel {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+}
+
+.statusGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 18px 0 28px;
+}
+
+.statusGrid div,
+.panel,
+.commandPanel {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+}
+
+.statusGrid div {
+  min-width: 0;
+  padding: 16px;
+}
+
+.statusGrid span,
+.commandHeader span,
+.commandTitleRow span {
+  display: block;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.statusGrid strong {
+  display: block;
+  margin-top: 8px;
+  color: #f8fafc;
+  font-size: 0.95rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.panel {
+  padding: 22px;
+}
+
+.panel h2,
+.commandHeader h2 {
+  margin: 8px 0 16px;
+  color: #ffffff;
+  font-size: 1.25rem;
+  line-height: 1.25;
+}
+
+.steps {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding-left: 20px;
+  color: #cbd5e1;
+  line-height: 1.55;
+  list-style: decimal;
+}
+
+.steps li {
+  padding-left: 2px;
+}
+
+.steps code,
+.lede code,
+.commandGrid code {
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  border-radius: 6px;
+  background: rgba(14, 165, 233, 0.09);
+  color: #bae6fd;
+  padding: 2px 5px;
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.commandPanel {
+  margin-top: 14px;
+  padding: 22px;
+}
+
+.commandHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.commandGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.commandCard {
+  min-width: 0;
+}
+
+.commandTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.commandTitleRow button {
+  min-height: 28px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(125, 211, 252, 0.26);
+  border-radius: 6px;
+  background: rgba(14, 165, 233, 0.12);
+  color: #e0f2fe;
+  padding: 0 10px;
+  font-size: 0.75rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.commandTitleRow button:hover {
+  border-color: rgba(125, 211, 252, 0.5);
+  background: rgba(14, 165, 233, 0.2);
+}
+
+.codeBlock {
+  min-height: 78px;
+  margin: 8px 0 0;
+  overflow: auto;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  background: #020617;
+  color: #dbeafe;
+  padding: 18px;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+@media (max-width: 1100px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .shell {
+    padding: 22px;
+  }
+
+  .statusGrid,
+  .grid,
+  .commandGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero {
+    padding-top: 26px;
+  }
+}
+
+@media (max-width: 560px) {
+  .shell {
+    padding: 16px;
+  }
+
+  .brandRow,
+  .commandHeader {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hero h1 {
+    font-size: 2.35rem;
+  }
+
+  .primaryButton,
+  .secondaryButton,
+  .disabledButton {
+    width: 100%;
+    white-space: normal;
+  }
+}

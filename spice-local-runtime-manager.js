@@ -3,18 +3,39 @@ const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 const { pipeline } = require("stream/promises");
+const { extractRuntimeArchive } = require("./runtime-archive");
 
-const DEFAULT_MANIFEST_URL = "https://music.spice-app.xyz/api/updates/local-windows";
 const DEFAULT_LOCAL_URL = "http://127.0.0.1:3939/";
-const DEFAULT_DOWNLOAD_URL =
-  "https://github.com/Anti-Depressants-Dev-Team/SPICE-but-its-crazier-cuz-yes-/releases/latest/download/spice-local-windows.zip";
+const RUNTIME_PLATFORMS = {
+  win32: {
+    id: "windows",
+    archiveName: "spice-local-windows.zip",
+  },
+  linux: {
+    id: "linux",
+    archiveName: "spice-local-linux.zip",
+  },
+};
+
+function runtimePlatformConfig(platform = process.platform) {
+  const base = RUNTIME_PLATFORMS[platform];
+  if (!base) return null;
+  return {
+    ...base,
+    manifestUrl: `https://music.spice-app.xyz/api/updates/local-${base.id}`,
+    downloadUrl: `https://github.com/Anti-Depressants-Dev-Team/spice/releases/download/spice-local-runtime/${base.archiveName}`,
+  };
+}
 
 class SpiceLocalRuntimeManager {
   constructor(options) {
     this.app = options.app;
+    this.platform = options.platform || process.platform;
+    this.execPath = options.execPath || process.execPath;
+    this.platformConfig = runtimePlatformConfig(this.platform);
     this.fetch = options.fetch || global.fetch;
     this.localUrl = normalizeServiceUrl(options.localUrl || DEFAULT_LOCAL_URL);
-    this.manifestUrl = options.manifestUrl || DEFAULT_MANIFEST_URL;
+    this.manifestUrl = options.manifestUrl || this.platformConfig?.manifestUrl || "";
     this.rootDir = options.rootDir || path.join(this.app.getPath("userData"), "spice-local-runtime");
     this.runtimeDir = path.join(this.rootDir, "runtime");
     this.tempDir = path.join(this.rootDir, "tmp");
@@ -26,7 +47,7 @@ class SpiceLocalRuntimeManager {
   }
 
   get supported() {
-    return process.platform === "win32";
+    return Boolean(this.platformConfig);
   }
 
   async getStatus() {
@@ -36,6 +57,7 @@ class SpiceLocalRuntimeManager {
 
     return {
       supported: this.supported,
+      platform: this.platformConfig?.id || this.platform,
       installed: Boolean(installedVersion),
       installedVersion,
       bundled: Boolean(bundledVersion),
@@ -52,7 +74,7 @@ class SpiceLocalRuntimeManager {
 
   async ensureBundledRuntimeInstalled() {
     if (!this.supported) {
-      throw new Error("The managed SPICE local runtime installer is currently Windows-only.");
+      throw new Error("The managed SPICE local runtime installer is not supported on this platform.");
     }
     if (!this.hasBundledRuntime()) {
       return this.getStatus();
@@ -115,19 +137,53 @@ class SpiceLocalRuntimeManager {
   }
 
   async installOrUpdate() {
+    return this.installFromManifest(null);
+  }
+
+  async installLatestIfAvailable() {
     if (!this.supported) {
-      throw new Error("The managed SPICE local runtime installer is currently Windows-only.");
+      throw new Error("The managed SPICE local runtime installer is not supported on this platform.");
+    }
+    if (this.busy) {
+      throw new Error("SPICE local runtime is already busy.");
+    }
+
+    if (await this.isRunning()) {
+      this.message = "SPICE local runtime is already running. Update check deferred until the next start.";
+      this.emitStatus();
+      return this.getStatus();
+    }
+
+    this.message = "Checking for SPICE local runtime updates...";
+    this.emitStatus();
+
+    const manifest = await this.fetchManifest();
+    const latestVersion = typeof manifest?.version === "string" ? manifest.version : null;
+    const installedVersion = this.getInstalledVersion();
+
+    if (!shouldInstallRuntimeUpdate(installedVersion, latestVersion)) {
+      this.message = `SPICE local runtime ${installedVersion || "latest"} is up to date.`;
+      this.emitStatus();
+      return this.getStatus();
+    }
+
+    return this.installFromManifest(manifest);
+  }
+
+  async installFromManifest(manifestOverride) {
+    if (!this.supported) {
+      throw new Error("The managed SPICE local runtime installer is not supported on this platform.");
     }
     if (this.busy) {
       throw new Error("SPICE local runtime is already busy.");
     }
 
     this.busy = true;
-    this.message = "Fetching runtime manifest...";
+    this.message = manifestOverride ? "Preparing runtime update..." : "Fetching runtime manifest...";
     this.emitStatus();
 
     const scratchDir = path.join(this.tempDir, `install-${Date.now()}`);
-    const zipPath = path.join(scratchDir, "spice-local-windows.zip");
+    const zipPath = path.join(scratchDir, this.platformConfig.archiveName);
     const stagingDir = path.join(scratchDir, "runtime");
 
     try {
@@ -136,9 +192,13 @@ class SpiceLocalRuntimeManager {
       }
 
       fs.mkdirSync(stagingDir, { recursive: true });
-      const manifest = await this.fetchManifest();
+      const manifest = manifestOverride || await this.fetchManifest();
       const download = manifest && manifest.download ? manifest.download : null;
-      const downloadUrl = resolveRuntimeDownloadUrl(download && download.url, this.manifestUrl);
+      const downloadUrl = resolveRuntimeDownloadUrl(
+        download && download.url,
+        this.manifestUrl,
+        this.platformConfig.downloadUrl,
+      );
       if (!downloadUrl) {
         throw new Error("The SPICE local runtime manifest does not include a download URL.");
       }
@@ -158,7 +218,7 @@ class SpiceLocalRuntimeManager {
 
       this.message = "Extracting SPICE local runtime...";
       this.emitStatus();
-      await expandZip(zipPath, stagingDir);
+      await extractRuntimeArchive(zipPath, stagingDir);
 
       await this.stop();
       fs.mkdirSync(this.rootDir, { recursive: true });
@@ -177,7 +237,7 @@ class SpiceLocalRuntimeManager {
 
   async start() {
     if (!this.supported) {
-      throw new Error("The managed SPICE local runtime starter is currently Windows-only.");
+      throw new Error("The managed SPICE local runtime starter is not supported on this platform.");
     }
 
     if (await this.isRunning()) {
@@ -186,25 +246,29 @@ class SpiceLocalRuntimeManager {
       return this.getStatus();
     }
 
-    const startScript = path.join(this.runtimeDir, "start-spice-local.ps1");
-    if (!fs.existsSync(startScript)) {
+    let serverFile = runtimeServerFile(this.runtimeDir);
+    if (!fs.existsSync(serverFile)) {
       if (this.hasBundledRuntime()) {
         await this.ensureBundledRuntimeInstalled();
+        serverFile = runtimeServerFile(this.runtimeDir);
       } else {
         throw new Error("SPICE local runtime is not installed yet.");
       }
     }
 
     this.child = spawn(
-      "powershell.exe",
-      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", startScript],
+      this.execPath,
+      [serverFile],
       {
         cwd: this.runtimeDir,
         env: {
           ...process.env,
+          ELECTRON_RUN_AS_NODE: "1",
           SPICE_RUNTIME_TARGET: "local",
           HOSTNAME: process.env.SPICE_LOCAL_HOSTNAME || "127.0.0.1",
           PORT: process.env.SPICE_LOCAL_PORT || "3939",
+          SPICE_CLOUD_API_ORIGIN: process.env.SPICE_CLOUD_API_ORIGIN || "https://music.spice-app.xyz",
+          SPICE_LOCAL_UPDATE_MANIFEST_URL: this.manifestUrl,
         },
         stdio: "ignore",
         windowsHide: true,
@@ -237,7 +301,7 @@ class SpiceLocalRuntimeManager {
     }
 
     if (this.child && !this.child.killed) {
-      await killProcessTree(this.child.pid).catch(() => {
+      await killProcessTree(this.child.pid, this.platform).catch(() => {
         this.child.kill();
       });
       this.child = null;
@@ -281,7 +345,7 @@ class SpiceLocalRuntimeManager {
   }
 
   hasBundledRuntime() {
-    return Boolean(this.bundledRuntimeDir && fs.existsSync(path.join(this.bundledRuntimeDir, "start-spice-local.ps1")));
+    return Boolean(this.bundledRuntimeDir && fs.existsSync(runtimeServerFile(this.bundledRuntimeDir)));
   }
 
   async downloadFile(url, targetPath) {
@@ -310,8 +374,8 @@ function normalizeServiceUrl(url) {
   return value.endsWith("/") ? value : `${value}/`;
 }
 
-function resolveRuntimeDownloadUrl(value, manifestUrl) {
-  if (!value || !String(value).trim()) return DEFAULT_DOWNLOAD_URL;
+function resolveRuntimeDownloadUrl(value, manifestUrl, fallbackUrl = runtimePlatformConfig()?.downloadUrl || null) {
+  if (!value || !String(value).trim()) return fallbackUrl;
 
   try {
     const parsed = new URL(String(value).trim(), manifestUrl);
@@ -320,7 +384,11 @@ function resolveRuntimeDownloadUrl(value, manifestUrl) {
     }
   } catch {}
 
-  return DEFAULT_DOWNLOAD_URL;
+  return fallbackUrl;
+}
+
+function runtimeServerFile(runtimeDir) {
+  return path.join(runtimeDir, "apps", "backend", "server.js");
 }
 
 function delay(ms) {
@@ -341,14 +409,26 @@ function readRuntimeVersion(runtimeDir) {
 }
 
 function compareVersions(left, right) {
-  const leftParts = String(left || "").split(".").map((part) => Number(part) || 0);
-  const rightParts = String(right || "").split(".").map((part) => Number(part) || 0);
+  const leftParts = String(left || "").split(".").map(parseVersionPart);
+  const rightParts = String(right || "").split(".").map(parseVersionPart);
   const length = Math.max(leftParts.length, rightParts.length);
   for (let index = 0; index < length; index += 1) {
     const delta = (leftParts[index] || 0) - (rightParts[index] || 0);
     if (delta !== 0) return delta;
   }
   return 0;
+}
+
+function parseVersionPart(part) {
+  const match = String(part || "").match(/^\d+/);
+  return match ? Number(match[0]) : 0;
+}
+
+function shouldInstallRuntimeUpdate(installedVersion, latestVersion) {
+  if (!installedVersion) return true;
+  if (installedVersion === "unknown") return true;
+  if (!latestVersion) return false;
+  return compareVersions(installedVersion, latestVersion) < 0;
 }
 
 function copyDirectory(sourceDir, destinationDir) {
@@ -378,13 +458,18 @@ function sha256File(filePath) {
   });
 }
 
-function expandZip(zipPath, destinationPath) {
-  return runPowerShell(
-    `Expand-Archive -LiteralPath ${psQuote(zipPath)} -DestinationPath ${psQuote(destinationPath)} -Force`,
-  );
-}
+function killProcessTree(pid, platform = process.platform) {
+  if (platform !== "win32") {
+    return new Promise((resolve, reject) => {
+      try {
+        process.kill(pid, "SIGTERM");
+        setTimeout(resolve, 250);
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
 
-function killProcessTree(pid) {
   return new Promise((resolve, reject) => {
     const child = spawn("taskkill.exe", ["/PID", String(pid), "/T", "/F"], {
       stdio: "ignore",
@@ -398,31 +483,10 @@ function killProcessTree(pid) {
   });
 }
 
-function runPowerShell(command) {
-  return new Promise((resolve, reject) => {
-    const child = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command], {
-      stdio: "pipe",
-      windowsHide: true,
-    });
-    let stderr = "";
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(stderr.trim() || `PowerShell exited with code ${code}.`));
-      }
-    });
-  });
-}
-
-function psQuote(value) {
-  return `'${String(value).replace(/'/g, "''")}'`;
-}
-
 module.exports = {
   SpiceLocalRuntimeManager,
+  compareVersions,
+  resolveRuntimeDownloadUrl,
+  runtimePlatformConfig,
+  shouldInstallRuntimeUpdate,
 };

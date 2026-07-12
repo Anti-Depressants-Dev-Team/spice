@@ -1,0 +1,51 @@
+{
+  "name": "@spice/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node scripts/run-next.mjs dev local",
+    "dev:local": "node scripts/run-next.mjs dev local",
+    "dev:vercel": "node scripts/run-next.mjs dev vercel",
+    "build": "node scripts/run-next.mjs build vercel",
+    "build:local": "node scripts/run-next.mjs build local",
+    "build:vercel": "node scripts/run-next.mjs build vercel",
+    "package:local:windows": "node scripts/package-local-windows.mjs",
+    "package:local:windows:full": "npm run build:local && npm run package:local:windows",
+    "package:local:linux": "node scripts/package-local-linux.mjs",
+    "package:local:linux:full": "npm run build:local && npm run package:local:linux",
+    "start": "next start",
+    "start:local": "node scripts/run-next.mjs start local",
+    "lint": "eslint",
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.0",
+    "@node-rs/argon2": "^2.0.0",
+    "@vercel/analytics": "^2.0.1",
+    "@vercel/speed-insights": "^2.0.0",
+    "drizzle-orm": "^0.45.2",
+    "jose": "^5.9.0",
+    "next": "16.2.10",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "youtubei.js": "^17.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vercel/config": "^0.5.5",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.10",
+    "typescript": "^5"
+  }
+}

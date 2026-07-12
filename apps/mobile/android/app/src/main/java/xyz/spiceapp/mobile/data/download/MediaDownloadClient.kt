@@ -2,6 +2,8 @@ package xyz.spiceapp.mobile.data.download
 
 import android.content.Context
 import android.os.Environment
+import com.yausername.aria2c.Aria2c
+import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import xyz.spiceapp.mobile.model.Track
@@ -10,7 +12,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 
 class MediaDownloadClient(
     private val context: Context,
@@ -23,11 +24,12 @@ class MediaDownloadClient(
             ?: File(context.filesDir, "downloads"),
         progress: (DownloadProgress) -> Unit = {},
     ): DownloadResult {
+        progress(DownloadProgress(-1f, -1, "Preparing download engine..."))
         ensureInitialized(context)
         outputDirectory.mkdirs()
 
         val startedAt = System.currentTimeMillis()
-        val fileStem = safeFileStem("${track.artist} - ${track.title}")
+        val fileStem = uniqueDownloadFileStem(outputDirectory, safeFileStem("${track.artist} - ${track.title}"))
         val outputTemplate = File(
             outputDirectory,
             "$fileStem.%(ext)s",
@@ -37,12 +39,18 @@ class MediaDownloadClient(
             .addOption("--extract-audio")
             .addOption("--audio-format", "m4a")
             .addOption("--audio-quality", "0")
+            .addOption("--no-mtime")
             .addOption("--embed-metadata")
-            .addOption("--embed-thumbnail")
             .addOption("-o", outputTemplate)
 
-        val response = YoutubeDL.getInstance().execute(request, processId) { progressValue, eta, line ->
+        var response = YoutubeDL.getInstance().execute(request, processId) { progressValue, eta, line ->
             progress(DownloadProgress(progressValue, eta, line))
+        }
+        if (response.exitCode != 0 && isYouTubeUrl(sourceUrl) && updateYoutubeDlOnce(context)) {
+            progress(DownloadProgress(-1f, -1, "Updated yt-dlp; retrying download..."))
+            response = YoutubeDL.getInstance().execute(request, processId) { progressValue, eta, line ->
+                progress(DownloadProgress(progressValue, eta, line))
+            }
         }
         val outputFile = completedDownloadFile(outputDirectory, fileStem, startedAt)
 
@@ -71,7 +79,7 @@ class MediaDownloadClient(
         val connection = (URL(sourceUrl).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 12_000
-            readTimeout = 20_000
+            readTimeout = 60_000
             instanceFollowRedirects = true
             setRequestProperty("Accept", "audio/*,application/octet-stream,*/*")
             setRequestProperty("User-Agent", "Spice-Native-Android/1.0")
@@ -151,14 +159,37 @@ class MediaDownloadClient(
     }
 
     companion object {
-        private val initialized = AtomicBoolean(false)
+        private val initializationLock = Any()
         private val cancelledProcessIds = ConcurrentHashMap.newKeySet<String>()
+        @Volatile private var initialized = false
+        @Volatile private var updateAttempted = false
 
         fun newProcessId(): String = "spice-download-${UUID.randomUUID()}"
 
         private fun ensureInitialized(context: Context) {
-            if (initialized.compareAndSet(false, true)) {
-                YoutubeDL.getInstance().init(context.applicationContext)
+            if (initialized) return
+            synchronized(initializationLock) {
+                if (initialized) return
+                val applicationContext = context.applicationContext
+                YoutubeDL.getInstance().init(applicationContext)
+                FFmpeg.getInstance().init(applicationContext)
+                Aria2c.getInstance().init(applicationContext)
+                initialized = true
+            }
+        }
+
+        private fun updateYoutubeDlOnce(context: Context): Boolean {
+            if (updateAttempted) return false
+            synchronized(initializationLock) {
+                if (updateAttempted) return false
+                updateAttempted = true
+                return runCatching {
+                    YoutubeDL.getInstance().updateYoutubeDL(
+                        context.applicationContext,
+                        YoutubeDL.UpdateChannel.STABLE,
+                    )
+                    true
+                }.getOrDefault(false)
             }
         }
     }
@@ -188,8 +219,9 @@ internal fun completedDownloadFile(outputDirectory: File, fileStem: String, star
         .orEmpty()
         .filter { file ->
             file.isFile &&
+                file.length() > 0 &&
                 (file.nameWithoutExtension == fileStem || file.nameWithoutExtension.startsWith("$fileStem.")) &&
-                file.lastModified() >= startedAt - 1_000
+                file.lastModified() >= startedAt - 5_000
         }
         .maxByOrNull { it.lastModified() }
 
@@ -200,6 +232,18 @@ internal fun safeFileStem(value: String): String =
         .trim()
         .take(120)
         .ifBlank { "spice-track" }
+
+internal fun uniqueDownloadFileStem(directory: File, fileStem: String): String {
+    var candidate = fileStem
+    var index = 2
+    while (directory.listFiles().orEmpty().any { file ->
+        file.nameWithoutExtension == candidate || file.nameWithoutExtension.startsWith("$candidate.")
+    }) {
+        candidate = "$fileStem ($index)"
+        index += 1
+    }
+    return candidate
+}
 
 private fun uniqueOutputFile(directory: File, fileStem: String, extension: String): File {
     var candidate = File(directory, "$fileStem.$extension")
@@ -225,6 +269,11 @@ private fun extensionFor(contentType: String, url: String): String {
     val extension = path.substringAfterLast(".", "").lowercase().takeIf { it.length in 2..5 }
     return extension ?: "m4a"
 }
+
+private fun isYouTubeUrl(url: String): Boolean =
+    runCatching { URL(url).host.lowercase() }
+        .getOrDefault("")
+        .let { it == "youtu.be" || it == "youtube.com" || it.endsWith(".youtube.com") }
 
 private fun formatBytes(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"

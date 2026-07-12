@@ -1,0 +1,280 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: Desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install unified workspace
+        run: npm ci
+      - name: Test desktop
+        run: npm test
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install unified workspace
+        run: npm ci
+      - name: Test backend
+        run: npm run backend:test
+      - name: Typecheck backend
+        run: npm run backend:typecheck
+      - name: Lint backend
+        run: npm run backend:lint
+      - name: Build local runtime
+        run: npm run backend:build:local
+      - name: Build Vercel runtime
+        run: npm run backend:build:vercel
+
+  local-windows-package:
+    name: SPICE local Windows package
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.package-metadata.outputs.version }}
+      sha256: ${{ steps.package-metadata.outputs.sha256 }}
+      size_bytes: ${{ steps.package-metadata.outputs.size_bytes }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install unified workspace
+        run: npm ci
+      - name: Build local runtime
+        run: npm run backend:build:local
+      - name: Package local runtime
+        run: npm run backend:package:local:windows
+      - name: zip local runtime
+        shell: pwsh
+        run: |
+          $packageDir = (Resolve-Path 'apps/backend/dist/spice-local-windows').Path
+          $zipPath = Join-Path (Split-Path $packageDir -Parent) 'spice-local-windows.zip'
+          $entries = @(Get-ChildItem -LiteralPath $packageDir -Force | ForEach-Object { $_.Name })
+          if ($entries.Count -eq 0) { throw 'Local Windows runtime package is empty.' }
+          Push-Location $packageDir
+          try {
+            tar.exe -a -cf $zipPath @entries
+            if ($LASTEXITCODE -ne 0) { throw "tar.exe exited with code $LASTEXITCODE." }
+          } finally {
+            Pop-Location
+          }
+          $archiveEntries = @(tar.exe -tf $zipPath)
+          if ($archiveEntries -contains './') { throw 'Runtime ZIP contains an unsafe root-dot entry.' }
+      - name: hash local runtime artifact
+        id: package-metadata
+        shell: pwsh
+        run: |
+          $zipPath = 'apps/backend/dist/spice-local-windows.zip'
+          $shaPath = 'apps/backend/dist/spice-local-windows.sha256'
+          $manifestPath = 'apps/backend/dist/spice-local-windows/spice-local-manifest.json'
+          $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $sizeBytes = (Get-Item -LiteralPath $zipPath).Length
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          Set-Content -LiteralPath $shaPath -Value "$hash  spice-local-windows.zip"
+          "sha256=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "size_bytes=$sizeBytes" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "version=$($manifest.version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      - name: upload local runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: spice-local-windows
+          path: |
+            apps/backend/dist/spice-local-windows.zip
+            apps/backend/dist/spice-local-windows.sha256
+
+  local-linux-package:
+    name: SPICE local Linux package
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.package-metadata.outputs.version }}
+      sha256: ${{ steps.package-metadata.outputs.sha256 }}
+      size_bytes: ${{ steps.package-metadata.outputs.size_bytes }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install unified workspace
+        run: npm ci
+      - name: install ZIP tooling
+        run: sudo apt-get update && sudo apt-get install -y zip
+      - name: Build local runtime
+        run: npm run backend:build:local
+      - name: Package local runtime
+        run: npm run backend:package:local:linux
+      - name: zip local runtime
+        run: |
+          cd apps/backend/dist/spice-local-linux
+          mapfile -d '' entries < <(find . -mindepth 1 -maxdepth 1 -printf '%f\0')
+          if [ "${#entries[@]}" -eq 0 ]; then
+            echo 'Local Linux runtime package is empty.' >&2
+            exit 1
+          fi
+          zip -qr ../spice-local-linux.zip -- "${entries[@]}"
+          if zipinfo -1 ../spice-local-linux.zip | grep -Fxq './'; then
+            echo 'Runtime ZIP contains an unsafe root-dot entry.' >&2
+            exit 1
+          fi
+      - name: hash local runtime artifact
+        id: package-metadata
+        run: |
+          ZIP_PATH='apps/backend/dist/spice-local-linux.zip'
+          SHA_PATH='apps/backend/dist/spice-local-linux.sha256'
+          MANIFEST_PATH='apps/backend/dist/spice-local-linux/spice-local-manifest.json'
+          HASH=$(sha256sum "$ZIP_PATH" | awk '{print $1}')
+          SIZE_BYTES=$(stat -c%s "$ZIP_PATH")
+          VERSION=$(node -p "require('./$MANIFEST_PATH').version")
+          printf '%s  spice-local-linux.zip\n' "$HASH" > "$SHA_PATH"
+          echo "sha256=$HASH" >> "$GITHUB_OUTPUT"
+          echo "size_bytes=$SIZE_BYTES" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: upload local runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: spice-local-linux
+          path: |
+            apps/backend/dist/spice-local-linux.zip
+            apps/backend/dist/spice-local-linux.sha256
+
+  publish-local-runtime-release:
+    name: Publish local runtime release
+    runs-on: ubuntu-latest
+    needs: [local-windows-package, local-linux-package]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    steps:
+      - name: download local runtime artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: spice-local-windows
+          path: apps/backend/dist
+      - name: download Linux runtime artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: spice-local-linux
+          path: apps/backend/dist
+      - name: publish local runtime release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          VERSION: ${{ needs.local-windows-package.outputs.version }}
+          LINUX_VERSION: ${{ needs.local-linux-package.outputs.version }}
+          SHA256: ${{ needs.local-windows-package.outputs.sha256 }}
+          SIZE_BYTES: ${{ needs.local-windows-package.outputs.size_bytes }}
+          LINUX_SHA256: ${{ needs.local-linux-package.outputs.sha256 }}
+          LINUX_SIZE_BYTES: ${{ needs.local-linux-package.outputs.size_bytes }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VERSION)) {
+            throw 'Package version output was empty.'
+          }
+          if ($env:VERSION -ne $env:LINUX_VERSION) {
+            throw "Runtime package versions do not match: Windows $env:VERSION, Linux $env:LINUX_VERSION."
+          }
+
+          $tag = "spice-local-runtime"
+          $title = "SPICE Local Runtime v$env:VERSION"
+          $downloadUrl = "https://github.com/$env:REPOSITORY/releases/download/$tag/spice-local-windows.zip"
+          $hashUrl = "https://github.com/$env:REPOSITORY/releases/download/$tag/spice-local-windows.sha256"
+          $linuxDownloadUrl = "https://github.com/$env:REPOSITORY/releases/download/$tag/spice-local-linux.zip"
+          $linuxHashUrl = "https://github.com/$env:REPOSITORY/releases/download/$tag/spice-local-linux.sha256"
+          $notes = @"
+          SPICE Local Windows and Linux runtime packages.
+
+          Download URL:
+          $downloadUrl
+
+          SHA-256 file:
+          $hashUrl
+
+          SHA-256:
+          $env:SHA256
+
+          Size bytes:
+          $env:SIZE_BYTES
+
+          Linux download URL:
+          $linuxDownloadUrl
+
+          Linux SHA-256 file:
+          $linuxHashUrl
+
+          Linux SHA-256:
+          $env:LINUX_SHA256
+
+          Linux size bytes:
+          $env:LINUX_SIZE_BYTES
+
+          Vercel setup:
+          - Set SPICE_LOCAL_WINDOWS_DOWNLOAD_URL to the download URL above.
+          - Set SPICE_LOCAL_WINDOWS_SHA256 to the SHA-256 above only when you will update it for each release.
+          - Set SPICE_LOCAL_WINDOWS_SIZE_BYTES to the byte size above only when you will update it for each release.
+          - Set SPICE_LOCAL_LINUX_DOWNLOAD_URL to the Linux download URL above.
+          - Set SPICE_LOCAL_LINUX_SHA256 and SPICE_LOCAL_LINUX_SIZE_BYTES only when you will update them for each release.
+          "@
+          $notesFile = New-TemporaryFile
+          Set-Content -LiteralPath $notesFile -Value $notes
+
+          if (gh release view $tag --repo $env:REPOSITORY *> $null) {
+            gh release upload $tag apps/backend/dist/spice-local-windows.zip apps/backend/dist/spice-local-windows.sha256 apps/backend/dist/spice-local-linux.zip apps/backend/dist/spice-local-linux.sha256 --clobber --repo $env:REPOSITORY
+            gh release edit $tag --title $title --notes-file $notesFile --latest=false --repo $env:REPOSITORY
+          } else {
+            gh release create $tag apps/backend/dist/spice-local-windows.zip apps/backend/dist/spice-local-windows.sha256 apps/backend/dist/spice-local-linux.zip apps/backend/dist/spice-local-linux.sha256 --title $title --notes-file $notesFile --latest=false --target $env:GITHUB_SHA --repo $env:REPOSITORY
+          }
+
+          "### SPICE local runtime release" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "Windows: $downloadUrl ($env:SHA256, $env:SIZE_BYTES bytes)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          "Linux: $linuxDownloadUrl ($env:LINUX_SHA256, $env:LINUX_SIZE_BYTES bytes)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+
+  vercel-deploy:
+    name: Vercel prebuilt deploy
+    runs-on: ubuntu-latest
+    needs: backend
+    if: github.ref == 'refs/heads/main' && vars.VERCEL_DEPLOY_ENABLED == 'true'
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install unified workspace
+        run: npm ci
+      - name: install vercel cli
+        run: npm install -g vercel@54.18.1
+      # The linked Vercel project keeps apps/backend as its root directory inside this repository.
+      - name: pull vercel environment
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+      - name: vercel build
+        run: SPICE_RUNTIME_TARGET=vercel vercel build --prod --token="$VERCEL_TOKEN"
+      - name: vercel deploy
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"

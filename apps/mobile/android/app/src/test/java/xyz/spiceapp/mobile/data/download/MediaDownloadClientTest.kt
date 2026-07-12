@@ -37,4 +37,29 @@ class MediaDownloadClientTest {
             directory.deleteRecursively()
         }
     }
+
+    @Test
+    fun createsCollisionSafeDownloadFileStems() {
+        val directory = Files.createTempDirectory("spice-download-name-test").toFile()
+        try {
+            assertEquals("Artist Song", uniqueDownloadFileStem(directory, "Artist Song"))
+            File(directory, "Artist Song.m4a").writeText("first")
+            assertEquals("Artist Song (2)", uniqueDownloadFileStem(directory, "Artist Song"))
+            File(directory, "Artist Song (2).webm").writeText("second")
+            assertEquals("Artist Song (3)", uniqueDownloadFileStem(directory, "Artist Song"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun ignoresEmptyCompletedDownloadFiles() {
+        val directory = Files.createTempDirectory("spice-download-empty-test").toFile()
+        try {
+            File(directory, "Artist Song.m4a").createNewFile()
+            assertNull(completedDownloadFile(directory, "Artist Song", startedAt = 0))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
 }

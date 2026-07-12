@@ -146,6 +146,13 @@ class PlayerConnection(
         }
     }
 
+    fun pause() {
+        runWithController { activeController ->
+            activeController.pause()
+            publishState(activeController)
+        }
+    }
+
     fun seekTo(positionMs: Long) {
         runWithController { it.seekTo(positionMs.coerceAtLeast(0)) }
     }
@@ -158,19 +165,29 @@ class PlayerConnection(
     }
 
     fun toggleShuffle() {
+        setShuffle(!_state.value.shuffleEnabled)
+    }
+
+    fun setShuffle(enabled: Boolean) {
         runWithController { activeController ->
-            activeController.shuffleModeEnabled = !activeController.shuffleModeEnabled
+            activeController.shuffleModeEnabled = enabled
             publishState(activeController)
         }
     }
 
     fun cycleRepeat() {
-        runWithController { activeController ->
-            repeatMode = when (repeatMode) {
+        setRepeatMode(
+            when (repeatMode) {
                 RepeatMode.Off -> RepeatMode.All
                 RepeatMode.All -> RepeatMode.One
                 RepeatMode.One -> RepeatMode.Off
-            }
+            },
+        )
+    }
+
+    fun setRepeatMode(mode: RepeatMode) {
+        repeatMode = mode
+        runWithController { activeController ->
             activeController.repeatMode = if (repeatMode == RepeatMode.One) {
                 Player.REPEAT_MODE_ONE
             } else {

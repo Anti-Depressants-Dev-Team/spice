@@ -1,0 +1,12 @@
+.git
+.github
+node_modules
+dist
+dist-native
+native-runtime
+apps/mobile
+apps/backend/.next
+apps/backend/dist
+apps/backend/node_modules
+coverage
+*.log

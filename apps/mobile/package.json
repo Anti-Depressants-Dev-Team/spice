@@ -1,6 +1,6 @@
 {
   "name": "@spice/mobile",
-  "version": "1.0.0",
+  "version": "1.0.8",
   "private": true,
   "description": "Native Android client for Spice Music.",
   "scripts": {
@@ -11,6 +11,6 @@
     "android:check": "powershell -ExecutionPolicy Bypass -File scripts/android-debug.ps1 -Check",
     "android:release": "powershell -ExecutionPolicy Bypass -File scripts/android-release.ps1",
     "android:release:check": "powershell -ExecutionPolicy Bypass -File scripts/android-release.ps1 -Check",
-    "android:release:ci": "cd android && ./gradlew lintRelease testReleaseUnitTest assembleRelease --stacktrace"
+    "android:release:ci": "bash ./scripts/android-release-ci.sh"
   }
 }

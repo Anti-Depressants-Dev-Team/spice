@@ -1,5 +1,7 @@
-# Node.js
+# Node.js / package managers
 node_modules/
+.npm/
+.pnpm-store/
 npm-debug.log
 yarn-error.log
 
@@ -9,31 +11,36 @@ Thumbs.db
 
 # Build artifacts
 dist/
+dist-native/
 release/
 build/
 out/
+apps/backend/.next/
+apps/backend/.vercel/
+apps/backend/dist/
+coverage/
 
 # Environment variables
 .env
+.env.*
+!.env.example
+!**/.env.example
 
 # Electron-store
 config.json
 
-# Debug logs
-debug.log
-debug_dump.txt
-debug_dump_2.txt
-debug_dump_3.txt
-debug_dump_4.txt
-debug_dump_5.txt
-debug_dump_6.txt
-debug_dump_7.txt
-debug_dump_8.txt
-debug_dump_9.txt
-debug_dump_10.txt
+# Debug logs and local captures
+*.log
+debug_dump*.txt
+debug_output*.txt
+debug_playlist*.html
+debug-playlists.json
+playlist-dump.json
+ytm_debug_output.json
+ytm_dump.html
 launch_output.txt
 launch_output_2.txt
 
 # Native SPICE runtime bundle staging
-native-runtime/spice-local-windows/**
-!native-runtime/spice-local-windows/.gitkeep
+native-runtime/spice-local-*/**
+!native-runtime/spice-local-*/.gitkeep

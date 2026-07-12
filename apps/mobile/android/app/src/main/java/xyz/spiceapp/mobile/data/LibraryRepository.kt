@@ -15,6 +15,7 @@ import xyz.spiceapp.mobile.data.local.PlaylistTrackRow
 import xyz.spiceapp.mobile.data.local.SpiceDatabase
 import xyz.spiceapp.mobile.data.local.toEntity
 import xyz.spiceapp.mobile.data.local.toTrack
+import xyz.spiceapp.mobile.model.AccentTheme
 import xyz.spiceapp.mobile.model.DownloadedTrack
 import xyz.spiceapp.mobile.model.Playlist
 import xyz.spiceapp.mobile.model.StreamQuality
@@ -204,6 +205,14 @@ class LibraryRepository(context: Context) {
         preferences.edit().putString(KEY_QUALITY, quality.name).apply()
     }
 
+    fun accentTheme(): AccentTheme = runCatching {
+        AccentTheme.valueOf(preferences.getString(KEY_ACCENT_THEME, AccentTheme.NeonSpice.name).orEmpty())
+    }.getOrDefault(AccentTheme.NeonSpice)
+
+    fun setAccentTheme(theme: AccentTheme) {
+        preferences.edit().putString(KEY_ACCENT_THEME, theme.name).apply()
+    }
+
     private fun readLegacyTracks(key: String): List<Track> = runCatching {
         val array = JSONArray(preferences.getString(key, "[]"))
         buildList {
@@ -306,6 +315,7 @@ class LibraryRepository(context: Context) {
     private companion object {
         const val KEY_LEGACY_HISTORY = "history"
         const val KEY_LEGACY_LIKED = "liked"
+        const val KEY_ACCENT_THEME = "accent_theme"
         const val KEY_QUALITY = "quality"
         const val KEY_ROOM_MIGRATED_V1 = "room_migrated_v1"
     }

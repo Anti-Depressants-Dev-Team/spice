@@ -20,12 +20,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import xyz.spiceapp.mobile.data.LibraryRepository
 import xyz.spiceapp.mobile.data.SessionStore
 import xyz.spiceapp.mobile.data.SpiceApi
+import xyz.spiceapp.mobile.data.toRemoteTrackJson
 import xyz.spiceapp.mobile.data.download.MediaDownloadClient
 import xyz.spiceapp.mobile.model.AccountSession
+import xyz.spiceapp.mobile.model.AccentTheme
 import xyz.spiceapp.mobile.model.AppScreen
 import xyz.spiceapp.mobile.model.AuthMode
 import xyz.spiceapp.mobile.model.DownloadedTrack
@@ -43,6 +46,7 @@ import xyz.spiceapp.mobile.model.RemoteDevice
 import xyz.spiceapp.mobile.model.RepeatMode
 import xyz.spiceapp.mobile.model.SharedPlaylistTrack
 import xyz.spiceapp.mobile.model.SharedPlaylistTracks
+import xyz.spiceapp.mobile.model.SpiceProfile
 import xyz.spiceapp.mobile.model.StreamQuality
 import xyz.spiceapp.mobile.model.Track
 import xyz.spiceapp.mobile.playback.PlayerConnection
@@ -68,9 +72,17 @@ data class SpiceUiState(
     val downloads: List<DownloadedTrack> = emptyList(),
     val libraryTab: LibraryTab = LibraryTab.Playlists,
     val quality: StreamQuality = StreamQuality.Standard,
+    val accentTheme: AccentTheme = AccentTheme.NeonSpice,
     val accountSession: AccountSession? = null,
     val profileSummary: ProfileSummary? = null,
     val profileLoading: Boolean = false,
+    val profileEditOpen: Boolean = false,
+    val profileEditDisplayName: String = "",
+    val profileEditUsername: String = "",
+    val profileEditAvatarUrl: String = "",
+    val profileEditBio: String = "",
+    val profileEditPrivate: Boolean = false,
+    val profileEditLoading: Boolean = false,
     val authMode: AuthMode = AuthMode.SignIn,
     val authEmail: String = "",
     val authPassword: String = "",
@@ -97,6 +109,7 @@ data class SpiceUiState(
     val lyricsLoading: Boolean = false,
     val remoteDeviceId: String = "",
     val remoteDevices: List<RemoteDevice> = emptyList(),
+    val selectedPlaybackDeviceId: String = "",
     val connectLoading: Boolean = false,
     val connectStatus: String = "",
     val message: String? = null,
@@ -117,8 +130,10 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(
         SpiceUiState(
             quality = libraryRepository.quality(),
+            accentTheme = libraryRepository.accentTheme(),
             accountSession = sessionStore.load(),
             remoteDeviceId = remoteDeviceId,
+            selectedPlaybackDeviceId = loadSelectedPlaybackDeviceId(),
         ),
     )
     val uiState: StateFlow<SpiceUiState> = _uiState.asStateFlow()
@@ -167,12 +182,25 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun play(track: Track, queue: List<Track> = listOf(track)) {
+        activeRemoteTargetId()?.let { targetDeviceId ->
+            playOnRemoteDevice(targetDeviceId, track, queue)
+            return
+        }
         val normalizedQueue = normalizeQueue(queue, track)
         val nextIndex = normalizedQueue.indexOfFirst { it.queueKey() == track.queueKey() }.takeIf { it >= 0 } ?: 0
         playQueueIndex(normalizedQueue, nextIndex)
     }
 
     fun playNext() {
+        activeRemoteTargetId()?.let { targetDeviceId ->
+            patchRemoteQueueStep(targetDeviceId, step = 1)
+            sendRemoteCommand(targetDeviceId, "next")
+            return
+        }
+        playNextLocally()
+    }
+
+    private fun playNextLocally() {
         val state = _uiState.value
         val nextIndex = nextQueueIndex(state, allowWrap = state.playbackQueue.isNotEmpty())
         if (nextIndex == null) {
@@ -183,6 +211,15 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playPrevious() {
+        activeRemoteTargetId()?.let { targetDeviceId ->
+            patchRemoteQueueStep(targetDeviceId, step = -1)
+            sendRemoteCommand(targetDeviceId, "previous")
+            return
+        }
+        playPreviousLocally()
+    }
+
+    private fun playPreviousLocally() {
         val state = _uiState.value
         val queue = state.playbackQueue
         if (queue.isEmpty()) {
@@ -257,17 +294,96 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
             "android.resource://" + getApplication<Application>().packageName + "/" + R.raw.engine_test,
         )
     }
-    fun togglePlayback() = playerConnection.toggle()
+    fun togglePlayback() {
+        val targetDeviceId = activeRemoteTargetId()
+        if (targetDeviceId == null) {
+            playerConnection.toggle()
+            return
+        }
 
-    fun seekTo(positionMs: Long) = playerConnection.seekTo(positionMs)
+        val device = selectedRemoteDevice()
+        if (device == null) {
+            unavailableRemoteTarget()
+            return
+        }
+        if (!device.isPlaying && device.currentTrack == null) {
+            _uiState.value = _uiState.value.copy(message = "Choose a track for ${device.displayName} first.")
+            return
+        }
+
+        val command = if (device.isPlaying) "pause" else "play"
+        patchRemoteDevice(targetDeviceId) { it.copy(isPlaying = !device.isPlaying) }
+        sendRemoteCommand(targetDeviceId, command)
+    }
+
+    fun seekTo(positionMs: Long) {
+        val targetDeviceId = activeRemoteTargetId()
+        if (targetDeviceId == null) {
+            playerConnection.seekTo(positionMs)
+            return
+        }
+
+        val device = selectedRemoteDevice()
+        if (device == null) {
+            unavailableRemoteTarget()
+            return
+        }
+        val safePosition = positionMs.coerceIn(0, device.durationMs.takeIf { it > 0 } ?: Long.MAX_VALUE)
+        patchRemoteDevice(targetDeviceId) { it.copy(progressMs = safePosition) }
+        sendRemoteCommand(
+            targetDeviceId,
+            "seek",
+            JSONObject().put("progress", safePosition / 1000.0),
+        )
+    }
 
     fun seekBy(deltaMs: Long) = playerConnection.seekBy(deltaMs)
 
-    fun toggleShuffle() = playerConnection.toggleShuffle()
+    fun toggleShuffle() {
+        val targetDeviceId = activeRemoteTargetId()
+        if (targetDeviceId == null) {
+            playerConnection.toggleShuffle()
+            return
+        }
 
-    fun cycleRepeat() = playerConnection.cycleRepeat()
+        val device = selectedRemoteDevice()
+        if (device == null) {
+            unavailableRemoteTarget()
+            return
+        }
+        val enabled = !device.shuffleEnabled
+        patchRemoteDevice(targetDeviceId) { it.copy(shuffleEnabled = enabled) }
+        sendRemoteCommand(targetDeviceId, "shuffle", JSONObject().put("enabled", enabled))
+    }
+
+    fun cycleRepeat() {
+        val targetDeviceId = activeRemoteTargetId()
+        if (targetDeviceId == null) {
+            playerConnection.cycleRepeat()
+            return
+        }
+
+        val device = selectedRemoteDevice()
+        if (device == null) {
+            unavailableRemoteTarget()
+            return
+        }
+        val mode = device.repeatMode.next()
+        patchRemoteDevice(targetDeviceId) { it.copy(repeatMode = mode) }
+        sendRemoteCommand(targetDeviceId, "repeat", JSONObject().put("mode", mode.remoteValue()))
+    }
+
+    fun setAccentTheme(theme: AccentTheme) {
+        libraryRepository.setAccentTheme(theme)
+        _uiState.value = _uiState.value.copy(accentTheme = theme)
+    }
 
     fun stopPlayback() {
+        activeRemoteTargetId()?.let { targetDeviceId ->
+            patchRemoteDevice(targetDeviceId) { it.copy(isPlaying = false) }
+            sendRemoteCommand(targetDeviceId, "pause")
+            return
+        }
         playerConnection.stop()
         _uiState.value = _uiState.value.copy(
             currentTrack = null,
@@ -575,6 +691,134 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(authUsername = username)
     }
 
+    fun openProfileEditor() {
+        val state = _uiState.value
+        val session = state.accountSession
+        if (session == null) {
+            _uiState.value = state.copy(message = "Sign in before editing your profile.")
+            return
+        }
+
+        val profile = state.profileSummary?.profile
+        _uiState.value = state.copy(
+            profileEditOpen = true,
+            profileEditDisplayName = profile?.displayName?.takeIf { it.isNotBlank() }
+                ?: session.account.displayName.takeIf { it.isNotBlank() }
+                ?: session.account.email.substringBefore("@"),
+            profileEditUsername = profile?.username?.takeIf { it.isNotBlank() }
+                ?: session.account.username,
+            profileEditAvatarUrl = profile?.avatarUrl?.takeIf { it.isNotBlank() }
+                ?: session.account.avatarUrl,
+            profileEditBio = profile?.bio.orEmpty(),
+            profileEditPrivate = profile?.isPrivate == true,
+            message = null,
+        )
+    }
+
+    fun dismissProfileEditor() {
+        _uiState.value = _uiState.value.copy(profileEditOpen = false, profileEditLoading = false)
+    }
+
+    fun setProfileEditDisplayName(value: String) {
+        _uiState.value = _uiState.value.copy(profileEditDisplayName = value)
+    }
+
+    fun setProfileEditUsername(value: String) {
+        _uiState.value = _uiState.value.copy(profileEditUsername = value)
+    }
+
+    fun setProfileEditAvatarUrl(value: String) {
+        _uiState.value = _uiState.value.copy(profileEditAvatarUrl = value)
+    }
+
+    fun setProfileEditBio(value: String) {
+        _uiState.value = _uiState.value.copy(profileEditBio = value)
+    }
+
+    fun setProfileEditPrivate(value: Boolean) {
+        _uiState.value = _uiState.value.copy(profileEditPrivate = value)
+    }
+
+    fun saveProfileEdit() {
+        val state = _uiState.value
+        val session = state.accountSession
+        if (session == null) {
+            _uiState.value = state.copy(message = "Sign in before editing your profile.")
+            return
+        }
+
+        val displayName = state.profileEditDisplayName.trim().ifEmpty { "Spice Listener" }
+        val username = state.profileEditUsername.trim().lowercase()
+        val avatarUrl = state.profileEditAvatarUrl.trim()
+        val bio = state.profileEditBio.trim().ifEmpty { "No bio written yet." }
+
+        if (!Regex("^[a-zA-Z0-9_]{3,20}$").matches(username)) {
+            _uiState.value = state.copy(message = "Username must be 3-20 letters, numbers, or underscores.")
+            return
+        }
+
+        if (avatarUrl.isNotBlank() && !avatarUrl.startsWith("https://") && !avatarUrl.startsWith("http://")) {
+            _uiState.value = state.copy(message = "Profile picture must be an http or https URL.")
+            return
+        }
+
+        _uiState.value = state.copy(profileEditLoading = true, message = null)
+        viewModelScope.launch {
+            runCatching {
+                val remoteProfiles = api.fetchProfiles(session.token)
+                val currentProfile = remoteProfiles.firstOrNull { it.id == "default" }
+                    ?: state.profileSummary?.profile
+                    ?: SpiceProfile(
+                        id = "default",
+                        displayName = displayName,
+                        username = username,
+                    )
+                val updatedProfile = currentProfile.copy(
+                    displayName = displayName,
+                    username = username,
+                    avatarUrl = avatarUrl,
+                    bio = bio,
+                    isPrivate = state.profileEditPrivate,
+                    songsPlayed = currentProfile.songsPlayed.takeIf { it > 0 }
+                        ?: state.profileSummary?.stats?.songsPlayed
+                        ?: 0,
+                )
+                val profiles = if (remoteProfiles.any { it.id == updatedProfile.id }) {
+                    remoteProfiles.map { profile -> if (profile.id == updatedProfile.id) updatedProfile else profile }
+                } else {
+                    remoteProfiles + updatedProfile
+                }
+
+                if (username != session.account.username) {
+                    api.updateUsername(session.token, username, updatedProfile.id)
+                }
+                api.syncProfiles(session.token, profiles)
+                api.fetchProfileSummary(session.token, session.account.id, updatedProfile.id)
+            }.onSuccess { summary ->
+                val updatedSession = session.copy(
+                    account = session.account.copy(
+                        username = summary.profile.username,
+                        displayName = summary.profile.displayName,
+                        avatarUrl = summary.profile.avatarUrl,
+                    ),
+                )
+                sessionStore.save(updatedSession)
+                _uiState.value = _uiState.value.copy(
+                    accountSession = updatedSession,
+                    profileSummary = summary,
+                    profileEditOpen = false,
+                    profileEditLoading = false,
+                    message = "Profile updated.",
+                )
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(
+                    profileEditLoading = false,
+                    message = error.message ?: "Could not update profile.",
+                )
+            }
+        }
+    }
+
     fun submitAccount() {
         val state = _uiState.value
         val email = state.authEmail.trim()
@@ -617,6 +861,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     fun signOut() {
         sessionStore.clear()
         connectJob?.cancel()
+        connectPreferences.edit().remove(KEY_SELECTED_PLAYBACK_DEVICE_ID).apply()
         _uiState.value = _uiState.value.copy(
             accountSession = null,
             profileSummary = null,
@@ -629,6 +874,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
             playlistMembers = null,
             sharedPlaylistTracks = null,
             remoteDevices = emptyList(),
+            selectedPlaybackDeviceId = "",
             connectLoading = false,
             connectStatus = "",
             message = "Signed out of Spice account.",
@@ -1017,7 +1263,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadCurrentLyrics() {
-        val track = _uiState.value.currentTrack
+        val track = activePlayerTrack()
         if (track == null) {
             _uiState.value = _uiState.value.copy(message = "Play a track before opening lyrics.")
             return
@@ -1054,6 +1300,40 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(lyricsTrackId = null, lyricsPayload = null, lyricsLoading = false)
     }
 
+    fun selectPlaybackDevice(deviceId: String?) {
+        val normalized = deviceId
+            ?.trim()
+            ?.takeUnless { it == remoteDeviceId }
+            .orEmpty()
+        if (normalized.isNotEmpty() && _uiState.value.accountSession == null) {
+            _uiState.value = _uiState.value.copy(message = "Sign in to use Spice Connect.")
+            return
+        }
+
+        if (normalized.isEmpty()) {
+            connectPreferences.edit().remove(KEY_SELECTED_PLAYBACK_DEVICE_ID).apply()
+            _uiState.value = _uiState.value.copy(
+                selectedPlaybackDeviceId = "",
+                connectStatus = "Player controls now target this phone.",
+            )
+            return
+        }
+
+        val target = _uiState.value.remoteDevices.firstOrNull { it.deviceId == normalized }
+        if (target == null) {
+            _uiState.value = _uiState.value.copy(message = "That Spice Connect device is no longer available.")
+            refreshSpiceConnect()
+            return
+        }
+
+        playerConnection.pause()
+        connectPreferences.edit().putString(KEY_SELECTED_PLAYBACK_DEVICE_ID, normalized).apply()
+        _uiState.value = _uiState.value.copy(
+            selectedPlaybackDeviceId = normalized,
+            connectStatus = "Player controls now target ${target.displayName}.",
+        )
+    }
+
     fun refreshSpiceConnect() {
         val session = _uiState.value.accountSession
         if (session == null) {
@@ -1066,21 +1346,26 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
                 publishSpiceConnectDevice(session)
                 api.fetchRemoteDevices(session.token)
             }.onSuccess { devices ->
-                _uiState.value = _uiState.value.copy(
-                    remoteDevices = devices,
-                    connectLoading = false,
-                    connectStatus = "${devices.count { it.deviceId != remoteDeviceId }} other device(s) visible.",
+                applyRemoteDeviceSnapshot(
+                    devices = devices,
+                    loading = false,
+                    status = "${devices.count { it.deviceId != remoteDeviceId }} other device(s) visible.",
                 )
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
                     connectLoading = false,
                     connectStatus = error.message ?: "Could not refresh Spice Connect.",
+                    message = error.message ?: "Could not refresh Spice Connect.",
                 )
             }
         }
     }
 
-    fun sendSpiceConnectCommand(deviceId: String, command: String) {
+    private fun sendRemoteCommand(
+        deviceId: String,
+        command: String,
+        payload: JSONObject = JSONObject(),
+    ) {
         val session = _uiState.value.accountSession
         if (session == null) {
             _uiState.value = _uiState.value.copy(message = "Sign in to use Spice Connect.")
@@ -1090,7 +1375,6 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(connectStatus = "Choose another Spice Connect device.")
             return
         }
-        _uiState.value = _uiState.value.copy(connectLoading = true)
         viewModelScope.launch {
             runCatching {
                 api.sendRemoteCommand(
@@ -1098,22 +1382,92 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
                     targetDeviceId = deviceId,
                     sourceDeviceId = remoteDeviceId,
                     command = command,
-                    payload = JSONObject(),
+                    payload = payload,
                 )
-                api.fetchRemoteDevices(session.token)
-            }.onSuccess { devices ->
+            }.onSuccess {
                 _uiState.value = _uiState.value.copy(
-                    remoteDevices = devices,
-                    connectLoading = false,
                     connectStatus = "Sent $command through Spice Connect.",
                 )
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
-                    connectLoading = false,
                     connectStatus = error.message ?: "Spice Connect command failed.",
+                    message = error.message ?: "Spice Connect command failed.",
                 )
             }
         }
+    }
+
+    private fun playOnRemoteDevice(targetDeviceId: String, track: Track, queue: List<Track>) {
+        val target = _uiState.value.remoteDevices.firstOrNull { it.deviceId == targetDeviceId }
+        if (target == null) {
+            unavailableRemoteTarget()
+            return
+        }
+
+        val normalizedQueue = normalizeQueue(queue, track)
+        val queueIndex = normalizedQueue.indexOfFirst { it.queueKey() == track.queueKey() }
+            .takeIf { it >= 0 }
+            ?: 0
+        patchRemoteDevice(targetDeviceId) {
+            it.copy(
+                currentTrack = track,
+                queue = normalizedQueue,
+                queueIndex = queueIndex,
+                isPlaying = true,
+                progressMs = 0,
+                durationMs = track.durationMs,
+            )
+        }
+        sendRemoteCommand(
+            targetDeviceId,
+            "play_track",
+            JSONObject()
+                .put("track", track.toRemoteTrackJson())
+                .put("queue", JSONArray(normalizedQueue.map { it.toRemoteTrackJson() }))
+                .put("queueIndex", queueIndex),
+        )
+        _uiState.value = _uiState.value.copy(connectStatus = "Sent ${track.title} to ${target.displayName}.")
+    }
+
+    private fun patchRemoteQueueStep(deviceId: String, step: Int) {
+        patchRemoteDevice(deviceId) { device ->
+            val queue = device.queue
+            if (queue.isEmpty()) return@patchRemoteDevice device.copy(isPlaying = true)
+            val currentIndex = device.queueIndex.coerceIn(0, queue.lastIndex)
+            val nextIndex = (currentIndex + step).mod(queue.size)
+            val nextTrack = queue[nextIndex]
+            device.copy(
+                currentTrack = nextTrack,
+                queueIndex = nextIndex,
+                isPlaying = true,
+                progressMs = 0,
+                durationMs = nextTrack.durationMs,
+            )
+        }
+    }
+
+    private fun patchRemoteDevice(deviceId: String, transform: (RemoteDevice) -> RemoteDevice) {
+        _uiState.value = _uiState.value.copy(
+            remoteDevices = _uiState.value.remoteDevices.map { device ->
+                if (device.deviceId == deviceId) transform(device) else device
+            },
+        )
+    }
+
+    private fun activeRemoteTargetId(): String? =
+        _uiState.value.selectedPlaybackDeviceId.takeIf { it.isNotBlank() }
+
+    private fun selectedRemoteDevice(): RemoteDevice? {
+        val state = _uiState.value
+        return state.remoteDevices.firstOrNull { it.deviceId == state.selectedPlaybackDeviceId }
+    }
+
+    private fun activePlayerTrack(): Track? =
+        if (activeRemoteTargetId() == null) _uiState.value.currentTrack else selectedRemoteDevice()?.currentTrack
+
+    private fun unavailableRemoteTarget() {
+        _uiState.value = _uiState.value.copy(message = "The selected Spice Connect device is unavailable. Refreshing devices.")
+        refreshSpiceConnect()
     }
 
     private fun migrateLegacyLibrary() {
@@ -1223,7 +1577,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
                     publishSpiceConnectDevice(session)
                     applyRemoteCommands(api.fetchRemoteCommands(session.token, remoteDeviceId))
                     val devices = api.fetchRemoteDevices(session.token)
-                    _uiState.value = _uiState.value.copy(remoteDevices = devices)
+                    applyRemoteDeviceSnapshot(devices)
                 }.onFailure { error ->
                     _uiState.value = _uiState.value.copy(
                         connectStatus = error.message ?: _uiState.value.connectStatus,
@@ -1242,6 +1596,8 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
             displayName = "Spice Android",
             currentTrack = _uiState.value.currentTrack,
             isPlaying = player.isPlaying,
+            shuffleEnabled = player.shuffleEnabled,
+            repeatMode = player.repeatMode,
             progressMs = player.positionMs,
             durationMs = player.durationMs,
             queue = _uiState.value.playbackQueue,
@@ -1252,15 +1608,42 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     private fun applyRemoteCommands(commands: List<RemoteCommand>) {
         commands.forEach { command ->
             when (command.command) {
-                "toggle" -> togglePlayback()
-                "pause" -> if (playerState.value.isPlaying) togglePlayback()
-                "play" -> if (!playerState.value.isPlaying && _uiState.value.currentTrack != null) togglePlayback()
-                "next" -> playNext()
-                "previous" -> playPrevious()
-                "seek" -> command.seekPositionMs?.let(::seekTo)
-                "play_track" -> command.payloadTrack?.let(::play)
+                "toggle" -> playerConnection.toggle()
+                "pause" -> playerConnection.pause()
+                "play" -> if (!playerState.value.isPlaying && _uiState.value.currentTrack != null) playerConnection.toggle()
+                "next" -> playNextLocally()
+                "previous" -> playPreviousLocally()
+                "seek" -> command.seekPositionMs?.let(playerConnection::seekTo)
+                "shuffle" -> command.shuffleEnabled?.let(playerConnection::setShuffle)
+                "repeat" -> command.repeatMode?.let(playerConnection::setRepeatMode)
+                "play_track" -> command.payloadTrack?.let { track ->
+                    val queue = normalizeQueue(command.payloadQueue, track)
+                    val requestedIndex = command.payloadQueueIndex.takeIf { it in queue.indices }
+                    val trackIndex = queue.indexOfFirst { it.queueKey() == track.queueKey() }.takeIf { it >= 0 }
+                    playQueueIndex(queue, requestedIndex ?: trackIndex ?: 0)
+                }
             }
         }
+    }
+
+    private fun applyRemoteDeviceSnapshot(
+        devices: List<RemoteDevice>,
+        loading: Boolean = _uiState.value.connectLoading,
+        status: String = _uiState.value.connectStatus,
+    ) {
+        val state = _uiState.value
+        val selectedId = state.selectedPlaybackDeviceId
+        val selectedStillExists = selectedId.isBlank() || devices.any { it.deviceId == selectedId }
+        if (!selectedStillExists) {
+            connectPreferences.edit().remove(KEY_SELECTED_PLAYBACK_DEVICE_ID).apply()
+        }
+        _uiState.value = state.copy(
+            remoteDevices = devices,
+            selectedPlaybackDeviceId = selectedId.takeIf { selectedStillExists }.orEmpty(),
+            connectLoading = loading,
+            connectStatus = if (selectedStillExists) status else "Selected device went offline; using this phone.",
+            message = if (selectedStillExists) state.message else "Selected Spice Connect device went offline. Playback controls are local again.",
+        )
     }
 
     private suspend fun refreshCloudLibrary(session: AccountSession): CloudLibraryRefresh {
@@ -1333,6 +1716,9 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         return id
     }
 
+    private fun loadSelectedPlaybackDeviceId(): String =
+        connectPreferences.getString(KEY_SELECTED_PLAYBACK_DEVICE_ID, "").orEmpty()
+
     private fun startDownloadIntent(download: DownloadedTrack, action: String) {
         val file = File(download.filePath)
         if (!file.exists()) {
@@ -1398,6 +1784,18 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun Track.queueKey(): String = "$sourceId:$id"
 
+    private fun RepeatMode.next(): RepeatMode = when (this) {
+        RepeatMode.Off -> RepeatMode.All
+        RepeatMode.All -> RepeatMode.One
+        RepeatMode.One -> RepeatMode.Off
+    }
+
+    private fun RepeatMode.remoteValue(): String = when (this) {
+        RepeatMode.Off -> "none"
+        RepeatMode.All -> "all"
+        RepeatMode.One -> "one"
+    }
+
     override fun onCleared() {
         playJob?.cancel()
         downloadJob?.cancel()
@@ -1408,6 +1806,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val KEY_REMOTE_DEVICE_ID = "remote_device_id"
+        const val KEY_SELECTED_PLAYBACK_DEVICE_ID = "selected_playback_device_id"
     }
 }
 
