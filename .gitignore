@@ -10,15 +10,18 @@ yarn-error.log
 Thumbs.db
 
 # Build artifacts
-dist/
-dist-native/
-release/
-build/
-out/
+/dist/
+/dist-native/
+/release/
+/build/
+/out/
 apps/backend/.next/
 apps/backend/.vercel/
 apps/backend/dist/
 coverage/
+
+# Root Vercel CLI state
+/.vercel/
 
 # Environment variables
 .env

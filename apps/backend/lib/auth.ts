@@ -1,26 +1,24 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { normalizeAccountRole, type AccountRole } from './account';
 
+let jwtSecret: Uint8Array | null = null;
+
 function getJwtSecret() {
+  if (jwtSecret) return jwtSecret;
+
   const secret = process.env.JWT_SECRET;
   if (!secret) {
     if (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') {
       console.warn('Warning: Missing JWT_SECRET. Using fallback for dev/test.');
-      return 'spice_dev_secret_key_32_characters_minimum';
-    }
-    // Only fail if we are strictly not in dev/test AND not building
-    // In next build, the env might not be fully populated but we need the import to succeed
-    const lifecycleEvent = process.env.npm_lifecycle_event ?? '';
-    if (lifecycleEvent === 'build' || lifecycleEvent.startsWith('build:')) {
-      return 'spice_build_dummy_secret_32_chars';
+      jwtSecret = new TextEncoder().encode('spice_dev_secret_key_32_characters_minimum');
+      return jwtSecret;
     }
     throw new Error('Missing JWT_SECRET environment variable.');
   }
-  return secret;
-}
 
-const JWT_SECRET_STRING = getJwtSecret();
-const JWT_SECRET = new TextEncoder().encode(JWT_SECRET_STRING);
+  jwtSecret = new TextEncoder().encode(secret);
+  return jwtSecret;
+}
 
 export interface SpiceSession {
   userId: string;
@@ -44,7 +42,7 @@ export async function signSession(session: SpiceSession): Promise<string> {
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('30d')
-    .sign(JWT_SECRET);
+    .sign(getJwtSecret());
 }
 
 export async function signLastFmLinkState(session: SpiceSession): Promise<string> {
@@ -57,11 +55,11 @@ export async function signLastFmLinkState(session: SpiceSession): Promise<string
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('10m')
-    .sign(JWT_SECRET);
+    .sign(getJwtSecret());
 }
 
 export async function verifySession(token: string): Promise<SpiceSession> {
-  const { payload } = await jwtVerify(token, JWT_SECRET);
+  const { payload } = await jwtVerify(token, getJwtSecret());
   if (typeof payload.userId !== 'string' || typeof payload.email !== 'string') {
     throw new Error('Invalid session token.');
   }
@@ -74,7 +72,7 @@ export async function verifySession(token: string): Promise<SpiceSession> {
 }
 
 export async function verifyLastFmLinkState(token: string): Promise<SpiceSession> {
-  const { payload } = await jwtVerify(token, JWT_SECRET);
+  const { payload } = await jwtVerify(token, getJwtSecret());
   const linkPayload = payload as unknown as LastFmLinkPayload;
   if (linkPayload.purpose !== 'lastfm_link') {
     throw new Error('Invalid Last.fm link state.');

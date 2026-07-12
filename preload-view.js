@@ -8,6 +8,8 @@ const { ipcRenderer, webFrame } = require('electron');
 const IS_SPICE_LOCAL_RUNTIME =
     (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') &&
     window.location.port === '3939';
+const IS_SPICE_MUSIC =
+    IS_SPICE_LOCAL_RUNTIME || window.location.hostname === 'music.spice-app.xyz';
 
 if (IS_SPICE_LOCAL_RUNTIME) {
     window.__spiceDesktopAudioReady = false;
@@ -267,6 +269,64 @@ function installNativeSessionSnapshot() {
 }
 
 installNativeSessionSnapshot();
+
+function installSpiceDesktopUiBridge() {
+    if (!IS_SPICE_MUSIC) return;
+
+    const validAccents = new Set([
+        'pink', 'blue', 'orange', 'green', 'gold', 'crimson', 'deeppurple'
+    ]);
+    const validSurfaces = new Set(['midnight', 'glass', 'solid', 'aurora']);
+    let lastThemeSignature = '';
+
+    window.spiceDesktopWindow = {
+        getAlwaysOnTop: async () => Boolean(await ipcRenderer.invoke('get-always-on-top')),
+        setAlwaysOnTop: async (enabled) => Boolean(
+            await ipcRenderer.invoke('set-always-on-top', enabled === true)
+        ),
+    };
+
+    function emitTheme() {
+        let accent = 'pink';
+        let surface = 'midnight';
+        try {
+            const savedAccent = window.localStorage.getItem('spice_accent_theme');
+            const savedSurface = window.localStorage.getItem('spice_visual_surface');
+            if (validAccents.has(savedAccent)) accent = savedAccent;
+            if (validSurfaces.has(savedSurface)) surface = savedSurface;
+        } catch (_) {}
+
+        const signature = `${accent}:${surface}`;
+        if (signature === lastThemeSignature) return;
+        lastThemeSignature = signature;
+        ipcRenderer.send('spice-theme-changed', { accent, surface });
+    }
+
+    // Older packaged runtimes used a complete purple app icon inside the
+    // themed logo tile. Keep those installs visually correct until updated.
+    webFrame.insertCSS(`
+        .sidebar__logo-icon:has(> .sidebar__logo-image) > .sidebar__logo-image {
+            display: none !important;
+        }
+        .sidebar__logo-icon:has(> .sidebar__logo-image)::after {
+            content: '';
+            width: 20px;
+            height: 20px;
+            background: #fff;
+            -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath d='M256 128v176.8c-9.44-5.44-20.32-8.8-32-8.8-35.36 0-64 28.64-64 64s28.64 64 64 64 64-28.64 64-64V192h64v-64h-96z' fill='black'/%3E%3C/svg%3E") center / contain no-repeat;
+            mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath d='M256 128v176.8c-9.44-5.44-20.32-8.8-32-8.8-35.36 0-64 28.64-64 64s28.64 64 64 64 64-28.64 64-64V192h64v-64h-96z' fill='black'/%3E%3C/svg%3E") center / contain no-repeat;
+        }
+    `).catch((error) => {
+        console.warn('[Preload] Could not install legacy logo compatibility CSS:', error && error.message);
+    });
+
+    emitTheme();
+    window.addEventListener('DOMContentLoaded', emitTheme, { once: true });
+    window.addEventListener('storage', emitTheme);
+    window.setInterval(emitTheme, 350);
+}
+
+installSpiceDesktopUiBridge();
 
 function installSpiceAudioBridge() {
     if (!IS_SPICE_LOCAL_RUNTIME) return;

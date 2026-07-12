@@ -9,6 +9,8 @@ const APP_ROOT_DIR = path.join(__dirname, "..");
 
 let server;
 let currentState = {
+  spiceServer: true,
+  protocolVersion: 1,
   track: null,
   currentTime: 0,
   paused: true,

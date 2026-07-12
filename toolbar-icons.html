@@ -8,7 +8,7 @@
         <style>
             body {
                 margin: 0;
-                background: #0a0a0c;
+                background: var(--shell-background);
                 color: #fff;
                 height: 100vh;
                 overflow: hidden;
@@ -20,8 +20,8 @@
                 height: 40px;
                 display: flex;
                 align-items: center;
-                background: rgba(0, 0, 0, 0.94);
-                border-bottom: 1px solid rgba(168, 85, 247, 0.22);
+                background: var(--shell-surface);
+                border-bottom: 1px solid rgba(var(--accent-rgb), 0.22);
                 -webkit-app-region: drag;
                 flex-shrink: 0;
             }
@@ -29,7 +29,7 @@
             .drag-region {
                 flex: 1;
                 padding-left: 14px;
-                color: #b9a8c9;
+                color: var(--accent-hover);
                 font-size: 13px;
                 font-weight: 600;
             }
@@ -115,7 +115,7 @@
             }
 
             input:checked + .slider {
-                background-color: #ba2f2f;
+                background: var(--accent-gradient);
             }
 
             input:checked + .slider:before {
@@ -159,6 +159,17 @@
 
             let currentButtons = {};
 
+            function applyToolbarTheme(theme) {
+                const accents = ["pink", "blue", "orange", "green", "gold", "crimson", "deeppurple"];
+                const surfaces = ["midnight", "glass", "solid", "aurora"];
+                document.documentElement.dataset.spiceAccent = accents.includes(theme && theme.accent)
+                    ? theme.accent
+                    : "deeppurple";
+                document.documentElement.dataset.spiceSurface = surfaces.includes(theme && theme.surface)
+                    ? theme.surface
+                    : "midnight";
+            }
+
             function save() {
                 window.api.setToolbarButtons(currentButtons);
             }
@@ -191,8 +202,13 @@
 
             window.api.getSettings().then((settings) => {
                 currentButtons = settings.toolbarButtons || {};
+                applyToolbarTheme(settings.shellTheme);
                 render();
             });
+
+            if (window.api.onShellThemeChanged) {
+                window.api.onShellThemeChanged(applyToolbarTheme);
+            }
 
             document
                 .getElementById("btn-close")

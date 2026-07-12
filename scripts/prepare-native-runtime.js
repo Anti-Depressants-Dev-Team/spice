@@ -49,8 +49,15 @@ async function main() {
 }
 
 function runNpmWorkspace(script, cwd) {
-  const executable = process.platform === "win32" ? "npm.cmd" : "npm";
-  const args = ["--workspace", "@spice/backend", "run", script];
+  const npmCli = process.env.npm_execpath;
+  const executable = npmCli ? process.execPath : "npm";
+  const args = [
+    ...(npmCli ? [npmCli] : []),
+    "--workspace",
+    "@spice/backend",
+    "run",
+    script,
+  ];
   const result = spawnSync(executable, args, { cwd, stdio: "inherit" });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${executable} ${args.join(" ")} exited with code ${result.status}.`);

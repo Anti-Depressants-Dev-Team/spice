@@ -1,5 +1,11 @@
 # SPICE Walkthrough
 
+## v1.0.129
+
+- [Spice.Home main] Redesign the hosted local-runtime portal around the default SPICE purple palette with a cleaner responsive hero, compact navigation, and a guided three-step setup path.
+- [Spice.Home main] Restyle the hosted account panel and technical runtime ledger with consistent purple surfaces, accessible focus states, and phone-friendly layouts while preserving every existing account and runtime action.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.129`.
+
 ## v1.0.128
 
 - [Spice.Home main] Consolidate the cloud backend and local web runtime into the unified `spice` repository with npm workspace commands, Node.js 24 requirements, hoisted Next.js CLI resolution, a narrow Docker context, and a root-lockfile image pinned to the hosted runtime target.

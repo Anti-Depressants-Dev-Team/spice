@@ -11,6 +11,13 @@ const path = require("path");
 const fs = require("fs");
 const { autoUpdater } = require("electron-updater");
 const { SpiceLocalRuntimeManager } = require("./spice-local-runtime-manager");
+const {
+  DEFAULT_SHELL_THEME,
+  normalizeShellTheme,
+  parseSupportedServiceUrl,
+  getNavigationHistory,
+  navigateHistory,
+} = require("./desktop-helpers");
 
 // Simple File Logger for Production Debugging - INITIALIZE FIRST
 const logFile = path.join(app.getPath("userData"), "debug.log");
@@ -66,6 +73,7 @@ try {
 let store;
 let mainWindow;
 let view;
+let viewHiddenForModal = false;
 let settingsWindow = null;
 let toolbarSettingsWindow = null;
 let adBlocker = null;
@@ -120,6 +128,49 @@ const DEFAULT_TOOLBAR_BUTTONS = {
   miniPlayer: true,
   queue: true,
 };
+
+function getShellTheme() {
+  return normalizeShellTheme(
+    store ? store.get("shellTheme", DEFAULT_SHELL_THEME) : DEFAULT_SHELL_THEME,
+  );
+}
+
+function sendShellTheme(webContents) {
+  if (!webContents || webContents.isDestroyed()) return;
+  webContents.send("shell-theme-changed", getShellTheme());
+}
+
+function broadcastShellTheme() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    sendShellTheme(mainWindow.webContents);
+  }
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    sendShellTheme(settingsWindow.webContents);
+  }
+  if (toolbarSettingsWindow && !toolbarSettingsWindow.isDestroyed()) {
+    sendShellTheme(toolbarSettingsWindow.webContents);
+  }
+}
+
+function updateShellTheme(value) {
+  const next = normalizeShellTheme(value);
+  if (store) store.set("shellTheme", next);
+  broadcastShellTheme();
+  return next;
+}
+
+function getAlwaysOnTop() {
+  return store ? store.get("alwaysOnTop", false) === true : false;
+}
+
+function setAlwaysOnTop(enabled) {
+  const next = enabled === true;
+  if (store) store.set("alwaysOnTop", next);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setAlwaysOnTop(next);
+  }
+  return next;
+}
 
 function normalizeServiceUrl(url) {
   const value = String(url || "").trim();
@@ -268,19 +319,6 @@ function getFetchImplementation() {
   if (typeof fetch === "function") return fetch;
   if (typeof global.fetch === "function") return global.fetch;
   return null;
-}
-
-function isAllowedSpiceUrl(parsed) {
-  const host = parsed.hostname.toLowerCase();
-  const isLocalRuntime =
-    (host === "127.0.0.1" || host === "localhost") &&
-    parsed.port === "3939";
-
-  return (
-    isLocalRuntime ||
-    host === "music.spice-app.xyz" ||
-    host === "install.spice-app.xyz"
-  );
 }
 
 async function isLocalSpiceRuntimeReady() {
@@ -451,6 +489,7 @@ function createWindow() {
     frame: false, // Frameless window
     titleBarStyle: "hidden", // Hide default title bar, but keep traffic lights on macOS (we'll implement custom anyway)
     titleBarOverlay: false,
+    alwaysOnTop: getAlwaysOnTop(),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -484,6 +523,7 @@ function createWindow() {
   mainWindow.loadURL(APP_NATIVE_MODE ? "http://localhost:6969/?native=1" : "http://localhost:6969/").then(() => {
     mainWindow.show();
     applyCustomCssToWebContents(mainWindow.webContents);
+    sendShellTheme(mainWindow.webContents);
     // mainWindow.webContents.openDevTools({ mode: "detach" }); // Disabled to stop DevTools console from popping up automatically
 
     // Check for Default Service Startup.
@@ -1136,7 +1176,6 @@ ipcMain.on("vk-player-command", (event, cmd) => {
           if (el && el.offsetParent !== null) {
               const inner = el.querySelector('button') || el;
               inner.click();
-              if (el.click && el !== inner) el.click();
               return true;
           }
           return false;
@@ -1152,8 +1191,8 @@ ipcMain.on("vk-player-command", (event, cmd) => {
           v.paused ? v.play() : v.pause();
       }
     })()`,
-    next: `document.querySelector('.next-button')?.click() || document.querySelector('[aria-label="Next"]')?.click()`,
-    prev: `document.querySelector('.previous-button')?.click() || document.querySelector('[aria-label="Previous"]')?.click()`,
+    next: `(document.querySelector('.next-button') || document.querySelector('[aria-label="Next"]'))?.click()`,
+    prev: `(document.querySelector('.previous-button') || document.querySelector('[aria-label="Previous"]'))?.click()`,
     like: `(function(){
       const bar = document.querySelector('ytmusic-player-bar');
       if (!bar) return;
@@ -1397,9 +1436,87 @@ async function loadService(serviceKey) {
     });
 }
 
+async function loadSupportedUrl(rawUrl) {
+  const target = parseSupportedServiceUrl(rawUrl, { nativeMode: APP_NATIVE_MODE });
+  if (!target) {
+    console.log("Invalid or unsupported URL rejected:", rawUrl);
+    return { success: false, error: "Only supported HTTPS service URLs are allowed." };
+  }
+
+  const previousService = currentService;
+  const shouldRecreateView =
+    !view || view.webContents.isDestroyed() || previousService !== target.serviceKey;
+
+  if (shouldRecreateView && view) {
+    console.log("Destroying BrowserView before switching services...");
+    mainWindow.setBrowserView(null);
+    if (!view.webContents.isDestroyed()) view.webContents.destroy();
+    view = null;
+  }
+
+  if (previousService && previousService !== target.serviceKey) {
+    resetTrackedPlayback();
+  }
+  currentService = target.serviceKey;
+
+  if (!view) {
+    console.log("Creating BrowserView for supported URL...");
+    view = new BrowserView({
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: false,
+        partition: "persist:main",
+        preload: path.join(__dirname, "preload-view.js"),
+      },
+    });
+  }
+
+  if (!viewHiddenForModal) mainWindow.setBrowserView(view);
+  updateViewBounds();
+  sendActiveServiceState(true);
+
+  const viewSession = view.webContents.session;
+  const adBlockerEnabled = store ? store.get("adBlockerEnabled", true) : true;
+  if (adBlockerEnabled && adBlocker) {
+    adBlocker.enableBlockingInSession(viewSession);
+  }
+
+  view.webContents.once("dom-ready", () => {
+    const vkPlayerEnabled = store ? store.get("vkPlayerEnabled", false) : false;
+    view.webContents.send("vk-player-config", vkPlayerEnabled);
+  });
+
+  try {
+    console.log(`Loading URL: ${target.url}`);
+    await view.webContents.loadURL(target.url);
+    updateViewBounds();
+    applyCustomCssToWebContents(view.webContents);
+
+    if (supportsInjectedPlayback(target.serviceKey)) {
+      if (target.serviceKey !== "spice_crazy") {
+        view.webContents.insertCSS(AD_CSS);
+        injectAdSkipper(view);
+      }
+      injectTrackDetection(target.serviceKey);
+      startTrackPolling();
+    } else {
+      resetTrackedPlayback();
+    }
+
+    applyVolumeToActiveView();
+    return { success: true, serviceKey: target.serviceKey, url: target.url };
+  } catch (error) {
+    console.error("Failed to load supported URL:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to load URL.",
+    };
+  }
+}
+
 function goHome() {
   console.log("goHome() called");
-  stopTrackPolling(); // Stop polling when navigating away
+  resetTrackedPlayback();
 
   if (view) {
     mainWindow.setBrowserView(null);
@@ -1409,9 +1526,62 @@ function goHome() {
   }
   if (store) store.delete("lastService");
   currentService = null;
-  // Clear Discord RPC
-  discordRpc.clearPresence();
   sendActiveServiceState(false);
+}
+
+async function dispatchSpiceDesktopNavigation(action) {
+  if (
+    currentService !== "spice_crazy" ||
+    !view ||
+    view.webContents.isDestroyed()
+  ) {
+    return false;
+  }
+
+  try {
+    return Boolean(
+      await view.webContents.executeJavaScript(`
+        (() => {
+          const detail = { action: ${JSON.stringify(action)}, handled: false };
+          window.dispatchEvent(new CustomEvent('spice-desktop-navigation', { detail }));
+          return detail.handled === true;
+        })();
+      `),
+    );
+  } catch (error) {
+    console.error("[Navigation] SPICE navigation bridge failed:", error.message);
+    return false;
+  }
+}
+
+async function navigateActiveView(action) {
+  if (action === "home") {
+    goHome();
+    return true;
+  }
+
+  if (!view || view.webContents.isDestroyed()) return false;
+
+  if (action === "reload") {
+    view.webContents.reload();
+    return true;
+  }
+
+  if (action === "back" && (await dispatchSpiceDesktopNavigation("back"))) {
+    return true;
+  }
+
+  if (action === "back" || action === "forward") {
+    const history = getNavigationHistory(view.webContents);
+    if (navigateHistory(history, action)) return true;
+
+    if (action === "back") {
+      goHome();
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // ============== MAIN PROCESS TRACK POLLING ==============
@@ -2546,22 +2716,10 @@ app.whenReady().then(async () => {
         const navAction = action.navAction || (action.args && action.args[0]);
         if (navAction) {
           console.log(`[Server] Remote navigate: ${navAction}`);
-          if (navAction === "home") {
-            goHome();
-          } else if (view) {
-            switch (navAction) {
-              case "back":
-                if (view.webContents.canGoBack()) view.webContents.goBack();
-                break;
-              case "forward":
-                if (view.webContents.canGoForward())
-                  view.webContents.goForward();
-                break;
-              case "reload":
-                app.relaunch();
-                app.exit();
-                break;
-            }
+          if (["back", "forward", "reload", "home"].includes(navAction)) {
+            navigateActiveView(navAction).catch((error) => {
+              console.error("[Navigation] Remote navigation failed:", error);
+            });
           }
         }
         return;
@@ -2570,8 +2728,28 @@ app.whenReady().then(async () => {
       const playerView = getActiveBackendView();
       if (!playerView) return;
 
-      if (action.action === "playpause" || action.action === "playQueueIndex") {
-        markSpiceNativePlaybackIntent(`mini-player ${action.action}`);
+      const remoteAction = String(action.action || "");
+      const allowedPlayerActions = new Set([
+        "playpause",
+        "next",
+        "prev",
+        "playQueueIndex",
+        "volume",
+        "shuffle",
+        "repeat",
+        "queue",
+      ]);
+      if (!allowedPlayerActions.has(remoteAction)) {
+        console.warn(`[Server] Rejected unknown remote action: ${remoteAction}`);
+        return;
+      }
+      const requestedQueueIndex = Number(action.index);
+      const safeQueueIndex = Number.isSafeInteger(requestedQueueIndex)
+        ? requestedQueueIndex
+        : -1;
+
+      if (remoteAction === "playpause" || remoteAction === "playQueueIndex") {
+        markSpiceNativePlaybackIntent(`mini-player ${remoteAction}`);
       }
 
       // Execute actions on the main player view
@@ -2579,16 +2757,13 @@ app.whenReady().then(async () => {
             (function() {
                 const click = (sel) => document.querySelector(sel)?.click();
 
-                if ('${action.action}' === 'playpause') {
+                if ('${remoteAction}' === 'playpause') {
                    const findAndClick = (selector) => {
                        const el = document.querySelector(selector);
                        if (el && el.offsetParent !== null) {
                            // Sometimes the button itself is what we want, sometimes the inner
                            const inner = el.querySelector('button') || el;
                            inner.click();
-                           // As a fallback, also click the element itself if it has a click method
-                           // because some shadow dom implementations require clicking the host
-                           if (el.click && el !== inner) el.click();
                            return true;
                        }
                        return false;
@@ -2606,18 +2781,18 @@ app.whenReady().then(async () => {
                            }
                        }
                    }
-                }                else if ('${action.action}' === 'next') {
+                }                else if ('${remoteAction}' === 'next') {
                     const ytm = document.querySelector('.next-button');
                     if (ytm) ytm.click();
                     else click('.skipControl__next');
                 }
-                else if ('${action.action}' === 'prev') {
+                else if ('${remoteAction}' === 'prev') {
                     const ytm = document.querySelector('.previous-button');
                     if (ytm) ytm.click();
                     else click('.skipControl__previous');
                 }
-                else if ('${action.action}' === 'playQueueIndex') {
-                    const index = ${action.index !== undefined ? action.index : -1};
+                else if ('${remoteAction}' === 'playQueueIndex') {
+                    const index = ${safeQueueIndex};
                     if (index >= 0) {
                         const items = document.querySelectorAll('ytmusic-player-queue-item');
                         if (items && items[index]) {
@@ -2626,10 +2801,10 @@ app.whenReady().then(async () => {
                         }
                     }
                 }
-                else if ('${action.action}' === 'volume') {
+                else if ('${remoteAction}' === 'volume') {
                     // Handled in main process below
                 }
-                else if ('${action.action}' === 'shuffle') {
+                else if ('${remoteAction}' === 'shuffle') {
                     console.log('[MiniPlayer] Shuffle requested');
 
                     const findBtn = (selectors) => {
@@ -2661,7 +2836,7 @@ app.whenReady().then(async () => {
                     const scShuffle = document.querySelector('.shuffleControl');
                     if (scShuffle) scShuffle.click();
                 }
-                else if ('${action.action}' === 'repeat') {
+                else if ('${remoteAction}' === 'repeat') {
                     console.log('[MiniPlayer] Repeat requested');
 
                     const findBtn = (selectors) => {
@@ -2702,11 +2877,12 @@ app.whenReady().then(async () => {
 
       // Handle volume separately in main process (uses AudioContext gain, not video.volume)
       if (
-        action.action === "volume" &&
+        remoteAction === "volume" &&
         (action.value !== undefined ||
           (action.args && action.args[0] !== undefined))
       ) {
-        const val = action.value !== undefined ? action.value : action.args[0];
+        const val = Number(action.value !== undefined ? action.value : action.args[0]);
+        if (!Number.isFinite(val)) return;
         // Emit internally — picked up by ipcMain.on('set-volume') which calls applyVolume
         ipcMain.emit("set-volume", { sender: mainWindow?.webContents }, val);
         // Immediately update mini player server state so slider doesn't reset on next poll
@@ -2715,7 +2891,7 @@ app.whenReady().then(async () => {
         if (mainWindow) mainWindow.webContents.send("volume-changed", val);
       }
 
-      if (action.action === "queue") {
+      if (remoteAction === "queue") {
         if (queueWindow) {
           queueWindow.focus();
         } else {
@@ -2759,11 +2935,14 @@ app.whenReady().then(async () => {
         try {
           const res = await fetch(url);
           if (res && res.ok) {
-            existingServerDetected = true;
-            console.log(
-              `[Server] Port 6969 is already in use by a compatible local server (${url}). Continuing startup.`,
-            );
-            break;
+            const status = await res.json().catch(() => null);
+            if (status && status.spiceServer === true && status.protocolVersion === 1) {
+              existingServerDetected = true;
+              console.log(
+                `[Server] Port 6969 is already in use by a compatible local server (${url}). Continuing startup.`,
+              );
+              break;
+            }
           }
         } catch (_) {
           // Keep probing alternatives
@@ -2989,129 +3168,26 @@ app.whenReady().then(async () => {
     loadService(service);
   });
 
-  // Load a specific URL (only supported services allowed)
-  ipcMain.on("load-url", (event, url) => {
-    try {
-      const parsed = new URL(url);
-      const host = parsed.hostname.toLowerCase();
-
-      // Validate URL
-      const isYtMusic =
-        host === "music.youtube.com" || host === "www.music.youtube.com";
-      const isSoundCloud =
-        host === "soundcloud.com" ||
-        host === "www.soundcloud.com" ||
-        host === "m.soundcloud.com";
-      const isSpiceCrazy = isAllowedSpiceUrl(parsed);
-
-      if (APP_NATIVE_MODE && !isSpiceCrazy) {
-        console.log("Native mode rejected legacy URL:", url);
-        return;
-      }
-
-      if (!isYtMusic && !isSoundCloud && !isSpiceCrazy) {
-        console.log("Invalid URL rejected:", url);
-        return;
-      }
-
-      // Determine service for track detection
-      const serviceKey = isYtMusic ? "yt" : isSoundCloud ? "sc" : "spice_crazy";
-      currentService = serviceKey;
-
-      // Force recreate BrowserView to ensure clean state (fixes AdBlock/Interactivity issues)
-      if (view) {
-        console.log("Destroying existing BrowserView before loading URL...");
-        mainWindow.setBrowserView(null);
-        view.webContents.destroy();
-        view = null;
-      }
-
-      console.log("Creating new BrowserView for URL...");
-      view = new BrowserView({
-        webPreferences: {
-          nodeIntegration: false,
-          contextIsolation: false,
-          partition: "persist:main",
-          preload: path.join(__dirname, "preload-view.js"),
-        },
-      });
-      mainWindow.setBrowserView(view);
-
-      const viewSession = view.webContents.session;
-      const enabled = store ? store.get("adBlockerEnabled", true) : true;
-      if (enabled && adBlocker) {
-        adBlocker.enableBlockingInSession(viewSession);
-      }
-
-      // Ensure the view is attached (in case it was hidden by modal)
-      mainWindow.setBrowserView(view);
-      updateViewBounds();
-      sendActiveServiceState(true);
-
-      // Dispatch settings once DOM is interactive
-      view.webContents.on("dom-ready", () => {
-        const vkPlayerEnabled = store
-          ? store.get("vkPlayerEnabled", false)
-          : false;
-        console.log(
-          `[Main] DOM Ready. Sending vk-player-config = ${vkPlayerEnabled}`,
-        );
-        view.webContents.send("vk-player-config", vkPlayerEnabled);
-      });
-
-      console.log(`Loading URL: ${url} `);
-      view.webContents
-        .loadURL(url)
-        .then(() => {
-          console.log(`Successfully loaded URL: ${url} `);
-          applyCustomCssToWebContents(view.webContents);
-
-          // Open DevTools for debugging - REMOVED for "Settings Only" restriction
-          // view.webContents.openDevTools({ mode: 'detach' });
-
-          if (supportsInjectedPlayback(serviceKey)) {
-            if (serviceKey !== "spice_crazy") {
-              view.webContents.insertCSS(AD_CSS);
-              injectAdSkipper(view);
-            }
-
-            injectTrackDetection(serviceKey);
-
-            // Start main process polling (bypasses broken preload IPC)
-            startTrackPolling();
-          } else {
-            resetTrackedPlayback();
-          }
-
-          applyVolume();
-        })
-        .catch((e) => {
-          console.error(`Failed to load URL: `, e);
-        });
-    } catch (e) {
-      console.error("Invalid URL:", e.message);
-    }
-  });
+  // Load a specific URL (only exact supported service origins are allowed).
+  ipcMain.handle("load-url", (event, url) => loadSupportedUrl(url));
 
   ipcMain.on("navigate", (event, action) => {
-    if (!view) return;
-    switch (action) {
-      case "back":
-        if (view.webContents.canGoBack()) view.webContents.goBack();
-        break;
-      case "forward":
-        if (view.webContents.canGoForward()) view.webContents.goForward();
-        break;
-      case "reload":
-        // NUCLEAR RELOAD: User requested full app restart to fix breakage
-        console.log("User requested Reload - Relaunching App...");
-        app.relaunch();
-        app.exit();
-        break;
-      case "home":
-        goHome();
-        break;
+    if (!["back", "forward", "reload", "home"].includes(action)) return;
+    navigateActiveView(action).catch((error) => {
+      console.error("[Navigation] Navigation failed:", error);
+    });
+  });
+
+  ipcMain.on("spice-theme-changed", (event, theme) => {
+    if (
+      currentService !== "spice_crazy" ||
+      !view ||
+      view.webContents.isDestroyed() ||
+      event.sender !== view.webContents
+    ) {
+      return;
     }
+    updateShellTheme(theme);
   });
 
   // Auto Updater
@@ -3217,6 +3293,7 @@ app.whenReady().then(async () => {
   // Hide/Show BrowserView (for modals)
   ipcMain.on("hide-view", () => {
     console.log("IPC: hide-view received");
+    viewHiddenForModal = true;
     if (view && mainWindow) {
       mainWindow.setBrowserView(null);
       console.log("BrowserView hidden for modal");
@@ -3224,6 +3301,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on("show-view", () => {
+    viewHiddenForModal = false;
     if (view && mainWindow) {
       mainWindow.setBrowserView(view);
       updateViewBounds();
@@ -3525,6 +3603,7 @@ app.whenReady().then(async () => {
     settingsWindow.loadURL("http://localhost:6969/settings");
     settingsWindow.webContents.on("did-finish-load", () => {
       applyCustomCssToWebContents(settingsWindow.webContents);
+      sendShellTheme(settingsWindow.webContents);
     });
 
     settingsWindow.on("closed", () => {
@@ -3556,6 +3635,7 @@ app.whenReady().then(async () => {
     toolbarSettingsWindow.loadFile(path.join(__dirname, "toolbar-icons.html"));
     toolbarSettingsWindow.webContents.on("did-finish-load", () => {
       applyCustomCssToWebContents(toolbarSettingsWindow.webContents);
+      sendShellTheme(toolbarSettingsWindow.webContents);
     });
 
     toolbarSettingsWindow.on("closed", () => {
@@ -3712,6 +3792,7 @@ app.whenReady().then(async () => {
     const target = currentVolume > 1.0 ? 1.0 : 10.0;
     currentVolume = target;
     applyVolume(target);
+    if (store) store.set("volume", currentVolume);
     sendAudioControlState();
   });
 
@@ -3741,6 +3822,8 @@ app.whenReady().then(async () => {
         : DEFAULT_STARTUP_SERVICE,
       toolbarButtons: getToolbarButtons(),
       boostEnabled: currentBoostEnabled,
+      alwaysOnTop: getAlwaysOnTop(),
+      shellTheme: getShellTheme(),
       customCss: store ? store.get("customCss", "") : "",
       discordRpcEnabled: store ? store.get("discordRpcEnabled", true) : true,
       vkPlayerEnabled: store ? store.get("vkPlayerEnabled", false) : false,
@@ -3792,12 +3875,22 @@ app.whenReady().then(async () => {
         })();
       `;
       view.webContents.executeJavaScript(code).catch((e) => {
-        console.error("SPA Search failed, falling back to load-url:", e);
-        ipcMain.emit("load-url", event, searchUrl);
+        console.error("SPA Search failed, falling back to direct URL load:", e);
+        loadSupportedUrl(searchUrl).catch((error) => {
+          console.error("Search URL fallback failed:", error);
+        });
       });
     } else {
-      ipcMain.emit("load-url", event, searchUrl);
+      loadSupportedUrl(searchUrl).catch((error) => {
+        console.error("Search URL load failed:", error);
+      });
     }
+  });
+
+  ipcMain.handle("get-always-on-top", () => getAlwaysOnTop());
+
+  ipcMain.handle("set-always-on-top", (event, enabled) => {
+    return setAlwaysOnTop(enabled);
   });
 
   ipcMain.on("set-vk-player", (event, enabled) => {

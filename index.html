@@ -64,6 +64,41 @@
         return m + ':' + (sec < 10 ? '0' : '') + sec;
     }
 
+    function normalizeShellTheme(value) {
+        var accents = ['pink', 'blue', 'orange', 'green', 'gold', 'crimson', 'deeppurple'];
+        var surfaces = ['midnight', 'glass', 'solid', 'aurora'];
+        value = value && typeof value === 'object' ? value : {};
+        return {
+            accent: accents.includes(value.accent) ? value.accent : 'deeppurple',
+            surface: surfaces.includes(value.surface) ? value.surface : 'midnight',
+        };
+    }
+
+    function applyShellTheme(value) {
+        var theme = normalizeShellTheme(value);
+        document.documentElement.dataset.spiceAccent = theme.accent;
+        document.documentElement.dataset.spiceSurface = theme.surface;
+        return theme;
+    }
+
+    function isSupportedServiceUrl(value) {
+        try {
+            var parsed = new URL(value);
+            if (parsed.username || parsed.password) return false;
+            var host = parsed.hostname.toLowerCase();
+            var local = parsed.protocol === 'http:' &&
+                (host === '127.0.0.1' || host === 'localhost') && parsed.port === '3939';
+            var remote = parsed.protocol === 'https:' && [
+                'music.youtube.com', 'www.music.youtube.com',
+                'soundcloud.com', 'www.soundcloud.com', 'm.soundcloud.com',
+                'music.spice-app.xyz', 'install.spice-app.xyz'
+            ].includes(host);
+            return local || remote;
+        } catch (_) {
+            return false;
+        }
+    }
+
     async function callApi(action) {
         var args = Array.prototype.slice.call(arguments, 1);
 
@@ -367,11 +402,10 @@
                 : 'Checking runtime';
 
             return html`
-                <div class="flex-1 relative grid grid-cols-1 lg:grid-cols-[minmax(0,0.92fr)_minmax(380px,520px)] gap-8 px-8 py-8 overflow-auto"
-                     style=${{ background: 'radial-gradient(circle at 32% 24%, rgba(168,85,247,0.13), transparent 34%), #0a0a0c' }}>
+                <div class="theme-home-bg flex-1 relative grid grid-cols-1 lg:grid-cols-[minmax(0,0.92fr)_minmax(380px,520px)] gap-8 px-8 py-8 overflow-auto">
                     <section class="flex flex-col justify-center min-h-[520px]">
                         <div class="max-w-[680px]">
-                            <div class="inline-flex items-center gap-2 rounded-full border border-purple-400/20 bg-purple-500/10 px-3 py-1 text-[11px] uppercase tracking-[0.22em] text-purple-200 mb-5">
+                            <div class="theme-badge inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.22em] mb-5">
                                 ${icon(IC.cloud, 15)} Native SPICE
                             </div>
                             <h1 class="text-5xl font-semibold tracking-normal leading-tight mb-4">
@@ -401,16 +435,16 @@
                     <section class="self-center rounded-2xl border border-white/[0.08] bg-black/35 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.35)]">
                         ${account ? html`
                             <div>
-                                <div class="text-[11px] uppercase tracking-[0.22em] text-purple-300 mb-2">Signed in</div>
+                                <div class="theme-text-soft text-[11px] uppercase tracking-[0.22em] mb-2">Signed in</div>
                                 <h2 class="text-2xl font-semibold mb-2">${account.user && account.user.email ? account.user.email : 'SPICE account connected'}</h2>
                                 <p class="text-sm text-gray-400 mb-5">Your session will be injected into the local SPICE runtime when the player opens.</p>
                                 <div class="flex flex-wrap gap-2">
-                                    <button class="rounded-lg bg-purple-500 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-400 disabled:opacity-40"
+                                    <button class="theme-primary-btn rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
                                             disabled=${nativeBusy}
                                             onClick=${launchNativeSpice}>
                                         Open SPICE Music
                                     </button>
-                                    <button class="rounded-lg border border-purple-500/30 px-4 py-2 text-sm font-semibold text-purple-100 hover:bg-purple-500/10 disabled:opacity-40"
+                                    <button class="theme-outline-btn rounded-lg border px-4 py-2 text-sm font-semibold disabled:opacity-40"
                                             disabled=${nativeBusy}
                                             onClick=${function() { setNativeAutoOpen(!autoOpen); }}>
                                         ${autoOpen ? 'Auto-open enabled' : 'Auto-open on launch'}
@@ -424,16 +458,16 @@
                             </div>
                         ` : html`
                             <form onSubmit=${handleNativeAuth}>
-                                <div class="text-[11px] uppercase tracking-[0.22em] text-purple-300 mb-2">First launch</div>
+                                <div class="theme-text-soft text-[11px] uppercase tracking-[0.22em] mb-2">First launch</div>
                                 <h2 class="text-2xl font-semibold mb-2">Connect your SPICE account</h2>
                                 <p class="text-sm text-gray-400 mb-5">Sign in for sync and account features, or continue local-only.</p>
 
                                 <div class="grid grid-cols-2 gap-2 mb-4 rounded-xl bg-white/[0.04] p-1">
-                                    <button type="button" class=${'rounded-lg px-3 py-2 text-sm font-semibold ' + (authMode === 'signin' ? 'bg-purple-500 text-white' : 'text-gray-400 hover:text-white')}
+                                    <button type="button" class=${'rounded-lg px-3 py-2 text-sm font-semibold ' + (authMode === 'signin' ? 'theme-primary-btn text-white' : 'text-gray-400 hover:text-white')}
                                             onClick=${function() { setAuthMode('signin'); }}>
                                         Sign in
                                     </button>
-                                    <button type="button" class=${'rounded-lg px-3 py-2 text-sm font-semibold ' + (authMode === 'register' ? 'bg-purple-500 text-white' : 'text-gray-400 hover:text-white')}
+                                    <button type="button" class=${'rounded-lg px-3 py-2 text-sm font-semibold ' + (authMode === 'register' ? 'theme-primary-btn text-white' : 'text-gray-400 hover:text-white')}
                                             onClick=${function() { setAuthMode('register'); }}>
                                         Register
                                     </button>
@@ -459,7 +493,7 @@
                                        value=${authPassword}
                                        onInput=${function(e) { setAuthPassword(e.target.value); }} />
 
-                                <button class="w-full rounded-lg bg-purple-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-400 disabled:opacity-40"
+                                <button class="theme-primary-btn w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
                                         disabled=${nativeBusy}>
                                     ${nativeBusy ? 'Working...' : authMode === 'register' ? 'Create account and open SPICE' : 'Sign in and open SPICE'}
                                 </button>
@@ -478,17 +512,14 @@
         }
 
         return html`
-            <div class="flex-1 relative flex flex-col items-center justify-center text-center px-6 animate-fade-in select-none"
-                 style=${{ background: 'radial-gradient(ellipse at 50% 40%, rgba(168,85,247,0.06) 0%, transparent 70%)' }}>
+            <div class="theme-home-bg flex-1 relative flex flex-col items-center justify-center text-center px-6 animate-fade-in select-none">
 
                 <!-- Animated Spice Logo -->
                 <div class="mb-2" style=${{ animation: 'float 4s ease-in-out infinite' }}>
-                    <div class="text-purple-500 mb-4">${icon(IC.ytMusic, 56)}</div>
+                    <div class="theme-text mb-4">${icon(IC.ytMusic, 56)}</div>
                 </div>
 
-                <h1 class="text-5xl font-extralight tracking-[0.2em] mb-2"
-                    style=${{ background: 'linear-gradient(135deg, #c084fc 0%, #a855f7 50%, #7c3aed 100%)',
-                              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                <h1 class="theme-gradient-text text-5xl font-extralight tracking-[0.2em] mb-2">
                     SPICE
                 </h1>
                 <p class="text-gray-600 text-xs tracking-[0.3em] uppercase mb-5 font-medium">
@@ -496,19 +527,18 @@
                 </p>
 
                 <p class="text-gray-500 text-sm mb-14">
-                    Ready to <span class="text-purple-400 font-semibold"
-                        style=${{ textShadow: '0 0 16px rgba(168,85,247,0.85)' }}>Spice</span> things up?
+                    Ready to <span class="theme-text-soft theme-text-glow font-semibold">Spice</span> things up?
                 </p>
 
                 <!-- Service Cards -->
                 <div class="flex gap-6 flex-wrap justify-center">
                     <!-- YouTube Music -->
-                    <button class="group glass rounded-2xl w-[240px] h-[200px] flex flex-col items-center justify-center
+                    <button class="group glass theme-card rounded-2xl w-[240px] h-[200px] flex flex-col items-center justify-center
                                    cursor-pointer transition-all duration-300 hover:-translate-y-1.5
                                    hover:border-purple-500/30 hover:shadow-[0_8px_40px_rgba(168,85,247,0.15)]
                                    active:scale-95"
                             onClick=${function() { onLoad('yt'); }}>
-                        <div class="text-purple-500 mb-5 transition-transform duration-300 group-hover:scale-110">
+                        <div class="theme-text mb-5 transition-transform duration-300 group-hover:scale-110">
                             ${icon(IC.play, 44)}
                         </div>
                         <h2 class="text-base font-semibold tracking-wide">YouTube Music</h2>
@@ -516,17 +546,17 @@
                     </button>
 
                     <!-- Spice Music -->
-                    <button class="group glass rounded-2xl w-[240px] h-[200px] flex flex-col items-center justify-center
+                    <button class="group glass theme-card rounded-2xl w-[240px] h-[200px] flex flex-col items-center justify-center
                                    cursor-pointer transition-all duration-300 hover:-translate-y-1.5
                                    hover:border-purple-500/30 hover:shadow-[0_8px_40px_rgba(168,85,247,0.15)]
                                    active:scale-95"
                             onClick=${function() { nativeMode ? launchNativeSpice() : onLoad('spice_crazy'); }}>
-                        <div class="text-purple-500 mb-5 transition-transform duration-300 group-hover:scale-110">
+                        <div class="theme-text mb-5 transition-transform duration-300 group-hover:scale-110">
                             ${icon(IC.ytMusic, 44)}
                         </div>
                         <div class="flex items-center gap-2">
                             <h2 class="text-base font-semibold tracking-wide">Spice Music</h2>
-                            <span class="text-[9px] uppercase tracking-[0.18em] text-purple-300 bg-purple-500/15 border border-purple-500/25 rounded-full px-2 py-0.5">Preview</span>
+                            <span class="theme-badge text-[9px] uppercase tracking-[0.18em] border rounded-full px-2 py-0.5">Preview</span>
                         </div>
                         <span class="text-[11px] text-gray-600 mt-1">Local runtime on localhost</span>
                     </button>
@@ -536,7 +566,7 @@
                     <div class="no-drag mt-5 w-[520px] max-w-[92vw] rounded-2xl border border-white/[0.07] bg-black/25 px-4 py-3 text-left">
                         <div class="flex items-center justify-between gap-3 mb-3">
                             <div>
-                                <div class="text-[10px] uppercase tracking-[0.24em] text-purple-300">SPICE local runtime</div>
+                                <div class="theme-text-soft text-[10px] uppercase tracking-[0.24em]">SPICE local runtime</div>
                                 <div class="text-sm text-gray-300">${runtimeLabel()}</div>
                             </div>
                             <button class="rounded-full border border-white/10 px-3 py-1.5 text-[11px] text-gray-300 hover:bg-white/5 disabled:opacity-40"
@@ -546,12 +576,12 @@
                             </button>
                         </div>
                         <div class="flex flex-wrap gap-2">
-                            <button class="rounded-full bg-purple-500 px-4 py-2 text-[12px] font-semibold text-white hover:bg-purple-400 disabled:opacity-40"
+                            <button class="theme-primary-btn rounded-full px-4 py-2 text-[12px] font-semibold text-white disabled:opacity-40"
                                     disabled=${runtimeBusy || (runtimeStatus && (!runtimeStatus.supported || runtimeStatus.running))}
                                     onClick=${function() { runRuntimeAction('spiceRuntimeInstall'); }}>
                                 Install / update
                             </button>
-                            <button class="rounded-full border border-purple-500/30 px-4 py-2 text-[12px] font-semibold text-purple-200 hover:bg-purple-500/10 disabled:opacity-40"
+                            <button class="theme-outline-btn rounded-full border px-4 py-2 text-[12px] font-semibold disabled:opacity-40"
                                     disabled=${runtimeBusy || !runtimeStatus || !runtimeStatus.installed || runtimeStatus.running}
                                     onClick=${function() { runRuntimeAction('spiceRuntimeStart'); }}>
                                 Start runtime
@@ -575,7 +605,7 @@
                     <label class="block text-[9px] uppercase tracking-[0.24em] text-gray-800 mb-1.5">
                         Deprecated folder
                     </label>
-                    <select class="bg-black/40 text-gray-600 border border-white/[0.04] rounded-full
+                    <select class="theme-input bg-black/40 text-gray-600 border border-white/[0.04] rounded-full
                                    px-2.5 py-1.5 text-[11px] outline-none cursor-pointer hover:text-gray-300
                                    hover:border-purple-500/20 focus:border-purple-500/30 transition-all"
                             onChange=${function(e) {
@@ -598,53 +628,61 @@
         var onClose = props.onClose;
         var inputRef = useRef(null);
         var errorRef = useRef(null);
+        var _busy = useState(false);
+        var busy = _busy[0];
+        var setBusy = _busy[1];
 
         useEffect(function() {
             if (inputRef.current) inputRef.current.focus();
-        }, []);
+            function onKeyDown(event) {
+                if (event.key === 'Escape') onClose();
+            }
+            document.addEventListener('keydown', onKeyDown);
+            return function() { document.removeEventListener('keydown', onKeyDown); };
+        }, [onClose]);
 
-        function handleGo() {
+        async function handleGo() {
             var url = (inputRef.current.value || '').trim();
             if (!url) return;
+            if (!isSupportedServiceUrl(url)) {
+                if (errorRef.current) errorRef.current.textContent = 'Enter an HTTPS URL for a supported service, or the local SPICE runtime URL.';
+                return;
+            }
+
+            setBusy(true);
+            if (errorRef.current) errorRef.current.textContent = '';
             try {
-                var parsed = new URL(url);
-                var h = parsed.hostname.toLowerCase();
-                var isLocalSpiceRuntime = (h === '127.0.0.1' || h === 'localhost') &&
-                                          parsed.port === '3939';
-                var valid = h.includes('music.youtube.com') ||
-                            h.includes('soundcloud.com') ||
-                            h === 'music.spice-app.xyz' ||
-                            h === 'install.spice-app.xyz' ||
-                            isLocalSpiceRuntime;
-                if (!valid) {
-                    if (errorRef.current) errorRef.current.textContent = 'Only supported service URLs are allowed.';
-                    return;
+                var result = await callApi('loadUrl', url);
+                if (result && result.success === false) {
+                    throw new Error(result.error || 'The URL could not be opened.');
                 }
-                callApi('loadUrl', url);
                 onClose();
             } catch (e) {
-                if (errorRef.current) errorRef.current.textContent = 'Invalid URL format.';
+                if (errorRef.current) errorRef.current.textContent = e && e.message ? e.message : 'The URL could not be opened.';
+            } finally {
+                setBusy(false);
             }
         }
 
         return html`
             <div class="modal-backdrop animate-fade-in" onClick=${onClose}>
-                <div class="glass-strong rounded-2xl p-6 w-[420px] max-w-[90vw] animate-slide-up"
+                <div class="glass-strong theme-dialog rounded-2xl p-6 w-[420px] max-w-[90vw] animate-slide-up"
+                     role="dialog" aria-modal="true" aria-labelledby="open-url-title"
                      onClick=${function(e) { e.stopPropagation(); }}>
-                    <h3 class="text-lg font-semibold mb-4">Open URL</h3>
+                    <h3 id="open-url-title" class="text-lg font-semibold mb-4">Open URL</h3>
                     <input ref=${inputRef} type="text"
                            placeholder="https://music.spice-app.xyz/?song=..."
-                           class="w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white
-                                  placeholder-gray-600 focus:border-purple-500/50 focus:ring-2 focus:ring-purple-500/20
-                                  outline-none transition-all"
+                           disabled=${busy}
+                           class="theme-input w-full bg-black/40 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white
+                                  placeholder-gray-600 outline-none transition-all"
                            onKeyDown=${function(e) { if (e.key === 'Enter') handleGo(); }} />
                     <p ref=${errorRef} class="text-red-400 text-xs mt-2 min-h-[16px]"></p>
                     <div class="flex justify-end gap-3 mt-4">
                         <button class="px-4 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-white/5 transition-all"
                                 onClick=${onClose}>Cancel</button>
-                        <button class="px-5 py-2 rounded-lg text-sm font-medium bg-purple-500 text-white
-                                       hover:bg-purple-400 transition-all active:scale-95"
-                                onClick=${handleGo}>Go</button>
+                        <button class="theme-primary-btn px-5 py-2 rounded-lg text-sm font-medium text-white
+                                       transition-all active:scale-95 disabled:opacity-50"
+                                disabled=${busy} onClick=${handleGo}>${busy ? 'Opening…' : 'Go'}</button>
                     </div>
                 </div>
             </div>
@@ -663,9 +701,9 @@
         var pct = track.duration > 0 ? Math.min(100, (displayTime / track.duration) * 100) : 0;
 
         return html`
-            <div class="h-[50px] flex items-center px-3 gap-3 no-drag relative z-[1999] border-b border-white/[0.04]"
+            <div class="spice-player-bar h-[50px] flex items-center px-3 gap-3 no-drag relative z-[1999] border-b border-white/[0.04]"
                  id="vk-player-bar"
-                 style=${{ background: 'linear-gradient(180deg, rgba(10,10,12,0.98) 0%, rgba(0,0,0,0.95) 100%)' }}>
+                 >
 
                 <!-- Album Art -->
                 ${track.albumArt
@@ -701,7 +739,7 @@
                 </div>
 
                 <!-- Like -->
-                <button class=${'ctrl-btn ' + (track.likeStatus ? 'text-purple-500' : '')}
+                <button class=${'ctrl-btn ' + (track.likeStatus ? 'theme-text' : '')}
                         onClick=${function() { callApi('vkCommand', 'like'); }}
                         title="Like">
                     ${icon(IC.heart)}
@@ -714,9 +752,8 @@
                     </span>
                     <div class="flex-1 h-[5px] bg-white/[0.06] rounded-full relative cursor-pointer group"
                          onMouseDown=${onDragStart}>
-                        <div class="h-full rounded-full relative transition-[width] duration-75"
-                             style=${{ width: pct + '%',
-                                       background: 'linear-gradient(90deg, #7c3aed, #a855f7)' }}>
+                        <div class="theme-gradient-bg h-full rounded-full relative transition-[width] duration-75"
+                             style=${{ width: pct + '%' }}>
                             <div class="absolute right-0 top-1/2 -translate-y-1/2 w-[13px] h-[13px] rounded-full bg-white
                                         opacity-0 group-hover:opacity-100 transition-opacity duration-150"
                                  style=${{ boxShadow: '0 0 8px rgba(168,85,247,0.6), 0 1px 3px rgba(0,0,0,0.4)' }}></div>
@@ -728,10 +765,10 @@
                 </div>
 
                 <!-- Shuffle / Repeat -->
-                <button class=${'ctrl-btn ' + (track.shuffle ? 'text-purple-500' : '')}
+                <button class=${'ctrl-btn ' + (track.shuffle ? 'theme-text' : '')}
                         onClick=${function() { callApi('vkCommand', 'shuffle'); }}
                         title="Shuffle">${icon(IC.shuffle)}</button>
-                <button class=${'ctrl-btn ' + (track.repeat && track.repeat !== 'off' ? 'text-purple-500' : '')}
+                <button class=${'ctrl-btn ' + (track.repeat && track.repeat !== 'off' ? 'theme-text' : '')}
                         onClick=${function() { callApi('vkCommand', 'repeat'); }}
                         title="Repeat">
                     ${track.repeat === 'one' ? icon(IC.repeatOne) : icon(IC.repeat)}
@@ -814,8 +851,7 @@
         }
 
         return html`
-            <div class="h-[40px] flex items-center justify-between drag relative z-[2000] border-b border-white/[0.04]"
-                 style=${{ background: 'rgba(0,0,0,0.92)' }}>
+            <div class="spice-titlebar h-[40px] flex items-center justify-between drag relative z-[2000] border-b border-white/[0.04]">
 
                 <!-- LEFT: Nav Controls -->
                 <div class="flex items-center h-full pl-2 no-drag gap-0.5">
@@ -839,9 +875,8 @@
                             </div>
                             <input type="text" placeholder="Search"
                                    id="spice-search-bar"
-                                   class="w-full bg-white/[0.04] text-white border border-white/[0.06] rounded-full
+                                   class="theme-input w-full bg-white/[0.04] text-white border border-white/[0.06] rounded-full
                                           pl-9 pr-4 py-1.5 text-[13px] placeholder-gray-600
-                                          focus:border-purple-500/40 focus:bg-white/[0.06]
                                           outline-none transition-all"
                                    onKeyDown=${function(e) {
                                        if (e.key === 'Enter' && e.target.value.trim()) {
@@ -897,7 +932,7 @@
                                 </span>
                                 <button class=${'text-[10px] px-2 py-0.5 rounded-full border transition-all '
                                     + (boostEnabled
-                                        ? 'border-purple-500/50 text-purple-400 bg-purple-500/10'
+                                        ? 'theme-badge'
                                         : 'border-white/10 text-gray-600 hover:text-gray-400 hover:bg-white/5')}
                                     onClick=${handleBoostClick}>Boost</button>
                             </div>
@@ -930,11 +965,11 @@
                     <div class="fixed inset-0 z-[5000] flex items-center justify-center bg-black/70 no-drag"
                          onMouseDown=${function(e) { e.stopPropagation(); }}
                          onClick=${function(e) { e.stopPropagation(); }}>
-                        <div class="w-[360px] rounded-2xl border border-purple-500/30 bg-[#0d0d12] p-5 shadow-2xl shadow-purple-950/30"
+                        <div class="theme-dialog w-[360px] rounded-2xl border p-5 shadow-2xl"
                              role="dialog"
                              aria-modal="true"
                              aria-labelledby="boost-warning-title">
-                            <div class="mb-3 text-sm font-semibold text-purple-300" id="boost-warning-title">
+                            <div class="theme-text-soft mb-3 text-sm font-semibold" id="boost-warning-title">
                                 Volume Boost Warning
                             </div>
                             <p class="mb-4 text-[13px] leading-5 text-gray-300">
@@ -952,7 +987,7 @@
                                         }}>
                                     Cancel
                                 </button>
-                                <button class="rounded-full border border-purple-400/50 bg-purple-500/20 px-4 py-1.5 text-[12px] font-semibold text-purple-100 hover:bg-purple-500/30"
+                                <button class="theme-outline-btn rounded-full border px-4 py-1.5 text-[12px] font-semibold"
                                         onClick=${function(e) {
                                             e.stopPropagation();
                                             acceptBoostWarning();
@@ -986,6 +1021,7 @@
         var _url   = useState(false);            var showUrlModal = _url[0];  var setShowUrlModal = _url[1];
         var _ts    = useState(false);            var topSearchVisible = _ts[0]; var setTopSearchVisible = _ts[1];
         var _tb    = useState({});               var toolbarButtons = _tb[0]; var setToolbarButtons = _tb[1];
+        var _theme = useState(normalizeShellTheme()); var shellTheme = _theme[0]; var setShellTheme = _theme[1];
         var _nm    = useState(new URLSearchParams(window.location.search).get('native') === '1'); var nativeMode = _nm[0]; var setNativeMode = _nm[1];
         var _drag  = useState(false);            var isDragging = _drag[0];   var setIsDragging = _drag[1];
         var _dragT = useState(0);                var dragTime = _dragT[0];    var setDragTime = _dragT[1];
@@ -1000,6 +1036,7 @@
         useEffect(function() { isDraggingRef.current = isDragging; }, [isDragging]);
         useEffect(function() { serviceActiveRef.current = serviceActive; }, [serviceActive]);
         useEffect(function() { durationRef.current = track.duration; }, [track.duration]);
+        useEffect(function() { applyShellTheme(shellTheme); }, [shellTheme.accent, shellTheme.surface]);
 
         // --- IPC Event Subscriptions (Electron mode) ---
         useEffect(function() {
@@ -1008,16 +1045,18 @@
             // Track updates from main process
             window.api.onVkTrackUpdate(function(info) {
                 setTrack(function(prev) {
+                    var has = function(key) { return info[key] !== undefined && info[key] !== null; };
+                    var trackChanged = has('title') && info.title !== prev.title;
                     return {
-                        title:       info.title       || prev.title,
-                        artist:      info.artist      || prev.artist,
-                        albumArt:    info.albumArt    || prev.albumArt,
-                        paused:      info.paused      !== undefined ? info.paused : prev.paused,
-                        duration:    info.duration    || prev.duration,
-                        currentTime: isDraggingRef.current ? prev.currentTime : (info.currentTime || prev.currentTime),
-                        shuffle:     info.shuffle     !== undefined ? info.shuffle : prev.shuffle,
-                        repeat:      info.repeat      || prev.repeat,
-                        likeStatus:  info.likeStatus  !== undefined ? info.likeStatus : prev.likeStatus,
+                        title:       has('title') ? info.title : prev.title,
+                        artist:      has('artist') ? info.artist : (trackChanged ? '' : prev.artist),
+                        albumArt:    has('albumArt') ? info.albumArt : (trackChanged ? '' : prev.albumArt),
+                        paused:      has('paused') ? info.paused : prev.paused,
+                        duration:    has('duration') ? info.duration : (trackChanged ? 0 : prev.duration),
+                        currentTime: isDraggingRef.current ? prev.currentTime : (has('currentTime') ? info.currentTime : (trackChanged ? 0 : prev.currentTime)),
+                        shuffle:     has('shuffle') ? info.shuffle : prev.shuffle,
+                        repeat:      has('repeat') ? info.repeat : prev.repeat,
+                        likeStatus:  has('likeStatus') ? info.likeStatus : prev.likeStatus,
                     };
                 });
             });
@@ -1028,6 +1067,7 @@
                 if (!active) {
                     setActiveService(null);
                     setPlayerVisible(false);
+                    setTrack(trackInit);
                 }
             });
 
@@ -1070,12 +1110,22 @@
                 });
             }
 
+            var removeThemeListener = null;
+            if (window.api.onShellThemeChanged) {
+                removeThemeListener = window.api.onShellThemeChanged(function(theme) {
+                    setShellTheme(normalizeShellTheme(theme));
+                });
+            }
+
             // Update status notifications
             if (window.api.onUpdateStatus) {
                 window.api.onUpdateStatus(function(status) {
                     console.log('[Spice] Update status:', status);
                 });
             }
+            return function() {
+                if (removeThemeListener) removeThemeListener();
+            };
         }, []);
 
         // --- Initial Settings Load ---
@@ -1096,6 +1146,7 @@
                     setToolbarButtons((settings && settings.toolbarButtons) || {});
                     setNativeMode(!!(settings && settings.nativeMode));
                     setBoostEnabled(!!(settings && settings.boostEnabled));
+                    setShellTheme(normalizeShellTheme(settings && settings.shellTheme));
                 }
             })();
         }, []);
@@ -1197,7 +1248,7 @@
 
         // --- Render ---
         return html`
-            <div class="flex flex-col h-screen bg-[#0a0a0c] text-white font-sans overflow-hidden">
+            <div class="spice-shell flex flex-col h-screen text-white font-sans overflow-hidden">
 
                 <${TitleBar}
                     volume=${volume}

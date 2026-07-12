@@ -6,7 +6,7 @@ contextBridge.exposeInMainWorld("api", {
   openSettings: () => ipcRenderer.send("open-settings"),
   openToolbarSettings: () => ipcRenderer.send("open-toolbar-settings"),
   setVolume: (value) => ipcRenderer.send("set-volume", value),
-  loadUrl: (url) => ipcRenderer.send("load-url", url),
+  loadUrl: (url) => ipcRenderer.invoke("load-url", url),
   hideView: () => ipcRenderer.send("hide-view"),
   showView: () => ipcRenderer.send("show-view"),
   toggleVolume: () => ipcRenderer.send("toggle-volume"),
@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld("api", {
     signOut: () => ipcRenderer.invoke("native-sign-out"),
   },
   getSettings: () => ipcRenderer.invoke("get-settings"),
+  getAlwaysOnTop: () => ipcRenderer.invoke("get-always-on-top"),
+  setAlwaysOnTop: (enabled) =>
+    ipcRenderer.invoke("set-always-on-top", enabled === true),
   setAdBlocker: (enabled) => ipcRenderer.send("set-adblocker", enabled),
   setVkPlayer: (enabled) => ipcRenderer.send("set-vk-player", enabled),
   setDefaultService: (service) =>
@@ -84,6 +87,11 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on("toolbar-buttons-changed", (event, buttons) =>
       callback(buttons),
     ),
+  onShellThemeChanged: (callback) => {
+    const listener = (event, theme) => callback(theme);
+    ipcRenderer.on("shell-theme-changed", listener);
+    return () => ipcRenderer.removeListener("shell-theme-changed", listener);
+  },
   onVkTrackUpdate: (callback) =>
     ipcRenderer.on("vk-track-update", (event, info) => callback(info)),
   vkCommand: (cmd) => ipcRenderer.send("vk-player-command", cmd),
