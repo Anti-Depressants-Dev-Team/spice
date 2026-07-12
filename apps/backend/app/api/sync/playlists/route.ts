@@ -5,7 +5,7 @@ import { playlists, playlistItems, playlistMembers, playlistInvites } from '@/db
 import { eq, and, isNull, inArray } from 'drizzle-orm';
 import { trackSnapshotColumns } from '@/lib/track-snapshot';
 import type { TrackSnapshotInput } from '@/lib/track-snapshot';
-import { getPlaylistSnapshot } from '@/lib/shared-playlists';
+import { getPlaylistSnapshotsBatch } from '@/lib/shared-playlists';
 
 export const runtime = 'nodejs';
 
@@ -51,26 +51,47 @@ export async function GET(request: Request) {
     });
 
     const results = [];
-    for (const pl of userPlaylists) {
-      const memberRows = await db.select().from(playlistMembers).where(eq(playlistMembers.playlistId, pl.id));
-      const inviteRows = await db.select().from(playlistInvites).where(eq(playlistInvites.playlistId, pl.id));
-      const isShared = memberRows.length > 0 || inviteRows.length > 0;
-      const snapshot = await getPlaylistSnapshot(pl.id, {
+    const playlistIds = userPlaylists.map(pl => pl.id);
+    let allMemberRows: typeof playlistMembers.$inferSelect[] = [];
+    let allInviteRows: typeof playlistInvites.$inferSelect[] = [];
+
+    if (playlistIds.length > 0) {
+      allMemberRows = await db.select().from(playlistMembers).where(inArray(playlistMembers.playlistId, playlistIds));
+      allInviteRows = await db.select().from(playlistInvites).where(inArray(playlistInvites.playlistId, playlistIds));
+    }
+
+    const membersByPlaylist = new Set(allMemberRows.map(r => r.playlistId));
+    const invitesByPlaylist = new Set(allInviteRows.map(r => r.playlistId));
+
+    const optionsMap: Record<string, { shared?: boolean; includeMembers?: boolean; shareRole?: string }> = {};
+    for (const id of playlistIds) {
+      const isShared = membersByPlaylist.has(id) || invitesByPlaylist.has(id);
+      optionsMap[id] = {
         shared: isShared,
         includeMembers: isShared,
         shareRole: isShared ? 'owner' : undefined,
-      });
-      if (snapshot) results.push(snapshot);
+      };
     }
 
+    const snapshots = await getPlaylistSnapshotsBatch(playlistIds, optionsMap);
+    results.push(...snapshots);
+
     const memberRows = await db.select().from(playlistMembers).where(and(eq(playlistMembers.userId, session.userId), eq(playlistMembers.status, 'accepted')));
-    for (const membership of memberRows) {
-      const snapshot = await getPlaylistSnapshot(membership.playlistId, {
-        shared: true,
-        shareRole: membership.role,
-      });
-      if (snapshot && snapshot.ownerId !== session.userId) {
-        results.push(snapshot);
+    const sharedPlaylistIds = memberRows.map(m => m.playlistId);
+
+    if (sharedPlaylistIds.length > 0) {
+      const sharedOptionsMap: Record<string, { shared?: boolean; shareRole?: string }> = {};
+      for (const membership of memberRows) {
+        sharedOptionsMap[membership.playlistId] = {
+          shared: true,
+          shareRole: membership.role,
+        };
+      }
+      const sharedSnapshots = await getPlaylistSnapshotsBatch(sharedPlaylistIds, sharedOptionsMap);
+      for (const snapshot of sharedSnapshots) {
+        if (snapshot.ownerId !== session.userId) {
+          results.push(snapshot);
+        }
       }
     }
 
@@ -199,17 +220,30 @@ export async function POST(request: Request) {
     });
 
     const results = [];
-    for (const pl of userPlaylists) {
-      const memberRows = await db.select().from(playlistMembers).where(eq(playlistMembers.playlistId, pl.id));
-      const inviteRows = await db.select().from(playlistInvites).where(eq(playlistInvites.playlistId, pl.id));
-      const isShared = memberRows.length > 0 || inviteRows.length > 0;
-      const snapshot = await getPlaylistSnapshot(pl.id, {
+    const playlistIds = userPlaylists.map(pl => pl.id);
+    let allMemberRows: typeof playlistMembers.$inferSelect[] = [];
+    let allInviteRows: typeof playlistInvites.$inferSelect[] = [];
+
+    if (playlistIds.length > 0) {
+      allMemberRows = await db.select().from(playlistMembers).where(inArray(playlistMembers.playlistId, playlistIds));
+      allInviteRows = await db.select().from(playlistInvites).where(inArray(playlistInvites.playlistId, playlistIds));
+    }
+
+    const membersByPlaylist = new Set(allMemberRows.map(r => r.playlistId));
+    const invitesByPlaylist = new Set(allInviteRows.map(r => r.playlistId));
+
+    const optionsMap: Record<string, { shared?: boolean; includeMembers?: boolean; shareRole?: string }> = {};
+    for (const id of playlistIds) {
+      const isShared = membersByPlaylist.has(id) || invitesByPlaylist.has(id);
+      optionsMap[id] = {
         shared: isShared,
         includeMembers: isShared,
         shareRole: isShared ? 'owner' : undefined,
-      });
-      if (snapshot) results.push(snapshot);
+      };
     }
+
+    const snapshots = await getPlaylistSnapshotsBatch(playlistIds, optionsMap);
+    results.push(...snapshots);
 
     return jsonResponse({ success: true, count: ownedClientPlaylists.length, playlists: results });
   } catch (error) {

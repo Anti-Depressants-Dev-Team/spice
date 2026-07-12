@@ -177,3 +177,116 @@ export async function getPlaylistSnapshot(playlistId: string, options: SharedPla
     ...(members ? { members } : {}),
   };
 }
+
+
+export async function getPlaylistSnapshotsBatch(playlistIds: string[], optionsMap: Record<string, SharedPlaylistOptions> = {}) {
+  if (playlistIds.length === 0) return [];
+
+  const fetchedPlaylists = await db.query.playlists.findMany({
+    where: inArray(playlists.id, playlistIds),
+  });
+
+  const validPlaylists = fetchedPlaylists.filter(p => !p.deletedAt);
+  if (validPlaylists.length === 0) return [];
+  const validIds = validPlaylists.map(p => p.id);
+
+  const items = await db.query.playlistItems.findMany({
+    where: inArray(playlistItems.playlistId, validIds),
+    orderBy: playlistItems.position,
+  });
+
+  const playlistsNeedingMembers = validIds.filter(id => {
+    const opts = optionsMap[id] || {};
+    return opts.includeMembers || opts.shared;
+  });
+
+  let allMemberRows: typeof playlistMembers.$inferSelect[] = [];
+  if (playlistsNeedingMembers.length > 0) {
+    allMemberRows = await db.select().from(playlistMembers).where(
+      and(
+        inArray(playlistMembers.playlistId, playlistsNeedingMembers),
+        eq(playlistMembers.status, 'accepted')
+      )
+    );
+  }
+
+  const allUserIds = new Set<string>();
+  validPlaylists.forEach(p => allUserIds.add(p.userId));
+  items.forEach(item => {
+    if (item.addedByUserId) allUserIds.add(item.addedByUserId);
+  });
+  allMemberRows.forEach(row => allUserIds.add(row.userId));
+
+  const usersInfoMap = await getUsersInfo(Array.from(allUserIds));
+
+  const itemsByPlaylist = new Map<string, typeof items>();
+  items.forEach(item => {
+    if (!itemsByPlaylist.has(item.playlistId)) itemsByPlaylist.set(item.playlistId, []);
+    itemsByPlaylist.get(item.playlistId)!.push(item);
+  });
+
+  const membersByPlaylist = new Map<string, typeof allMemberRows>();
+  allMemberRows.forEach(row => {
+    if (!membersByPlaylist.has(row.playlistId)) membersByPlaylist.set(row.playlistId, []);
+    membersByPlaylist.get(row.playlistId)!.push(row);
+  });
+
+  const results = [];
+  for (const playlist of validPlaylists) {
+    const opts = optionsMap[playlist.id] || {};
+    const playlistItems = itemsByPlaylist.get(playlist.id) || [];
+    const playlistMemberRows = membersByPlaylist.get(playlist.id) || [];
+
+    const tracks = playlistItems.map(item => {
+      const base = trackSnapshotFromRow(item);
+      const addedByInfo = item.addedByUserId ? usersInfoMap[item.addedByUserId] : undefined;
+      const addedBy = item.addedByUserId && addedByInfo
+        ? { userId: item.addedByUserId, ...addedByInfo }
+        : undefined;
+      return {
+        ...base,
+        position: item.position,
+        ...(addedBy ? { addedBy } : {}),
+      };
+    });
+
+    let members: MemberInfo[] | undefined;
+    if (opts.includeMembers || opts.shared) {
+      members = [];
+      for (const row of playlistMemberRows) {
+        if (row.userId === playlist.userId) continue;
+        const info = usersInfoMap[row.userId];
+        if (info) {
+          members.push({
+            userId: row.userId,
+            username: info.username,
+            displayName: info.displayName,
+            avatarUrl: info.avatarUrl,
+            role: row.role,
+          });
+        }
+      }
+    }
+
+    const ownerInfo = usersInfoMap[playlist.userId];
+
+    results.push({
+      id: playlist.id,
+      title: playlist.title,
+      description: playlist.description || '',
+      createdAt: playlist.updatedAt.toISOString(),
+      gradient: playlist.gradient,
+      coverUrl: playlist.coverUrl || null,
+      isPublic: playlist.isPublic,
+      tracks,
+      ownerId: playlist.userId,
+      ownerUsername: ownerInfo?.username || null,
+      ownerDisplayName: ownerInfo?.displayName || 'Unknown',
+      ...(opts.shared ? { shared: true } : {}),
+      ...(opts.shareRole ? { shareRole: opts.shareRole } : {}),
+      ...(members ? { members } : {}),
+    });
+  }
+
+  return results;
+}
