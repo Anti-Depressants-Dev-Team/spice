@@ -277,12 +277,16 @@ class Scrobbler {
      * Get scrobbler settings
      */
     getSettings() {
+        const storedApiKey = this.store.get('lastfm.apiKey', '');
+        const storedSecret = this.store.get('lastfm.secret', '');
+        const hasCustomCredentials = Boolean(storedApiKey && storedSecret);
+
         return {
             lastfm: {
                 enabled: this.store.get('lastfm.enabled', false),
-                // Use shared Spice API key by default
-                apiKey: SPICE_LASTFM_API_KEY,
-                secret: SPICE_LASTFM_SECRET,
+                // Use custom credentials when configured, otherwise use Spice's shared app.
+                apiKey: hasCustomCredentials ? storedApiKey : SPICE_LASTFM_API_KEY,
+                secret: hasCustomCredentials ? storedSecret : SPICE_LASTFM_SECRET,
                 sessionKey: this.store.get('lastfm.sessionKey', ''),
                 username: this.store.get('lastfm.username', '')
             },
@@ -322,6 +326,11 @@ class Scrobbler {
      */
     async saveListenBrainzToken(token) {
         const validation = await validateListenBrainzToken(token);
+
+        if (!validation.valid) {
+            return validation;
+        }
+
         this.store.set('listenbrainz.token', token);
         this.store.set('listenbrainz.username', validation.username || '');
         return validation;
@@ -356,9 +365,12 @@ class Scrobbler {
      * @returns {Promise<string>} Auth URL to open
      */
     async startLastFmAuth() {
-        // Use shared Spice API credentials
-        this.pendingToken = await getLastFmToken(SPICE_LASTFM_API_KEY, SPICE_LASTFM_SECRET);
-        return getLastFmAuthUrl(SPICE_LASTFM_API_KEY, this.pendingToken);
+        const settings = this.getSettings();
+        this.pendingToken = await getLastFmToken(
+            settings.lastfm.apiKey,
+            settings.lastfm.secret
+        );
+        return getLastFmAuthUrl(settings.lastfm.apiKey, this.pendingToken);
     }
 
     /**

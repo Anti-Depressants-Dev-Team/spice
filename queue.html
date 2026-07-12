@@ -200,22 +200,51 @@
             window.api.onQueueUpdate((queue) => {
                 const container = document.getElementById('queue-container');
                 if (!queue || queue.length === 0) {
-                    container.innerHTML = '<div class="no-queue">Queue is empty</div>';
+                    const emptyMessage = document.createElement('div');
+                    emptyMessage.className = 'no-queue';
+                    emptyMessage.textContent = 'Queue is empty';
+                    container.replaceChildren(emptyMessage);
                     return;
                 }
 
-                container.innerHTML = queue.map((item, i) => `
-                    <div class="queue-item" data-selected="${item.selected}" onclick="window.api.playQueueIndex(${i})">
-                        <div class="queue-img-wrap">
-                            <img src="${item.thumbnail || 'icon.png'}" alt="Art">
-                        </div>
-                        <div class="queue-info">
-                            <div class="queue-title" title="${item.title.replace(/"/g, '&quot;')}">${item.title}</div>
-                            <div class="queue-artist" title="${item.artist.replace(/"/g, '&quot;')}">${item.artist}</div>
-                        </div>
-                        <div class="queue-duration">${item.duration}</div>
-                    </div>
-                `).join('');
+                const fragment = document.createDocumentFragment();
+                queue.forEach((item, i) => {
+                    const row = document.createElement('div');
+                    row.className = 'queue-item';
+                    row.dataset.selected = String(item.selected === true);
+                    row.addEventListener('click', () => window.api.playQueueIndex(i));
+
+                    const imageWrap = document.createElement('div');
+                    imageWrap.className = 'queue-img-wrap';
+
+                    const image = document.createElement('img');
+                    image.src = item.thumbnail || 'icon.png';
+                    image.alt = 'Art';
+                    imageWrap.appendChild(image);
+
+                    const info = document.createElement('div');
+                    info.className = 'queue-info';
+
+                    const title = document.createElement('div');
+                    title.className = 'queue-title';
+                    title.textContent = String(item.title ?? '');
+                    title.title = String(item.title ?? '');
+
+                    const artist = document.createElement('div');
+                    artist.className = 'queue-artist';
+                    artist.textContent = String(item.artist ?? '');
+                    artist.title = String(item.artist ?? '');
+
+                    const duration = document.createElement('div');
+                    duration.className = 'queue-duration';
+                    duration.textContent = String(item.duration ?? '');
+
+                    info.append(title, artist);
+                    row.append(imageWrap, info, duration);
+                    fragment.appendChild(row);
+                });
+
+                container.replaceChildren(fragment);
 
                 // Auto-scroll to selected if it's the first render or if needed
                 const selected = container.querySelector('[data-selected="true"]');
