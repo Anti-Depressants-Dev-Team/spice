@@ -145,3 +145,14 @@ test("native runtime preparation avoids spawning the Windows npm command shim", 
   assert.match(source, /npmCli \? process\.execPath : "npm"/);
   assert.doesNotMatch(source, /["']npm\.cmd["']/);
 });
+
+test("runtime release publishing detects an existing tag before creating it", () => {
+  const workflow = fs.readFileSync(
+    path.join(__dirname, "..", ".github", "workflows", "ci.yml"),
+    "utf8",
+  );
+
+  assert.match(workflow, /gh release list[^\n]+--json tagName/);
+  assert.match(workflow, /\$existingTags -contains \$tag/);
+  assert.doesNotMatch(workflow, /if \(gh release view/);
+});

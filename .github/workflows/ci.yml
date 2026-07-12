@@ -241,7 +241,14 @@ jobs:
           $notesFile = New-TemporaryFile
           Set-Content -LiteralPath $notesFile -Value $notes
 
-          if (gh release view $tag --repo $env:REPOSITORY *> $null) {
+          $existingTags = @(
+            gh release list --repo $env:REPOSITORY --limit 100 --json tagName --jq '.[].tagName'
+          )
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not list releases for $env:REPOSITORY."
+          }
+
+          if ($existingTags -contains $tag) {
             gh release upload $tag apps/backend/dist/spice-local-windows.zip apps/backend/dist/spice-local-windows.sha256 apps/backend/dist/spice-local-linux.zip apps/backend/dist/spice-local-linux.sha256 --clobber --repo $env:REPOSITORY
             gh release edit $tag --title $title --notes-file $notesFile --latest=false --repo $env:REPOSITORY
           } else {
