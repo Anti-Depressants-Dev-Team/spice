@@ -9699,15 +9699,6 @@ const getMaskedEmail = (email: string) => {
                 )}
               </div>
               <button
-                className="app-topbar__settings"
-                type="button"
-                onClick={() => setCommandPaletteOpen(true)}
-                aria-label="Open command palette"
-                title="Command palette (Ctrl+K)"
-              >
-                <span aria-hidden="true" style={{ fontSize: '0.82rem', fontWeight: 900 }}>K</span>
-              </button>
-              <button
                 className={`app-topbar__settings ${currentPage === 'settings' && !selectedPlaylist ? 'active' : ''}`}
                 type="button"
                 onClick={openSettingsFromTopbar}
@@ -13669,6 +13660,15 @@ const getMaskedEmail = (email: string) => {
               BOOST
             </button>
 
+
+            <button 
+              className="now-playing__volume-btn" 
+              onClick={() => setCommandPaletteOpen(true)}
+              title="Search & Commands (Ctrl+K)"
+              style={{ fontSize: '0.8rem' }}
+            >
+              {Icons.search}
+            </button>
 
             <button className="now-playing__volume-btn" onClick={() => setReceiverVolume(playerVolume === 0 ? 70 : 0)}>
               {playerVolume === 0 ? Icons.volumeMuted : Icons.volume}

@@ -4,7 +4,7 @@ import { jsonResponse, optionsResponse } from '@/lib/cors';
 import { db } from '@/db';
 import { emailVerificationChallenges, profiles, users } from '@/db/schema';
 import { eq, lt } from 'drizzle-orm';
-import { hashPassword } from '@/lib/hash';
+import { hashPasswordAsync } from '@/lib/hash';
 import {
   EMAIL_VERIFICATION_REGISTRATION_TTL_MS,
   EMAIL_VERIFICATION_RESEND_COOLDOWN_MS,
@@ -114,7 +114,7 @@ export async function POST(request: Request) {
       id: registrationId,
       email: normEmail,
       username: cleanUsername,
-      passwordHash: hashPassword(password),
+      passwordHash: await hashPasswordAsync(password),
       codeHash: hashEmailVerificationCode(registrationId, code),
       requestIpHash,
       expiresAt,

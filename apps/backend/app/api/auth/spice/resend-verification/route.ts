@@ -45,6 +45,14 @@ export async function POST(request: Request) {
       );
     }
 
+    if (challenge.sendCount >= EMAIL_VERIFICATION_MAX_SENDS) {
+      return jsonResponse(
+        { error: 'verification_send_limit', message: 'Too many codes were sent. Start registration again later.' },
+        { status: 429 },
+        request,
+      );
+    }
+
     const cooldownRemaining = EMAIL_VERIFICATION_RESEND_COOLDOWN_MS - (now.getTime() - challenge.lastSentAt.getTime());
     if (cooldownRemaining > 0) {
       const retryAfter = Math.ceil(cooldownRemaining / 1000);
@@ -54,14 +62,6 @@ export async function POST(request: Request) {
         request,
       );
     }
-    if (challenge.sendCount >= EMAIL_VERIFICATION_MAX_SENDS) {
-      return jsonResponse(
-        { error: 'verification_send_limit', message: 'Too many codes were sent. Start registration again later.' },
-        { status: 429 },
-        request,
-      );
-    }
-
     const { emailAttempts, ipAttempts } = await reserveEmailVerificationQuota({
       email: challenge.email,
       requestIpHash: challenge.requestIpHash,

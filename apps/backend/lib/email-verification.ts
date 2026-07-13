@@ -83,6 +83,11 @@ export function emailVerificationExpiryState(
   return 'active';
 }
 
+export function emailVerificationQuotaExceeded(emailAttempts: number, ipAttempts: number) {
+  return emailAttempts > EMAIL_VERIFICATION_EMAILS_PER_HOUR
+    || ipAttempts > EMAIL_VERIFICATION_IPS_PER_HOUR;
+}
+
 export function isEmailVerificationAtomicClaimCurrent(
   state: EmailVerificationAtomicClaimState,
   expectedCodeHash: string,
@@ -95,12 +100,6 @@ export function isEmailVerificationAtomicClaimCurrent(
     && state.attemptCount <= EMAIL_VERIFICATION_MAX_ATTEMPTS
     && emailVerificationExpiryState(state.createdAt, state.expiresAt, now) === 'active';
 }
-
-export function emailVerificationQuotaExceeded(emailAttempts: number, ipAttempts: number) {
-  return emailAttempts > EMAIL_VERIFICATION_EMAILS_PER_HOUR
-    || ipAttempts > EMAIL_VERIFICATION_IPS_PER_HOUR;
-}
-
 export function maskEmailAddress(email: string): string {
   const [local, domain] = email.split('@');
   if (!local || !domain) return email;

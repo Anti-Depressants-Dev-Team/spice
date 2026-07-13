@@ -120,36 +120,33 @@ export async function POST(request: Request) {
 
     const accountRole = getInitialAccountRoleForEmail(challenge.email);
     const registrationCutoff = new Date(now.getTime() - EMAIL_VERIFICATION_REGISTRATION_TTL_MS);
-    const claimedChallenge = db.$with('claimed_email_verification').as(
-      db.update(emailVerificationChallenges)
-        .set({ consumedAt: now })
-        .where(and(
-          eq(emailVerificationChallenges.id, registrationId),
-          eq(emailVerificationChallenges.codeHash, challenge.codeHash),
-          isNull(emailVerificationChallenges.consumedAt),
-          gt(emailVerificationChallenges.expiresAt, now),
-          gte(emailVerificationChallenges.createdAt, registrationCutoff),
-          lte(emailVerificationChallenges.attemptCount, EMAIL_VERIFICATION_MAX_ATTEMPTS),
-        ))
-        .returning({
-          email: emailVerificationChallenges.email,
-          username: emailVerificationChallenges.username,
-          passwordHash: emailVerificationChallenges.passwordHash,
-          emailVerifiedAt: emailVerificationChallenges.consumedAt,
-          accountRole: sql<string>`${accountRole}::text`.as('account_role'),
-        }),
-    );
-    const [newUser] = await db.with(claimedChallenge)
-      .insert(users)
-      .select(db.select({
-        email: claimedChallenge.email,
-        username: claimedChallenge.username,
-        passwordHash: claimedChallenge.passwordHash,
-        accountRole: claimedChallenge.accountRole,
-        emailVerifiedAt: claimedChallenge.emailVerifiedAt,
-      }).from(claimedChallenge))
-      .onConflictDoNothing()
+    
+    const [claimedChallenge] = await db.update(emailVerificationChallenges)
+      .set({ consumedAt: now })
+      .where(and(
+        eq(emailVerificationChallenges.id, registrationId),
+        eq(emailVerificationChallenges.codeHash, challenge.codeHash),
+        isNull(emailVerificationChallenges.consumedAt),
+        gt(emailVerificationChallenges.expiresAt, now),
+        gte(emailVerificationChallenges.createdAt, registrationCutoff),
+        lte(emailVerificationChallenges.attemptCount, EMAIL_VERIFICATION_MAX_ATTEMPTS),
+      ))
       .returning();
+
+    let newUser;
+    if (claimedChallenge) {
+      const [insertedUser] = await db.insert(users)
+        .values({
+          email: claimedChallenge.email,
+          username: claimedChallenge.username,
+          passwordHash: claimedChallenge.passwordHash,
+          accountRole: accountRole,
+          emailVerifiedAt: claimedChallenge.consumedAt,
+        })
+        .onConflictDoNothing()
+        .returning();
+      newUser = insertedUser;
+    }
 
     if (!newUser) {
       const latestChallenge = await db.query.emailVerificationChallenges.findFirst({

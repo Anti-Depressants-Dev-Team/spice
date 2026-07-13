@@ -14,6 +14,23 @@ export function hashPassword(password: string): string {
 }
 
 /**
+ * Asynchronously hash a password using libuv's worker pool so an auth
+ * request does not block the Node.js event loop during PBKDF2.
+ */
+export async function hashPasswordAsync(password: string): Promise<string> {
+  const salt = randomBytes(16).toString('hex');
+  return new Promise((resolve, reject) => {
+    pbkdf2(password, salt, ITERATIONS, 64, 'sha512', (error, derivedKey) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(`${salt}:${ITERATIONS}:${derivedKey.toString('hex')}`);
+    });
+  });
+}
+
+/**
  * Verify a candidate password against the stored colon-separated salt/hash or salt/iterations/hash.
  */
 export function verifyPassword(password: string, storedHash: string): boolean {
