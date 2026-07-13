@@ -56,6 +56,8 @@ Do not add pnpm workspace files or a separate backend lockfile.
 
 - Preserve CommonJS style in root desktop code and the existing TypeScript/ES module style in `apps/backend`.
 - Keep desktop, backend, and mobile changes scoped separately when practical.
+- Frontend features and design changes must blend naturally with the existing visual language, including its spacing, typography, colors, controls, and interaction patterns.
+- Any new or changed frontend surface must use the shared theme system rather than fixed theme-specific styling, and it must update immediately when the user changes the theme in Settings.
 - Treat existing uncommitted changes as user work. Do not revert or reformat unrelated files.
 - Do not commit generated logs, debug dumps, build output, `.next`, `dist`, APKs, or prepared `native-runtime` content.
 - Prefer small tests near changed behavior. Desktop tests use Node's built-in test runner.
