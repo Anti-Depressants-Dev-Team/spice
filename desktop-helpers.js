@@ -143,10 +143,19 @@ function navigateHistory(history, direction) {
   return true;
 }
 
+function shouldBlockNativeStartupPlayback({
+  waitingForAudioSettings = false,
+  guardActive = false,
+  userPlaybackIntent = false,
+} = {}) {
+  return !userPlaybackIntent && (waitingForAudioSettings || guardActive);
+}
+
 module.exports = {
   DEFAULT_SHELL_THEME,
   normalizeShellTheme,
   parseSupportedServiceUrl,
   getNavigationHistory,
   navigateHistory,
+  shouldBlockNativeStartupPlayback,
 };

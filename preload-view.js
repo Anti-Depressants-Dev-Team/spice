@@ -4,6 +4,7 @@
  */
 
 const { ipcRenderer, webFrame } = require('electron');
+const { shouldBlockNativeStartupPlayback } = require('./desktop-helpers');
 
 const IS_SPICE_LOCAL_RUNTIME =
     (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') &&
@@ -53,7 +54,11 @@ function installNativeStartupPlaybackGuard() {
 
     function shouldBlockStartupPlayback() {
         const waitingForAudioSettings = window.__spiceDesktopAudioReady === false;
-        return waitingForAudioSettings || (isGuardActive() && !userPlaybackIntent);
+        return shouldBlockNativeStartupPlayback({
+            waitingForAudioSettings,
+            guardActive: isGuardActive(),
+            userPlaybackIntent,
+        });
     }
 
     function allowPlaybackIntent(reason) {
@@ -269,6 +274,44 @@ function installNativeSessionSnapshot() {
 }
 
 installNativeSessionSnapshot();
+
+function installSpiceNativeShellBridge() {
+    if (!IS_SPICE_LOCAL_RUNTIME || window.spiceNativeShell) return;
+
+    const bridge = {
+        getSettings: () => ipcRenderer.invoke('get-settings'),
+        setDiscordRpc: (enabled) => {
+            const next = enabled === true;
+            ipcRenderer.send('set-discord-rpc', next);
+            return Promise.resolve(next);
+        },
+        setAlwaysOnTop: (enabled) => ipcRenderer.invoke('set-always-on-top', enabled === true),
+        setToolbarButtons: (buttons) => {
+            ipcRenderer.send('set-toolbar-buttons', buttons);
+        },
+        setCustomCss: (css) => {
+            ipcRenderer.send('set-custom-css', typeof css === 'string' ? css : '');
+        },
+        checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+        installUpdate: () => ipcRenderer.send('install-update'),
+        openDevTools: () => ipcRenderer.send('open-devtools'),
+        onUpdateStatus: (callback) => {
+            if (typeof callback !== 'function') return () => {};
+            const listener = (_event, status) => callback(status);
+            ipcRenderer.on('update-status', listener);
+            return () => ipcRenderer.removeListener('update-status', listener);
+        },
+    };
+
+    Object.defineProperty(window, 'spiceNativeShell', {
+        configurable: false,
+        enumerable: false,
+        writable: false,
+        value: Object.freeze(bridge),
+    });
+}
+
+installSpiceNativeShellBridge();
 
 function installSpiceDesktopUiBridge() {
     if (!IS_SPICE_MUSIC) return;

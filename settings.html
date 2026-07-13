@@ -796,15 +796,28 @@
 
             function setActiveSidebarLink(sectionId) {
                 sidebarLinks.forEach(link => {
-                    link.classList.toggle('active', link.getAttribute('href') === `#${sectionId}`);
+                    const isActive = link.getAttribute('href') === `#${sectionId}`;
+                    link.classList.toggle('active', isActive);
+                    if (isActive) link.setAttribute('aria-current', 'location');
+                    else link.removeAttribute('aria-current');
                 });
             }
 
+            let requestedSidebarSection = null;
+            let sidebarNavigationTimer = null;
+
             function syncSidebarToScroll() {
+                if (requestedSidebarSection) {
+                    setActiveSidebarLink(requestedSidebarSection);
+                    return;
+                }
                 const marker = scrollContainer.scrollTop + 48;
-                let current = sections.find((section) => section)?.id || '';
-                sections.forEach((section) => {
-                    if (section && marker >= section.offsetTop) current = section.id;
+                const visibleSections = sections.filter((section) => (
+                    section && window.getComputedStyle(section).display !== 'none'
+                ));
+                let current = visibleSections[0]?.id || '';
+                visibleSections.forEach((section) => {
+                    if (marker >= section.offsetTop) current = section.id;
                 });
                 setActiveSidebarLink(current);
             }
@@ -812,13 +825,21 @@
             sidebarLinks.forEach((link) => {
                 link.addEventListener('click', (event) => {
                     const section = document.querySelector(link.getAttribute('href'));
-                    if (!section) return;
+                    if (!section || window.getComputedStyle(section).display === 'none') return;
                     event.preventDefault();
+                    requestedSidebarSection = section.id;
+                    clearTimeout(sidebarNavigationTimer);
+                    const containerRect = scrollContainer.getBoundingClientRect();
+                    const sectionRect = section.getBoundingClientRect();
                     scrollContainer.scrollTo({
-                        top: Math.max(0, section.offsetTop - 20),
+                        top: Math.max(0, scrollContainer.scrollTop + sectionRect.top - containerRect.top - 20),
                         behavior: 'smooth',
                     });
                     setActiveSidebarLink(section.id);
+                    sidebarNavigationTimer = setTimeout(() => {
+                        requestedSidebarSection = null;
+                        syncSidebarToScroll();
+                    }, 550);
                 });
             });
 
@@ -864,6 +885,10 @@
                 document.body.classList.toggle("native-mode", isNativeMode);
                 nativeLegacySections.forEach((section) => {
                     section.classList.toggle("hidden", isNativeMode);
+                    const sectionLink = document.querySelector(
+                        `.settings-sidebar-link[href="#${section.id}"]`,
+                    );
+                    if (sectionLink) sectionLink.classList.toggle("hidden", isNativeMode);
                 });
                 if (isNativeMode) {
                     defaultServiceSelect.value = "spice_crazy";

@@ -160,6 +160,9 @@ function broadcastUpdateStatus(payload) {
       target.webContents.send("update-status", payload);
     }
   }
+  if (view && view.webContents && !view.webContents.isDestroyed()) {
+    view.webContents.send("update-status", payload);
+  }
 }
 
 function updateShellTheme(value) {
@@ -3668,11 +3671,7 @@ app.whenReady().then(async () => {
     });
   }
 
-  ipcMain.on("open-settings", () => {
-    createSettingsWindow();
-  });
-
-  ipcMain.handle("open-spice-settings", async () => {
+  async function openSpiceSettingsInMainWindow() {
     if (!mainWindow || mainWindow.isDestroyed()) {
       return { success: false, error: "The main Spice window is not available." };
     }
@@ -3698,7 +3697,19 @@ app.whenReady().then(async () => {
     }
 
     return { success: false, error: "SPICE Music did not finish opening its settings page." };
+  }
+
+  ipcMain.on("open-settings", () => {
+    if (!APP_NATIVE_MODE) {
+      createSettingsWindow();
+      return;
+    }
+    openSpiceSettingsInMainWindow().catch((error) => {
+      console.error("Could not open Native in-app settings:", error);
+    });
   });
+
+  ipcMain.handle("open-spice-settings", () => openSpiceSettingsInMainWindow());
 
   ipcMain.on("open-toolbar-settings", () => {
     createToolbarSettingsWindow();

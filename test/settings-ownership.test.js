@@ -58,12 +58,22 @@ test('desktop-only settings stay in the Electron settings window', () => {
   assert.match(settings, /YouTube Music and SoundCloud/);
 });
 
-test('SPICE Music no longer duplicates the Electron always-on-top control', () => {
+test('Native desktop settings move into SPICE Music while the wrapper keeps its window', () => {
   const spiceApp = read('apps/backend/app/spice-app.tsx');
   const viewPreload = read('preload-view.js');
+  const main = read('main.js');
+  const settings = read('settings.html');
 
-  assert.doesNotMatch(spiceApp, /spiceDesktopWindow|alwaysOnTop|Always on top/);
-  assert.doesNotMatch(viewPreload, /spiceDesktopWindow|get-always-on-top|set-always-on-top/);
+  assert.match(spiceApp, /nativeShellAvailable/);
+  assert.match(spiceApp, /SPICE Native Desktop/);
+  assert.match(spiceApp, /Discord Rich Presence/);
+  assert.match(spiceApp, /Always on Top/);
+  assert.match(spiceApp, /if \(!active \|\| !settings\.nativeMode\) return/);
+  assert.match(viewPreload, /if \(!IS_SPICE_LOCAL_RUNTIME \|\| window\.spiceNativeShell\) return/);
+  assert.match(viewPreload, /Object\.defineProperty\(window, 'spiceNativeShell'/);
+  assert.match(main, /if \(!APP_NATIVE_MODE\) \{\s*createSettingsWindow\(\)/s);
+  assert.match(main, /openSpiceSettingsInMainWindow\(\)\.catch/);
+  assert.match(settings, /id="discord-toggle"/);
   assert.match(spiceApp, /action: 'back' \| 'settings'/);
 });
 
@@ -72,9 +82,32 @@ test('desktop updater status reaches the settings window', () => {
 
   assert.match(main, /function broadcastUpdateStatus\(payload\)/);
   assert.match(main, /for \(const target of \[mainWindow, settingsWindow\]\)/);
+  assert.match(main, /view\.webContents\.send\("update-status", payload\)/);
   for (const status of ['checking', 'available', 'not-available', 'error', 'downloading', 'downloaded']) {
     assert.match(main, new RegExp(`broadcastUpdateStatus\\(\\{ status: ["']${status}["']`));
   }
+});
+
+test('collapsed SPICE sidebar remains an interactive icon rail', () => {
+  const spiceApp = read('apps/backend/app/spice-app.tsx');
+  const styles = read('apps/backend/app/globals.css');
+
+  assert.match(styles, /\.app\.app--sidebar-hidden\s*\{[^}]*grid-template-columns:\s*var\(--sidebar-collapsed\) 1fr/s);
+  assert.match(styles, /\.sidebar\.sidebar--hidden\s*\{[^}]*pointer-events:\s*auto/s);
+  assert.match(styles, /\.app--sidebar-hidden \.sidebar__nav-label[\s\S]*display:\s*none/);
+  assert.match(spiceApp, /aria-label=\{sidebarHidden \? 'Collapsed sidebar' : 'Sidebar'\}/);
+  assert.match(spiceApp, /sidebarHidden \? Icons\.chevronRight : Icons\.chevronLeft/);
+  assert.doesNotMatch(spiceApp, /className="sidebar-restore-btn"/);
+});
+
+test('SPICE topbar search dismisses on an outside pointer press', () => {
+  const spiceApp = read('apps/backend/app/spice-app.tsx');
+
+  assert.match(spiceApp, /const topbarSearchShellRef = useRef/);
+  assert.match(spiceApp, /topbarSearchShellRef\.current\?\.contains\(target\)/);
+  assert.match(spiceApp, /document\.addEventListener\('pointerdown', dismissTopbarSearch\)/);
+  assert.match(spiceApp, /document\.removeEventListener\('pointerdown', dismissTopbarSearch\)/);
+  assert.match(spiceApp, /className="app-topbar__search-shell" ref=\{topbarSearchShellRef\}/);
 });
 
 test('restart-based desktop settings validate input and skip no-op restarts', () => {
@@ -132,6 +165,16 @@ test('desktop settings keep one bounded scroller and scope wheel handling to hov
   assert.match(settings, /document\.querySelectorAll\(['"]select['"]\)/);
   assert.match(settings, /event\.preventDefault\(\)/);
   assert.doesNotMatch(settings, /document\.activeElement\.tagName === ['"]SELECT['"]/);
+});
+
+test('desktop settings sidebar locks a requested section through smooth scrolling', () => {
+  const settings = read('settings.html');
+
+  assert.match(settings, /let requestedSidebarSection = null/);
+  assert.match(settings, /if \(requestedSidebarSection\) \{\s*setActiveSidebarLink\(requestedSidebarSection\)/s);
+  assert.match(settings, /scrollContainer\.scrollTop \+ sectionRect\.top - containerRect\.top - 20/);
+  assert.match(settings, /link\.setAttribute\('aria-current', 'location'\)/);
+  assert.match(settings, /sectionLink\.classList\.toggle\("hidden", isNativeMode\)/);
 });
 
 test('SPICE Music settings navigation and topbar command shortcut use live theme tokens', () => {

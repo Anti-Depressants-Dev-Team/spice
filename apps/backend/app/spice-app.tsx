@@ -89,6 +89,15 @@ const UPDATE_RELOAD_REMOTE_SUPPRESS_KEY = 'spice_update_reload_remote_suppress_u
 const isSpiceDocumentVisible = () => (
   typeof document === 'undefined' || document.visibilityState === 'visible'
 );
+
+const allowNativePlaybackIntent = (reason: string) => {
+  if (typeof window === 'undefined') return;
+  const allowPlayback = (window as Window & {
+    __spiceNativeAllowPlaybackIntent?: (intentReason: string) => void;
+  }).__spiceNativeAllowPlaybackIntent;
+  if (typeof allowPlayback === 'function') allowPlayback(reason);
+};
+
 const PLAYBACK_STREAM_RETRY_LIMIT = 3;
 const PLAYBACK_STREAM_RETRY_DELAY_MS = 1200;
 const PLAYER_VOLUME_STORAGE_KEY = 'spice_player_volume';
@@ -645,6 +654,7 @@ type MotionLevel = 'full' | 'calm' | 'off';
 type InterfaceScale = 'compact' | 'comfortable' | 'spacious';
 type PlayerBarDensity = 'standard' | 'slim';
 type PlayerVisualStyle = 'spice' | 'vk';
+type NativeToolbarButtonKey = 'back' | 'reload' | 'home' | 'volume' | 'lyrics' | 'miniPlayer' | 'queue';
 type TopbarSearchMode = SearchProvider | 'users';
 type ReceiverSelectVariant = 'bar' | 'expanded' | 'mini';
 type AccountRole = 'user' | 'admin' | string;
@@ -669,6 +679,65 @@ interface SpiceDesktopNavigationDetail {
   action: 'back' | 'settings';
   handled: boolean;
 }
+
+interface NativeShellPreferences {
+  nativeMode: boolean;
+  discordRpcEnabled: boolean;
+  alwaysOnTop: boolean;
+  toolbarButtons: Record<string, boolean>;
+  customCss: string;
+}
+
+interface NativeShellUpdateStatus {
+  status: 'idle' | 'checking' | 'available' | 'not-available' | 'error' | 'downloading' | 'downloaded';
+  error?: string;
+  progress?: { percent?: number };
+  info?: { version?: string };
+}
+
+interface SpiceNativeShellBridge {
+  getSettings: () => Promise<NativeShellPreferences>;
+  setDiscordRpc: (enabled: boolean) => Promise<boolean>;
+  setAlwaysOnTop: (enabled: boolean) => Promise<boolean>;
+  setToolbarButtons: (buttons: Record<string, boolean>) => void;
+  setCustomCss: (css: string) => void;
+  checkForUpdates: () => Promise<{ success: boolean; error?: string }>;
+  installUpdate: () => void;
+  openDevTools: () => void;
+  onUpdateStatus: (callback: (status: NativeShellUpdateStatus) => void) => () => void;
+}
+
+const NATIVE_TOOLBAR_CONTROLS: Array<{
+  id: NativeToolbarButtonKey;
+  label: string;
+  description: string;
+}> = [
+  { id: 'back', label: 'Back', description: 'Navigate to the previous page.' },
+  { id: 'reload', label: 'Reload', description: 'Reload the Native music view.' },
+  { id: 'home', label: 'Home', description: 'Return to the Native launcher.' },
+  { id: 'volume', label: 'Volume', description: 'Show shell volume and boost controls.' },
+  { id: 'lyrics', label: 'Lyrics', description: 'Open the desktop lyrics window.' },
+  { id: 'miniPlayer', label: 'Mini Player', description: 'Open the compact desktop player.' },
+  { id: 'queue', label: 'Queue', description: 'Open the desktop queue window.' },
+];
+
+const getSpiceNativeShellBridge = () => {
+  if (typeof window === 'undefined') return null;
+  return (window as Window & { spiceNativeShell?: SpiceNativeShellBridge }).spiceNativeShell ?? null;
+};
+
+const nativeUpdateStatusMessage = (status: NativeShellUpdateStatus | null) => {
+  if (!status) return 'Ready to check for updates.';
+  switch (status.status) {
+    case 'checking': return 'Checking for updates...';
+    case 'available': return `Update ${status.info?.version || ''} is available and will download automatically.`.replace('  ', ' ');
+    case 'not-available': return 'SPICE Native is up to date.';
+    case 'downloading': return `Downloading update... ${Math.round(status.progress?.percent ?? 0)}%`;
+    case 'downloaded': return `Update ${status.info?.version || ''} is ready to install.`.replace('  ', ' ');
+    case 'error': return status.error || 'The update check failed.';
+    default: return 'Ready to check for updates.';
+  }
+};
 
 interface SongShareDialog {
   track: Track;
@@ -1606,6 +1675,12 @@ export default function SpiceApp() {
   const [sidebarSearchEnabled, setSidebarSearchEnabled] = useState(true);
   const [sidebarProfileEnabled, setSidebarProfileEnabled] = useState(true);
   const [sidebarSettingsEnabled, setSidebarSettingsEnabled] = useState(true);
+  const [nativeShellAvailable, setNativeShellAvailable] = useState(false);
+  const [nativeShellSettings, setNativeShellSettings] = useState<NativeShellPreferences | null>(null);
+  const [nativeShellCssDraft, setNativeShellCssDraft] = useState('');
+  const [nativeShellMessage, setNativeShellMessage] = useState<string | null>(null);
+  const [nativeShellBusy, setNativeShellBusy] = useState<string | null>(null);
+  const [nativeUpdateStatus, setNativeUpdateStatus] = useState<NativeShellUpdateStatus | null>(null);
   const [profileSyncEnabled, setProfileSyncEnabled] = useState(false);
   const [lastFmSessionKey, setLastFmSessionKey] = useState('');
   const [lastFmAccountLinked, setLastFmAccountLinked] = useState(false);
@@ -1638,6 +1713,36 @@ export default function SpiceApp() {
     };
     window.addEventListener('keydown', handleCommandPaletteShortcut);
     return () => window.removeEventListener('keydown', handleCommandPaletteShortcut);
+  }, []);
+
+  useEffect(() => {
+    const bridge = getSpiceNativeShellBridge();
+    if (!bridge) return;
+
+    let active = true;
+    let removeUpdateListener = () => {};
+    bridge.getSettings()
+      .then((settings) => {
+        if (!active || !settings.nativeMode) return;
+        setNativeShellAvailable(true);
+        setNativeShellSettings(settings);
+        setNativeShellCssDraft(settings.customCss || '');
+        removeUpdateListener = bridge.onUpdateStatus((status) => {
+          if (!active) return;
+          setNativeUpdateStatus(status);
+          if (status.status !== 'checking' && status.status !== 'downloading') {
+            setNativeShellBusy((current) => current === 'updates' ? null : current);
+          }
+        });
+      })
+      .catch((error) => {
+        if (active) setNativeShellMessage(`Could not load Native shell settings: ${error instanceof Error ? error.message : String(error)}`);
+      });
+
+    return () => {
+      active = false;
+      removeUpdateListener();
+    };
   }, []);
 
   useEffect(() => {
@@ -2175,7 +2280,21 @@ export default function SpiceApp() {
   const [topbarUserSearchResults, setTopbarUserSearchResults] = useState<any[]>([]);
   const [isSearchingTopbarUsers, setIsSearchingTopbarUsers] = useState(false);
   const [recentSearchEntries, setRecentSearchEntries] = useState<ReturnType<typeof getRecentCachedSearches>>([]);
+  const topbarSearchShellRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    if (!topbarSearchTrayOpen) return;
+
+    const dismissTopbarSearch = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && topbarSearchShellRef.current?.contains(target)) return;
+      setTopbarSearchTrayOpen(false);
+    };
+
+    document.addEventListener('pointerdown', dismissTopbarSearch);
+    return () => document.removeEventListener('pointerdown', dismissTopbarSearch);
+  }, [topbarSearchTrayOpen]);
 
   const [selfTestRunning, setSelfTestRunning] = useState(false);
   const [selfTestResults, setSelfTestResults] = useState<{
@@ -3084,6 +3203,7 @@ export default function SpiceApp() {
       'visual-customization',
       'profile-privacy',
       'sidebar-controls',
+      ...(nativeShellAvailable ? ['native-shell'] : []),
       'audio-streaming',
       'profile-sync',
       'player-layout',
@@ -3112,7 +3232,7 @@ export default function SpiceApp() {
       mainEl.removeEventListener('scroll', handleScroll);
       if (animationFrame) window.cancelAnimationFrame(animationFrame);
     };
-  }, [currentPage]);
+  }, [currentPage, nativeShellAvailable]);
 
   const scrollToSettingsSection = (id: string) => {
     const mainEl = document.getElementById('main');
@@ -3124,6 +3244,82 @@ export default function SpiceApp() {
         behavior: 'smooth'
       });
       setActiveSettingsSection(id);
+    }
+  };
+
+  const updateNativeShellBoolean = async (
+    key: 'discordRpcEnabled' | 'alwaysOnTop',
+    enabled: boolean,
+  ) => {
+    const bridge = getSpiceNativeShellBridge();
+    if (!bridge || !nativeShellSettings) return;
+    setNativeShellBusy(key);
+    setNativeShellMessage(null);
+    try {
+      const applied = key === 'discordRpcEnabled'
+        ? await bridge.setDiscordRpc(enabled)
+        : await bridge.setAlwaysOnTop(enabled);
+      setNativeShellSettings((current) => current ? { ...current, [key]: applied } : current);
+      setNativeShellMessage(key === 'discordRpcEnabled'
+        ? `Discord Rich Presence ${applied ? 'enabled' : 'disabled'}.`
+        : `Always on Top ${applied ? 'enabled' : 'disabled'}.`);
+    } catch (error) {
+      setNativeShellMessage(`Could not update the Native shell: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setNativeShellBusy(null);
+    }
+  };
+
+  const updateNativeToolbarControl = (key: NativeToolbarButtonKey, enabled: boolean) => {
+    const bridge = getSpiceNativeShellBridge();
+    if (!bridge || !nativeShellSettings) return;
+    const toolbarButtons = { ...nativeShellSettings.toolbarButtons, [key]: enabled };
+    bridge.setToolbarButtons(toolbarButtons);
+    setNativeShellSettings({ ...nativeShellSettings, toolbarButtons });
+    setNativeShellMessage('Native toolbar controls updated.');
+  };
+
+  const saveNativeShellCss = () => {
+    const bridge = getSpiceNativeShellBridge();
+    if (!bridge || !nativeShellSettings) return;
+    bridge.setCustomCss(nativeShellCssDraft);
+    setNativeShellSettings({ ...nativeShellSettings, customCss: nativeShellCssDraft });
+    setNativeShellMessage(nativeShellCssDraft.trim() ? 'Custom desktop CSS saved.' : 'Custom desktop CSS cleared.');
+  };
+
+  const clearNativeShellCss = () => {
+    const bridge = getSpiceNativeShellBridge();
+    if (!bridge || !nativeShellSettings) return;
+    bridge.setCustomCss('');
+    setNativeShellCssDraft('');
+    setNativeShellSettings({ ...nativeShellSettings, customCss: '' });
+    setNativeShellMessage('Custom desktop CSS cleared.');
+  };
+
+  const copyNativeUtilityUrl = async (url: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setNativeShellMessage(`${label} URL copied.`);
+    } catch (error) {
+      setNativeShellMessage(`Could not copy the ${label} URL: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const checkNativeShellUpdates = async () => {
+    const bridge = getSpiceNativeShellBridge();
+    if (!bridge) return;
+    setNativeShellBusy('updates');
+    setNativeShellMessage(null);
+    setNativeUpdateStatus({ status: 'checking' });
+    try {
+      const result = await bridge.checkForUpdates();
+      if (!result.success) {
+        setNativeUpdateStatus({ status: 'error', error: result.error || 'The update check failed.' });
+        setNativeShellBusy(null);
+      }
+    } catch (error) {
+      setNativeUpdateStatus({ status: 'error', error: error instanceof Error ? error.message : String(error) });
+      setNativeShellBusy(null);
     }
   };
 
@@ -4889,6 +5085,10 @@ export default function SpiceApp() {
       return;
     }
 
+    if (!isRetryCall && !isSyncLoopCall) {
+      allowNativePlaybackIntent('SPICE track selection');
+    }
+
     const trackKey = playbackTrackKey(track);
     if (!isRetryCall) {
       playbackRetryCountsRef.current.delete(trackKey);
@@ -5094,6 +5294,8 @@ export default function SpiceApp() {
   const resumeCurrentPlayback = () => {
     const targetTrack = currentTrackRef.current;
     if (!targetTrack || targetTrack.id === 'placeholder') return;
+
+    allowNativePlaybackIntent('SPICE play control');
 
     clearPlaybackRetryTimer();
     playbackRetryCountsRef.current.delete(playbackTrackKey(targetTrack));
@@ -9190,19 +9392,11 @@ const getMaskedEmail = (email: string) => {
         />
       </div>
 
-      <button
-        type="button"
-        className={`sidebar-restore-btn ${sidebarHidden ? 'visible' : 'hidden'}`}
-        onClick={() => updateSidebarHiddenPreference(false)}
-        aria-label="Show sidebar"
-        title="Show sidebar"
-      >
-        {Icons.chevronRight}
-        <span>Sidebar</span>
-      </button>
-
       {/* ═══ Sidebar Panel ═══ */}
-      <aside className={`sidebar ${sidebarHidden ? 'sidebar--hidden' : 'sidebar--visible'}`}>
+      <aside
+        className={`sidebar ${sidebarHidden ? 'sidebar--hidden' : 'sidebar--visible'}`}
+        aria-label={sidebarHidden ? 'Collapsed sidebar' : 'Sidebar'}
+      >
         <div className="sidebar__logo">
           <button
             type="button"
@@ -9224,11 +9418,12 @@ const getMaskedEmail = (email: string) => {
           <button
             type="button"
             className="sidebar__hide-btn"
-            onClick={() => updateSidebarHiddenPreference(true)}
-            aria-label="Hide sidebar"
-            title="Hide sidebar"
+            onClick={() => updateSidebarHiddenPreference(!sidebarHidden)}
+            aria-expanded={!sidebarHidden}
+            aria-label={sidebarHidden ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={sidebarHidden ? 'Expand sidebar' : 'Collapse sidebar'}
           >
-            {Icons.chevronLeft}
+            {sidebarHidden ? Icons.chevronRight : Icons.chevronLeft}
           </button>
         </div>
 
@@ -9236,6 +9431,7 @@ const getMaskedEmail = (email: string) => {
           <button
             className={`sidebar__nav-item ${currentPage === 'home' && !selectedPlaylist ? 'active' : ''}`}
             onClick={() => { setCurrentPage('home'); setSelectedPlaylist(null); setSelectedUser(null); }}
+            title="Home"
           >
             {Icons.home}
             <span className="sidebar__nav-label">Home</span>
@@ -9244,6 +9440,7 @@ const getMaskedEmail = (email: string) => {
             <button
               className={`sidebar__nav-item ${currentPage === 'search' && !selectedPlaylist ? 'active' : ''}`}
               onClick={() => { setCurrentPage('search'); setSelectedPlaylist(null); setSelectedUser(null); }}
+              title="Search"
             >
               {Icons.search}
               <span className="sidebar__nav-label">Search</span>
@@ -9252,6 +9449,7 @@ const getMaskedEmail = (email: string) => {
           <button
             className={`sidebar__nav-item ${currentPage === 'library' && !selectedPlaylist ? 'active' : ''}`}
             onClick={() => { setCurrentPage('library'); setSelectedPlaylist(null); setSelectedUser(null); }}
+            title="Library"
           >
             {Icons.library}
             <span className="sidebar__nav-label">Library</span>
@@ -9260,6 +9458,7 @@ const getMaskedEmail = (email: string) => {
             <button
               className={`sidebar__nav-item ${currentPage === 'account' && !selectedPlaylist ? 'active' : ''}`}
               onClick={() => { setCurrentPage('account'); setSelectedPlaylist(null); setSelectedUser(null); }}
+              title="Profile"
             >
               {Icons.account}
               <span className="sidebar__nav-label">Profile</span>
@@ -9269,6 +9468,7 @@ const getMaskedEmail = (email: string) => {
             <button
               className={`sidebar__nav-item ${currentPage === 'settings' && !selectedPlaylist ? 'active' : ''}`}
               onClick={() => { setCurrentPage('settings'); setSelectedPlaylist(null); setSelectedUser(null); }}
+              title="Settings"
             >
               {Icons.settings}
               <span className="sidebar__nav-label">Settings</span>
@@ -9329,7 +9529,7 @@ const getMaskedEmail = (email: string) => {
               </button>
             </div>
 
-            <div className="app-topbar__search-shell">
+            <div className="app-topbar__search-shell" ref={topbarSearchShellRef}>
               <form className="app-topbar__search" onSubmit={handleTopbarSearchSubmit} role="search">
                 {Icons.search}
                 <input
@@ -11743,6 +11943,7 @@ const getMaskedEmail = (email: string) => {
                       { id: 'visual-customization', label: 'Visual Layout', icon: Icons.monitor },
                       { id: 'profile-privacy', label: 'Profile Settings', icon: Icons.shield },
                       { id: 'sidebar-controls', label: 'Sidebar Panels', icon: Icons.grid },
+                      ...(nativeShellAvailable ? [{ id: 'native-shell', label: 'Native Desktop', icon: Icons.monitor }] : []),
                       { id: 'audio-streaming', label: 'Audio & Quality', icon: Icons.volume },
                       { id: 'profile-sync', label: 'Cloud Sync', icon: Icons.account },
                       { id: 'player-layout', label: 'Player Settings', icon: Icons.play },
@@ -11966,7 +12167,7 @@ const getMaskedEmail = (email: string) => {
                   <div id="sidebar-controls" style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
                     <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: '#fff', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>{Icons.library} Sidebar Controls</h3>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 20px 0', lineHeight: 1.4 }}>
-                      Collapse the SPICE Music sidebar or trim optional sidebar tabs. Topbar search and the profile button stay available.
+                      Collapse the SPICE Music sidebar into an icon rail or trim optional sidebar tabs. Topbar search and the profile button stay available.
                     </p>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '14px' }}>
@@ -11978,9 +12179,9 @@ const getMaskedEmail = (email: string) => {
                           style={{ accentColor: 'var(--accent-pink)', marginTop: '3px' }}
                         />
                         <span>
-                          <span style={{ display: 'block', color: '#fff', fontWeight: 800, fontSize: '0.9rem' }}>Show sidebar</span>
+                          <span style={{ display: 'block', color: '#fff', fontWeight: 800, fontSize: '0.9rem' }}>Expanded sidebar</span>
                           <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '0.74rem', lineHeight: 1.4, marginTop: '4px' }}>
-                            Hide it for a wider player and content area. Use the floating Sidebar button to bring it back.
+                            Turn this off to keep navigation icons visible in a compact rail while widening the player and content area.
                           </span>
                         </span>
                       </label>
@@ -12031,6 +12232,156 @@ const getMaskedEmail = (email: string) => {
                       </label>
                     </div>
                   </div>
+
+                  {nativeShellAvailable && nativeShellSettings && (
+                    <div id="native-shell" className="native-shell-settings">
+                      <div className="native-shell-settings__heading">
+                        <div>
+                          <h3>{Icons.monitor} SPICE Native Desktop</h3>
+                          <p>
+                            Native shell controls now live here. The standard SPICE wrapper keeps its separate Desktop Settings window.
+                          </p>
+                        </div>
+                        <span className="native-shell-settings__badge">Native only</span>
+                      </div>
+
+                      {nativeShellMessage && (
+                        <div className="native-shell-settings__message" role="status">
+                          {nativeShellMessage}
+                        </div>
+                      )}
+
+                      <div className="native-shell-settings__toggle-grid">
+                        <label className="native-shell-settings__toggle">
+                          <input
+                            type="checkbox"
+                            checked={nativeShellSettings.discordRpcEnabled}
+                            disabled={nativeShellBusy === 'discordRpcEnabled'}
+                            onChange={(event) => void updateNativeShellBoolean('discordRpcEnabled', event.target.checked)}
+                          />
+                          <span>
+                            <strong>Discord Rich Presence</strong>
+                            <small>Publish SPICE Native playback to Discord. The standard wrapper controls this from Desktop Settings.</small>
+                          </span>
+                        </label>
+
+                        <label className="native-shell-settings__toggle">
+                          <input
+                            type="checkbox"
+                            checked={nativeShellSettings.alwaysOnTop}
+                            disabled={nativeShellBusy === 'alwaysOnTop'}
+                            onChange={(event) => void updateNativeShellBoolean('alwaysOnTop', event.target.checked)}
+                          />
+                          <span>
+                            <strong>Always on Top</strong>
+                            <small>Keep the SPICE Native window above other applications and remember the choice.</small>
+                          </span>
+                        </label>
+                      </div>
+
+                      <div className="native-shell-settings__group">
+                        <div className="native-shell-settings__group-heading">
+                          <div>
+                            <strong>Desktop toolbar controls</strong>
+                            <small>Choose the icons shown in the Native title bar. Settings and window controls always remain available.</small>
+                          </div>
+                        </div>
+                        <div className="native-shell-settings__toolbar-grid">
+                          {NATIVE_TOOLBAR_CONTROLS.map((control) => (
+                            <label key={control.id} className="native-shell-settings__toolbar-option">
+                              <input
+                                type="checkbox"
+                                checked={nativeShellSettings.toolbarButtons[control.id] !== false}
+                                onChange={(event) => updateNativeToolbarControl(control.id, event.target.checked)}
+                              />
+                              <span>
+                                <strong>{control.label}</strong>
+                                <small>{control.description}</small>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="native-shell-settings__group">
+                        <div className="native-shell-settings__group-heading">
+                          <div>
+                            <strong>Custom desktop CSS</strong>
+                            <small>Apply optional CSS to the Electron shell and embedded Native view. SPICE theme settings above remain authoritative.</small>
+                          </div>
+                        </div>
+                        <textarea
+                          className="native-shell-settings__css"
+                          value={nativeShellCssDraft}
+                          onChange={(event) => setNativeShellCssDraft(event.target.value)}
+                          spellCheck={false}
+                          placeholder=":root { --accent: #ff4d8d; }"
+                          aria-label="Custom desktop CSS"
+                        />
+                        <div className="native-shell-settings__actions">
+                          <button type="button" className="btn btn--ghost" onClick={clearNativeShellCss} disabled={!nativeShellCssDraft && !nativeShellSettings.customCss}>
+                            Clear
+                          </button>
+                          <button type="button" className="btn btn--primary" onClick={saveNativeShellCss}>
+                            Save CSS
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="native-shell-settings__utility-grid">
+                        <div className="native-shell-settings__group">
+                          <div className="native-shell-settings__group-heading">
+                            <div>
+                              <strong>Desktop updates</strong>
+                              <small>{nativeUpdateStatusMessage(nativeUpdateStatus)}</small>
+                            </div>
+                            <span className={`native-shell-settings__update-state native-shell-settings__update-state--${nativeUpdateStatus?.status || 'idle'}`}>
+                              {nativeUpdateStatus?.status === 'downloaded' ? 'Ready' : nativeUpdateStatus?.status === 'error' ? 'Error' : 'Updater'}
+                            </span>
+                          </div>
+                          <div className="native-shell-settings__actions native-shell-settings__actions--start">
+                            <button
+                              type="button"
+                              className="btn btn--ghost"
+                              disabled={nativeShellBusy === 'updates'}
+                              onClick={() => void checkNativeShellUpdates()}
+                            >
+                              {nativeShellBusy === 'updates' ? 'Checking...' : 'Check for updates'}
+                            </button>
+                            {nativeUpdateStatus?.status === 'downloaded' && (
+                              <button type="button" className="btn btn--primary" onClick={() => getSpiceNativeShellBridge()?.installUpdate()}>
+                                Restart and install
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="native-shell-settings__group">
+                          <div className="native-shell-settings__group-heading">
+                            <div>
+                              <strong>Mini Player &amp; OBS</strong>
+                              <small>Use the local desktop companion surfaces from a browser or OBS Browser Source.</small>
+                            </div>
+                          </div>
+                          <div className="native-shell-settings__link-row">
+                            <code>http://localhost:6969/mini-player/</code>
+                            <button type="button" onClick={() => void copyNativeUtilityUrl('http://localhost:6969/mini-player/', 'Mini Player')}>Copy</button>
+                          </div>
+                          <div className="native-shell-settings__link-row">
+                            <code>http://localhost:6969/obs/</code>
+                            <button type="button" onClick={() => void copyNativeUtilityUrl('http://localhost:6969/obs/', 'OBS')}>Copy</button>
+                          </div>
+                          <button type="button" className="btn btn--ghost native-shell-settings__console" onClick={() => getSpiceNativeShellBridge()?.openDevTools()}>
+                            Open developer console
+                          </button>
+                        </div>
+                      </div>
+
+                      <p className="native-shell-settings__ownership-note">
+                        Last.fm and ListenBrainz for SPICE playback remain in Listening Profile Sync below. YouTube Music and SoundCloud desktop scrobbling remains wrapper-only.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Audio Settings */}
                   <div id="audio-streaming" style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>

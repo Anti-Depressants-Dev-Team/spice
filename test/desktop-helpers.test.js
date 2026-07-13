@@ -7,6 +7,7 @@ const {
   parseSupportedServiceUrl,
   getNavigationHistory,
   navigateHistory,
+  shouldBlockNativeStartupPlayback,
 } = require("../desktop-helpers");
 
 test("normalizes supported shell themes and rejects unknown values", () => {
@@ -96,6 +97,33 @@ test("uses Electron navigationHistory and only navigates when available", () => 
   assert.equal(backCalls, 1);
   assert.equal(
     navigateHistory({ canGoForward: () => false, goForward: () => {} }, "forward"),
+    false,
+  );
+});
+
+test("native startup playback yields immediately to an explicit user action", () => {
+  assert.equal(
+    shouldBlockNativeStartupPlayback({
+      waitingForAudioSettings: true,
+      guardActive: true,
+      userPlaybackIntent: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldBlockNativeStartupPlayback({
+      waitingForAudioSettings: true,
+      guardActive: true,
+      userPlaybackIntent: true,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldBlockNativeStartupPlayback({
+      waitingForAudioSettings: false,
+      guardActive: false,
+      userPlaybackIntent: false,
+    }),
     false,
   );
 });

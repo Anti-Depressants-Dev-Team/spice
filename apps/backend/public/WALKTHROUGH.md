@@ -1,5 +1,14 @@
 # SPICE Walkthrough
 
+## v1.0.135
+
+- [Spice.Music main] Collapse the desktop sidebar into a usable icon rail instead of hiding navigation, with accessible labels and an immediate expand control.
+- [Spice.Music main] Dismiss the topbar search results when the listener clicks anywhere outside the search surface.
+- [Spice.Music main] Release the Native startup playback guard as soon as an explicit track selection or play command is received, including while desktop audio settings are still synchronizing.
+- [Spice.Home main] Move Native-only desktop controls into SPICE Music Settings while preserving the separate Desktop Settings window and Discord Rich Presence control for the standard wrapper.
+- [Spice.Home main] Keep Desktop Settings sidebar clicks locked to their requested section through smooth scrolling and hide links whose Native-only legacy sections are unavailable.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.135`.
+
 ## v1.0.134
 
 - [Spice.Home main] Cache public runtime, version, release, update, and download GET responses at Vercel's edge, cache their preflights in browsers, and keep them outside the Neon-backed emergency proxy path.
