@@ -20,6 +20,23 @@ test("normalizes supported shell themes and rejects unknown values", () => {
   );
 });
 
+test("normalizes safe custom shell palettes and rejects injected colors", () => {
+  const custom = {
+    primary: "#a855f7",
+    secondary: "#7c3aed",
+    highlight: "#c084fc",
+    background: "#050507",
+    surface: "#111018",
+    glass: "rgba(11, 8, 18, 0.82)",
+    border: "rgba(168, 85, 247, 0.24)",
+  };
+  assert.deepEqual(normalizeShellTheme({ accent: "blue", surface: "glass", custom }).custom, {
+    ...custom,
+    primaryRgb: "168, 85, 247",
+  });
+  assert.equal(normalizeShellTheme({ custom: { ...custom, primary: "red; background:url(x)" } }).custom, undefined);
+});
+
 test("accepts exact supported service URLs with safe protocols", () => {
   assert.equal(
     parseSupportedServiceUrl("https://music.youtube.com/watch?v=abc").serviceKey,

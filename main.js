@@ -276,13 +276,28 @@ async function nativeCloudAuth(payload) {
 
   await ensureNativeRuntimeReady();
 
-  const mode = payload.mode === "register" ? "signup" : "signin";
-  const body = {
-    email: String(payload.email || "").trim(),
-    password: String(payload.password || ""),
-  };
+  const requestedMode = String(payload.mode || "signin");
+  const mode = requestedMode === "register"
+    ? "signup"
+    : requestedMode === "verify"
+      ? "verify-email"
+      : requestedMode === "resend"
+        ? "resend-verification"
+        : "signin";
+  const body = {};
+  if (mode === "signup" || mode === "signin") {
+    body.email = String(payload.email || "").trim();
+    body.password = String(payload.password || "");
+  }
   if (mode === "signup") {
     body.username = String(payload.username || "").trim();
+  }
+  if (mode === "verify-email") {
+    body.registrationId = String(payload.registrationId || "");
+    body.code = String(payload.code || "");
+  }
+  if (mode === "resend-verification") {
+    body.registrationId = String(payload.registrationId || "");
   }
 
   const response = await fetch(new URL(`/api/cloud/auth/spice/${mode}`, SPICE_LOCAL_RUNTIME_URL).toString(), {
@@ -304,6 +319,10 @@ async function nativeCloudAuth(payload) {
 
   if (!response.ok) {
     throw new Error(data.message || data.error || "SPICE account request failed.");
+  }
+
+  if (data.verificationRequired === true) {
+    return data;
   }
 
   const token = data.token || data.sessionToken || data.accessToken;

@@ -278,6 +278,15 @@ function installSpiceDesktopUiBridge() {
     ]);
     const validSurfaces = new Set(['midnight', 'glass', 'solid', 'aurora']);
     let lastThemeSignature = '';
+    const defaultCustomPalette = {
+        primary: '#a855f7',
+        secondary: '#7c3aed',
+        highlight: '#c084fc',
+        background: '#050507',
+        surface: '#111018',
+        glass: 'rgba(11, 8, 18, 0.82)',
+        border: 'rgba(168, 85, 247, 0.24)',
+    };
 
     window.spiceDesktopWindow = {
         getAlwaysOnTop: async () => Boolean(await ipcRenderer.invoke('get-always-on-top')),
@@ -289,17 +298,37 @@ function installSpiceDesktopUiBridge() {
     function emitTheme() {
         let accent = 'pink';
         let surface = 'midnight';
+        let custom = null;
         try {
             const savedAccent = window.localStorage.getItem('spice_accent_theme');
             const savedSurface = window.localStorage.getItem('spice_visual_surface');
             if (validAccents.has(savedAccent)) accent = savedAccent;
             if (validSurfaces.has(savedSurface)) surface = savedSurface;
+            if (window.localStorage.getItem('spice_custom_theme_enabled') !== 'false') {
+                custom = defaultCustomPalette;
+                const savedPalette = window.localStorage.getItem('spice_custom_theme_palette');
+                if (savedPalette) {
+                    const parsed = JSON.parse(savedPalette);
+                    if (parsed && parsed.colors && typeof parsed.colors === 'object') {
+                        custom = {
+                            primary: parsed.colors.primary,
+                            secondary: parsed.colors.secondary,
+                            highlight: parsed.colors.highlight,
+                            background: parsed.colors.background,
+                            surface: parsed.colors.surface,
+                            glass: parsed.colors.glass,
+                            border: parsed.colors.border,
+                        };
+                    }
+                }
+            }
         } catch (_) {}
 
-        const signature = `${accent}:${surface}`;
+        const theme = { accent, surface, custom };
+        const signature = JSON.stringify(theme);
         if (signature === lastThemeSignature) return;
         lastThemeSignature = signature;
-        ipcRenderer.send('spice-theme-changed', { accent, surface });
+        ipcRenderer.send('spice-theme-changed', theme);
     }
 
     // Older packaged runtimes used a complete purple app icon inside the

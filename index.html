@@ -68,16 +68,40 @@
         var accents = ['pink', 'blue', 'orange', 'green', 'gold', 'crimson', 'deeppurple'];
         var surfaces = ['midnight', 'glass', 'solid', 'aurora'];
         value = value && typeof value === 'object' ? value : {};
-        return {
+        var theme = {
             accent: accents.includes(value.accent) ? value.accent : 'deeppurple',
             surface: surfaces.includes(value.surface) ? value.surface : 'midnight',
         };
+        var custom = value.custom;
+        if (custom && typeof custom === 'object' &&
+            ['primary', 'secondary', 'highlight', 'background', 'surface', 'glass', 'border', 'primaryRgb']
+                .every(function(key) { return typeof custom[key] === 'string'; })) {
+            theme.custom = custom;
+        }
+        return theme;
     }
 
     function applyShellTheme(value) {
         var theme = normalizeShellTheme(value);
-        document.documentElement.dataset.spiceAccent = theme.accent;
-        document.documentElement.dataset.spiceSurface = theme.surface;
+        var root = document.documentElement;
+        root.dataset.spiceAccent = theme.accent;
+        root.dataset.spiceSurface = theme.surface;
+        var properties = ['--accent', '--accent-hover', '--accent-secondary', '--accent-rgb', '--accent-gradient', '--shell-background', '--shell-surface', '--border-glass', '--bg-obsidian', '--card-bg', '--accent-yt', '--accent-sc'];
+        properties.forEach(function(property) { root.style.removeProperty(property); });
+        if (theme.custom) {
+            root.style.setProperty('--accent', theme.custom.primary);
+            root.style.setProperty('--accent-hover', theme.custom.highlight);
+            root.style.setProperty('--accent-secondary', theme.custom.secondary);
+            root.style.setProperty('--accent-rgb', theme.custom.primaryRgb);
+            root.style.setProperty('--accent-gradient', 'linear-gradient(135deg, ' + theme.custom.secondary + ', ' + theme.custom.primary + ')');
+            root.style.setProperty('--shell-background', theme.custom.background);
+            root.style.setProperty('--shell-surface', theme.custom.glass);
+            root.style.setProperty('--border-glass', theme.custom.border);
+            root.style.setProperty('--bg-obsidian', theme.custom.background);
+            root.style.setProperty('--card-bg', theme.custom.surface);
+            root.style.setProperty('--accent-yt', theme.custom.primary);
+            root.style.setProperty('--accent-sc', theme.custom.primary);
+        }
         return theme;
     }
 
@@ -248,6 +272,12 @@
         var _authUsername = useState('');
         var authUsername = _authUsername[0];
         var setAuthUsername = _authUsername[1];
+        var _nativeVerification = useState(null);
+        var nativeVerification = _nativeVerification[0];
+        var setNativeVerification = _nativeVerification[1];
+        var _nativeVerificationCode = useState('');
+        var nativeVerificationCode = _nativeVerificationCode[0];
+        var setNativeVerificationCode = _nativeVerificationCode[1];
 
         useEffect(function() {
             if (!runtimeManagerAvailable) return;
@@ -338,17 +368,68 @@
             try {
                 var runtimeReady = await prepareNativeRuntime();
                 if (!runtimeReady) return;
-                await callApi('nativeAuth', {
+                var result = await callApi('nativeAuth', {
                     mode: authMode,
                     email: authEmail,
                     password: authPassword,
                     username: authUsername,
                 });
+                if (result && result.verificationRequired && result.registrationId) {
+                    setNativeVerification({
+                        registrationId: result.registrationId,
+                        email: result.email || authEmail,
+                    });
+                    setNativeVerificationCode('');
+                    setAuthPassword('');
+                    setNativeMessage('We sent a six-digit code to ' + (result.email || authEmail) + '.');
+                    return;
+                }
                 setNativeMessage('Account connected. Opening SPICE Music...');
                 await refreshNativeStatus();
                 onLoad('spice_crazy');
             } catch (err) {
                 setNativeMessage(err && err.message ? err.message : 'SPICE account setup failed.');
+            } finally {
+                setNativeBusy(false);
+            }
+        }
+
+        async function handleNativeVerify(e) {
+            e.preventDefault();
+            if (!nativeVerification) return;
+            setNativeBusy(true);
+            setNativeMessage('Verifying your email...');
+            try {
+                await callApi('nativeAuth', {
+                    mode: 'verify',
+                    registrationId: nativeVerification.registrationId,
+                    code: nativeVerificationCode,
+                });
+                setNativeVerification(null);
+                setNativeVerificationCode('');
+                setNativeMessage('Email verified. Opening SPICE Music...');
+                await refreshNativeStatus();
+                onLoad('spice_crazy');
+            } catch (err) {
+                setNativeMessage(err && err.message ? err.message : 'Email verification failed.');
+            } finally {
+                setNativeBusy(false);
+            }
+        }
+
+        async function resendNativeVerification() {
+            if (!nativeVerification) return;
+            setNativeBusy(true);
+            setNativeMessage('Sending a new verification code...');
+            try {
+                var result = await callApi('nativeAuth', {
+                    mode: 'resend',
+                    registrationId: nativeVerification.registrationId,
+                });
+                setNativeVerificationCode('');
+                setNativeMessage('A new code was sent to ' + ((result && result.email) || nativeVerification.email) + '.');
+            } catch (err) {
+                setNativeMessage(err && err.message ? err.message : 'Could not resend the code.');
             } finally {
                 setNativeBusy(false);
             }
@@ -456,6 +537,32 @@
                                     </button>
                                 </div>
                             </div>
+                        ` : nativeVerification ? html`
+                            <form onSubmit=${handleNativeVerify}>
+                                <div class="theme-text-soft text-[11px] uppercase tracking-[0.22em] mb-2">Email verification</div>
+                                <h2 class="text-2xl font-semibold mb-2">Check ${nativeVerification.email}</h2>
+                                <p class="text-sm text-gray-400 mb-5">Enter the six-digit code we sent. It expires after 10 minutes.</p>
+
+                                <label class="block text-xs font-semibold text-gray-300 mb-1">Verification code</label>
+                                <input class="mb-4 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2.5 text-center text-xl tracking-[0.3em] text-white outline-none focus:border-purple-400"
+                                       type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength="6" required
+                                       value=${nativeVerificationCode}
+                                       onInput=${function(e) { setNativeVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6)); }} />
+
+                                <button class="theme-primary-btn w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+                                        disabled=${nativeBusy || nativeVerificationCode.length !== 6}>
+                                    ${nativeBusy ? 'Working...' : 'Verify and open SPICE'}
+                                </button>
+                                <button type="button" class="mt-2 w-full rounded-lg border border-white/10 px-4 py-2.5 text-sm font-semibold text-gray-300 hover:bg-white/5 disabled:opacity-40"
+                                        disabled=${nativeBusy} onClick=${resendNativeVerification}>
+                                    Resend code
+                                </button>
+                                <button type="button" class="mt-2 w-full rounded-lg px-4 py-2 text-xs font-semibold text-gray-500 hover:text-gray-300 disabled:opacity-40"
+                                        disabled=${nativeBusy}
+                                        onClick=${function() { setNativeVerification(null); setNativeVerificationCode(''); setNativeMessage('Enter your account details to try again.'); }}>
+                                    Start registration again
+                                </button>
+                            </form>
                         ` : html`
                             <form onSubmit=${handleNativeAuth}>
                                 <div class="theme-text-soft text-[11px] uppercase tracking-[0.22em] mb-2">First launch</div>
@@ -464,11 +571,11 @@
 
                                 <div class="grid grid-cols-2 gap-2 mb-4 rounded-xl bg-white/[0.04] p-1">
                                     <button type="button" class=${'rounded-lg px-3 py-2 text-sm font-semibold ' + (authMode === 'signin' ? 'theme-primary-btn text-white' : 'text-gray-400 hover:text-white')}
-                                            onClick=${function() { setAuthMode('signin'); }}>
+                                            onClick=${function() { setAuthMode('signin'); setNativeVerification(null); }}>
                                         Sign in
                                     </button>
                                     <button type="button" class=${'rounded-lg px-3 py-2 text-sm font-semibold ' + (authMode === 'register' ? 'theme-primary-btn text-white' : 'text-gray-400 hover:text-white')}
-                                            onClick=${function() { setAuthMode('register'); }}>
+                                            onClick=${function() { setAuthMode('register'); setNativeVerification(null); }}>
                                         Register
                                     </button>
                                 </div>
@@ -1036,7 +1143,7 @@
         useEffect(function() { isDraggingRef.current = isDragging; }, [isDragging]);
         useEffect(function() { serviceActiveRef.current = serviceActive; }, [serviceActive]);
         useEffect(function() { durationRef.current = track.duration; }, [track.duration]);
-        useEffect(function() { applyShellTheme(shellTheme); }, [shellTheme.accent, shellTheme.surface]);
+        useEffect(function() { applyShellTheme(shellTheme); }, [shellTheme]);
 
         // --- IPC Event Subscriptions (Electron mode) ---
         useEffect(function() {

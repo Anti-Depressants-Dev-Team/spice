@@ -15,9 +15,58 @@ const DEFAULT_SHELL_THEME = Object.freeze({
   surface: "midnight",
 });
 
+const CUSTOM_THEME_COLOR_KEYS = [
+  "primary",
+  "secondary",
+  "highlight",
+  "background",
+  "surface",
+  "glass",
+  "border",
+];
+
+function normalizeLiteralColor(value) {
+  if (typeof value !== "string") return null;
+  const candidate = value.trim().toLowerCase();
+  const hex = candidate.match(/^#([0-9a-f]{6}|[0-9a-f]{8})$/);
+  if (hex) return `#${hex[1]}`;
+  const rgb = candidate.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*(0|1|0?\.\d+))?\s*\)$/);
+  if (!rgb) return null;
+  const channels = rgb.slice(1, 4).map(Number);
+  if (channels.some((channel) => channel < 0 || channel > 255)) return null;
+  const isRgba = candidate.startsWith("rgba(");
+  if (isRgba !== (rgb[4] !== undefined)) return null;
+  if (!isRgba) return `rgb(${channels.join(", ")})`;
+  const alpha = Number(rgb[4]);
+  if (!Number.isFinite(alpha) || alpha < 0 || alpha > 1) return null;
+  return `rgba(${channels.join(", ")}, ${alpha})`;
+}
+
+function colorRgbChannels(color) {
+  if (color.startsWith("#")) {
+    return [color.slice(1, 3), color.slice(3, 5), color.slice(5, 7)]
+      .map((channel) => Number.parseInt(channel, 16));
+  }
+  const match = color.match(/^rgba?\((\d+), (\d+), (\d+)/);
+  return match ? match.slice(1, 4).map(Number) : null;
+}
+
+function normalizeCustomShellTheme(value) {
+  if (!value || typeof value !== "object") return null;
+  const colors = {};
+  for (const key of CUSTOM_THEME_COLOR_KEYS) {
+    const color = normalizeLiteralColor(value[key]);
+    if (!color) return null;
+    colors[key] = color;
+  }
+  const channels = colorRgbChannels(colors.primary);
+  if (!channels) return null;
+  return { ...colors, primaryRgb: channels.join(", ") };
+}
+
 function normalizeShellTheme(value) {
   const source = value && typeof value === "object" ? value : {};
-  return {
+  const theme = {
     accent: ACCENT_THEMES.has(source.accent)
       ? source.accent
       : DEFAULT_SHELL_THEME.accent,
@@ -25,6 +74,8 @@ function normalizeShellTheme(value) {
       ? source.surface
       : DEFAULT_SHELL_THEME.surface,
   };
+  const custom = normalizeCustomShellTheme(source.custom);
+  return custom ? { ...theme, custom } : theme;
 }
 
 function parseSupportedServiceUrl(value, options = {}) {
