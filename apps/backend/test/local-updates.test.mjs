@@ -8,6 +8,7 @@ import {
   localLinuxDownloadUrl,
   localUpdateManifestUrl,
   localWindowsDownloadUrl,
+  newestRuntimeVersion,
 } from '../lib/local-updates.ts';
 
 test('compareVersions compares dotted release versions', () => {
@@ -54,6 +55,30 @@ test('localWindowsDownloadUrl rejects non-http configured URLs', () => {
   restoreEnv('SPICE_LOCAL_WINDOWS_DOWNLOAD_URL', originalUrl);
 });
 
+test('local runtime downloads reject the retired legacy repository override', () => {
+  const originalWindowsUrl = process.env.SPICE_LOCAL_WINDOWS_DOWNLOAD_URL;
+  const originalLinuxUrl = process.env.SPICE_LOCAL_LINUX_DOWNLOAD_URL;
+  process.env.SPICE_LOCAL_WINDOWS_DOWNLOAD_URL = 'https://github.com/Anti-Depressants-Dev-Team/SPICE-but-its-crazier-cuz-yes-/releases/latest/download/spice-local-windows.zip';
+  process.env.SPICE_LOCAL_LINUX_DOWNLOAD_URL = 'https://github.com/Anti-Depressants-Dev-Team/SPICE-but-its-crazier-cuz-yes-/releases/latest/download/spice-local-linux.zip';
+
+  assert.equal(
+    localWindowsDownloadUrl(),
+    'https://github.com/Anti-Depressants-Dev-Team/spice/releases/download/spice-local-runtime/spice-local-windows.zip',
+  );
+  assert.equal(
+    localLinuxDownloadUrl(),
+    'https://github.com/Anti-Depressants-Dev-Team/spice/releases/download/spice-local-runtime/spice-local-linux.zip',
+  );
+
+  restoreEnv('SPICE_LOCAL_WINDOWS_DOWNLOAD_URL', originalWindowsUrl);
+  restoreEnv('SPICE_LOCAL_LINUX_DOWNLOAD_URL', originalLinuxUrl);
+});
+
+test('a stale configured manifest version cannot hide a newer bundled runtime', () => {
+  assert.equal(newestRuntimeVersion('1.0.129', '1.0.130'), '1.0.130');
+  assert.equal(newestRuntimeVersion('1.0.131', '1.0.130'), '1.0.131');
+});
+
 test('local Linux updates use a separate public artifact and manifest route', () => {
   const originalUrl = process.env.SPICE_LOCAL_LINUX_DOWNLOAD_URL;
   const originalManifest = process.env.SPICE_LOCAL_UPDATE_MANIFEST_URL;
@@ -85,12 +110,12 @@ test('buildLocalWindowsUpdateManifest uses configured artifact metadata without 
   process.env.SPICE_LOCAL_WINDOWS_DOWNLOAD_URL = 'https://downloads.spice-app.xyz/spice-local-windows.zip';
   process.env.SPICE_LOCAL_WINDOWS_SHA256 = 'abc123';
   process.env.SPICE_LOCAL_WINDOWS_SIZE_BYTES = '42';
-  process.env.SPICE_LOCAL_WINDOWS_VERSION = '1.0.91';
+  process.env.SPICE_LOCAL_WINDOWS_VERSION = '1.0.131';
   delete process.env.SPICE_INSTALL_ORIGIN;
   delete process.env.SPICE_LOCAL_WINDOWS_RELEASE_NOTES_URL;
 
   const manifest = buildLocalWindowsUpdateManifest();
-  assert.equal(manifest.version, '1.0.91');
+  assert.equal(manifest.version, '1.0.131');
   assert.equal(manifest.download?.url, 'https://downloads.spice-app.xyz/spice-local-windows.zip');
   assert.equal(manifest.download?.sha256, 'abc123');
   assert.equal(manifest.download?.sizeBytes, 42);
