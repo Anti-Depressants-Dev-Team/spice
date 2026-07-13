@@ -1,5 +1,12 @@
 # SPICE Walkthrough
 
+## v1.0.130
+
+- [Spice.Music main] Publish the completed palette-aware local player so the sidebar logo, wordmark, topbar glow, search action, menus, and desktop shell follow every built-in or custom theme.
+- [Shared CI] Restore local Windows and Linux runtime builds by keeping the Drizzle local-runtime stub aligned with every query operator used by cloud-only routes.
+- [Spice.Home main] Reject the retired legacy runtime repository override and ignore stale configured manifest versions when the bundled runtime is newer.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.130`.
+
 ## v1.0.129
 
 - [Spice.Home main] Redesign the hosted local-runtime portal around the default SPICE purple palette with a cleaner responsive hero, compact navigation, and a guided three-step setup path.

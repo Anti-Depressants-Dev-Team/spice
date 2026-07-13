@@ -11,6 +11,7 @@ export const gt = disabledDrizzleCall;
 export const inArray = disabledDrizzleCall;
 export const isNull = disabledDrizzleCall;
 export const lt = disabledDrizzleCall;
+export const lte = disabledDrizzleCall;
 export const ne = disabledDrizzleCall;
 export const neon = disabledDrizzleCall;
 export const drizzle = disabledDrizzleCall;

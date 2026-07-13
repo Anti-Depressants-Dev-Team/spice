@@ -34,6 +34,7 @@ const DEFAULT_LOCAL_WINDOWS_DOWNLOAD_URL =
   'https://github.com/Anti-Depressants-Dev-Team/spice/releases/download/spice-local-runtime/spice-local-windows.zip';
 const DEFAULT_LOCAL_LINUX_DOWNLOAD_URL =
   'https://github.com/Anti-Depressants-Dev-Team/spice/releases/download/spice-local-runtime/spice-local-linux.zip';
+const LEGACY_LOCAL_RUNTIME_REPOSITORY = '/anti-depressants-dev-team/spice-but-its-crazier-cuz-yes-/';
 
 export function currentLocalRuntimeVersion() {
   return normalizeVersion(process.env.SPICE_LOCAL_RUNTIME_VERSION || SPICE_MEDIA_CORE_VERSION);
@@ -51,13 +52,19 @@ export function localUpdateManifestUrl(
 export function localWindowsDownloadUrl() {
   const configured = process.env.SPICE_LOCAL_WINDOWS_DOWNLOAD_URL?.trim();
   if (!configured) return DEFAULT_LOCAL_WINDOWS_DOWNLOAD_URL;
-  return isHttpUrl(configured) ? configured : DEFAULT_LOCAL_WINDOWS_DOWNLOAD_URL;
+  return isSupportedRuntimeDownloadUrl(configured) ? configured : DEFAULT_LOCAL_WINDOWS_DOWNLOAD_URL;
 }
 
 export function localLinuxDownloadUrl() {
   const configured = process.env.SPICE_LOCAL_LINUX_DOWNLOAD_URL?.trim();
   if (!configured) return DEFAULT_LOCAL_LINUX_DOWNLOAD_URL;
-  return isHttpUrl(configured) ? configured : DEFAULT_LOCAL_LINUX_DOWNLOAD_URL;
+  return isSupportedRuntimeDownloadUrl(configured) ? configured : DEFAULT_LOCAL_LINUX_DOWNLOAD_URL;
+}
+
+export function newestRuntimeVersion(configuredVersion: string, bundledVersion: string) {
+  const configured = normalizeVersion(configuredVersion || bundledVersion);
+  const bundled = normalizeVersion(bundledVersion);
+  return compareVersions(configured, bundled) >= 0 ? configured : bundled;
 }
 
 export function buildLocalWindowsUpdateManifest(): LocalRuntimeUpdateManifest {
@@ -70,7 +77,8 @@ export function buildLocalLinuxUpdateManifest(): LocalRuntimeUpdateManifest {
 
 function buildLocalUpdateManifest(platform: LocalRuntimePlatform): LocalRuntimeUpdateManifest {
   const prefix = platform === 'linux' ? 'SPICE_LOCAL_LINUX' : 'SPICE_LOCAL_WINDOWS';
-  const version = normalizeVersion(process.env[`${prefix}_VERSION`] || currentLocalRuntimeVersion());
+  const bundledVersion = currentLocalRuntimeVersion();
+  const version = newestRuntimeVersion(process.env[`${prefix}_VERSION`] || bundledVersion, bundledVersion);
   const downloadUrl = platform === 'linux' ? localLinuxDownloadUrl() : localWindowsDownloadUrl();
   const sha256 = process.env[`${prefix}_SHA256`]?.trim();
   const sizeBytes = Number(process.env[`${prefix}_SIZE_BYTES`]);
@@ -162,6 +170,13 @@ function isHttpUrl(value: string) {
   } catch {
     return false;
   }
+}
+
+function isSupportedRuntimeDownloadUrl(value: string) {
+  if (!isHttpUrl(value)) return false;
+  const parsed = new URL(value);
+  return !(parsed.hostname.toLowerCase() === 'github.com'
+    && parsed.pathname.toLowerCase().includes(LEGACY_LOCAL_RUNTIME_REPOSITORY));
 }
 
 function versionParts(version: string) {
