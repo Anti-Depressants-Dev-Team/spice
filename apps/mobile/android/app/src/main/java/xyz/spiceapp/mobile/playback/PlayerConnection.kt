@@ -24,6 +24,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import xyz.spiceapp.mobile.model.RepeatMode
 import xyz.spiceapp.mobile.model.Track
+import kotlin.math.roundToInt
 
 data class PlayerUiState(
     val connected: Boolean = false,
@@ -35,6 +36,7 @@ data class PlayerUiState(
     val isBuffering: Boolean = false,
     val positionMs: Long = 0,
     val durationMs: Long = 0,
+    val volume: Int = 100,
     val shuffleEnabled: Boolean = false,
     val repeatMode: RepeatMode = RepeatMode.Off,
     val error: String? = null,
@@ -164,6 +166,13 @@ class PlayerConnection(
         }
     }
 
+    fun setVolume(volume: Int) {
+        runWithController { activeController ->
+            activeController.volume = volume.coerceIn(0, 100) / 100f
+            publishState(activeController)
+        }
+    }
+
     fun toggleShuffle() {
         setShuffle(!_state.value.shuffleEnabled)
     }
@@ -233,6 +242,7 @@ class PlayerConnection(
             isBuffering = player.playbackState == Player.STATE_BUFFERING,
             positionMs = player.currentPosition.coerceAtLeast(0),
             durationMs = player.duration.takeUnless { it == C.TIME_UNSET }?.coerceAtLeast(0) ?: 0,
+            volume = (player.volume * 100).roundToInt().coerceIn(0, 100),
             shuffleEnabled = player.shuffleModeEnabled,
             repeatMode = repeatMode,
             error = _state.value.error,

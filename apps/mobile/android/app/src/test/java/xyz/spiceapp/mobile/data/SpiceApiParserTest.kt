@@ -547,7 +547,8 @@ class SpiceApiParserTest {
                     },
                     {"id": "command-2", "command": "seek", "payload": {"progress": 42.25}},
                     {"id": "command-3", "command": "shuffle", "payload": {"enabled": true}},
-                    {"id": "command-4", "command": "repeat", "payload": {"mode": "all"}}
+                    {"id": "command-4", "command": "repeat", "payload": {"mode": "all"}},
+                    {"id": "command-5", "command": "volume", "payload": {"volume": 84}}
                   ]
                 }
                 """.trimIndent(),
@@ -559,6 +560,7 @@ class SpiceApiParserTest {
         assertEquals(42_250L, commands[1].seekPositionMs)
         assertEquals(true, commands[2].shuffleEnabled)
         assertEquals(RepeatMode.All, commands[3].repeatMode)
+        assertEquals(84, commands[4].volume)
         assertEquals("one", RepeatMode.One.toRemoteValue())
         assertEquals(RepeatMode.Off, parseRemoteRepeatMode("invalid"))
     }

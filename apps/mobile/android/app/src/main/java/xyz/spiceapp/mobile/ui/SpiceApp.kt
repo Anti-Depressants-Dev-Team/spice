@@ -111,6 +111,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import xyz.spiceapp.mobile.BuildConfig
 import xyz.spiceapp.mobile.SpiceUiState
+import xyz.spiceapp.mobile.isCompleteSpiceConnectPairingCode
 import xyz.spiceapp.mobile.model.AccentTheme
 import xyz.spiceapp.mobile.model.AppScreen
 import xyz.spiceapp.mobile.model.AuthMode
@@ -1717,7 +1718,7 @@ private fun SecurePairingSection(
             )
             Button(
                 onClick = onClaimPairingCode,
-                enabled = !uiState.pairingLoading && uiState.pairingCode.length == 8,
+                enabled = !uiState.pairingLoading && isCompleteSpiceConnectPairingCode(uiState.pairingCode),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 if (uiState.pairingLoading) {
@@ -2257,6 +2258,7 @@ private fun RemoteDevice.toPlayerUiState(): PlayerUiState = PlayerUiState(
     isPlaying = isPlaying,
     positionMs = progressMs,
     durationMs = durationMs,
+    volume = volume,
     shuffleEnabled = shuffleEnabled,
     repeatMode = repeatMode,
 )

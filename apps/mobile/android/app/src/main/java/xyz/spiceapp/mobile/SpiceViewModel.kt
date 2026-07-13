@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
+import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -59,6 +60,8 @@ import xyz.spiceapp.mobile.playback.PlayerUiState
 import java.io.File
 import java.util.UUID
 import kotlin.random.Random
+
+private const val SPICE_CONNECT_LOG_TAG = "SpiceConnect"
 
 data class SpiceUiState(
     val screen: AppScreen = AppScreen.Home,
@@ -142,6 +145,8 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     private var playJob: Job? = null
     private var downloadJob: Job? = null
     private var connectJob: Job? = null
+    private var optimisticRemoteDeviceId: String? = null
+    private var optimisticRemoteStateUntilElapsedMs: Long = 0L
     private var activeDownloadProcessId: String? = null
     private val _uiState = MutableStateFlow(
         SpiceUiState(
@@ -946,16 +951,13 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setPairingCode(code: String) {
         _uiState.value = _uiState.value.copy(
-            pairingCode = code
-                .uppercase()
-                .filter(Char::isLetterOrDigit)
-                .take(8),
+            pairingCode = formatSpiceConnectPairingCodeInput(code),
         )
     }
 
     fun claimPairingCode() {
-        val normalizedCode = _uiState.value.pairingCode.trim()
-        if (normalizedCode.length != 8) {
+        val normalizedCode = normalizeSpiceConnectPairingCodeInput(_uiState.value.pairingCode)
+        if (!isCompleteSpiceConnectPairingCode(normalizedCode)) {
             _uiState.value = _uiState.value.copy(message = "Enter the eight-character pairing code.")
             return
         }
@@ -1009,6 +1011,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     fun signOut() {
         sessionStore.clear()
         connectJob?.cancel()
+        clearOptimisticRemoteState()
         connectPreferences.edit().remove(KEY_SELECTED_PLAYBACK_DEVICE_ID).apply()
         _uiState.value = _uiState.value.copy(
             accountSession = null,
@@ -1456,12 +1459,13 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
             ?.trim()
             ?.takeUnless { it == remoteDeviceId }
             .orEmpty()
-        if (normalized.isNotEmpty() && _uiState.value.accountSession == null) {
-            _uiState.value = _uiState.value.copy(message = "Sign in to use Spice Connect.")
+        if (normalized.isNotEmpty() && !hasRemoteAccess()) {
+            _uiState.value = _uiState.value.copy(message = "Sign in or pair this phone to use Spice Connect.")
             return
         }
 
         if (normalized.isEmpty()) {
+            clearOptimisticRemoteState()
             connectPreferences.edit().remove(KEY_SELECTED_PLAYBACK_DEVICE_ID).apply()
             _uiState.value = _uiState.value.copy(
                 selectedPlaybackDeviceId = "",
@@ -1478,6 +1482,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         playerConnection.pause()
+        clearOptimisticRemoteState()
         connectPreferences.edit().putString(KEY_SELECTED_PLAYBACK_DEVICE_ID, normalized).apply()
         _uiState.value = _uiState.value.copy(
             selectedPlaybackDeviceId = normalized,
@@ -1541,11 +1546,15 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.value = _uiState.value.copy(
                     connectStatus = "Sent $command through Spice Connect.",
                 )
+                Log.i(SPICE_CONNECT_LOG_TAG, "Queued $command from $remoteDeviceId to $deviceId")
             }.onFailure { error ->
+                clearOptimisticRemoteState(deviceId)
                 _uiState.value = _uiState.value.copy(
                     connectStatus = error.message ?: "Spice Connect command failed.",
                     message = error.message ?: "Spice Connect command failed.",
                 )
+                Log.e(SPICE_CONNECT_LOG_TAG, "Failed to send $command from $remoteDeviceId to $deviceId", error)
+                refreshSpiceConnect()
             }
         }
     }
@@ -1600,11 +1609,19 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun patchRemoteDevice(deviceId: String, transform: (RemoteDevice) -> RemoteDevice) {
+        optimisticRemoteDeviceId = deviceId
+        optimisticRemoteStateUntilElapsedMs = SystemClock.elapsedRealtime() + SPICE_CONNECT_OPTIMISTIC_STATE_WINDOW_MS
         _uiState.value = _uiState.value.copy(
             remoteDevices = _uiState.value.remoteDevices.map { device ->
                 if (device.deviceId == deviceId) transform(device) else device
             },
         )
+    }
+
+    private fun clearOptimisticRemoteState(deviceId: String? = null) {
+        if (deviceId != null && optimisticRemoteDeviceId != deviceId) return
+        optimisticRemoteDeviceId = null
+        optimisticRemoteStateUntilElapsedMs = 0L
     }
 
     private fun activeRemoteTargetId(): String? =
@@ -1722,8 +1739,10 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun hasRemoteAccess(): Boolean =
-        activePairedCredential() != null || _uiState.value.accountSession != null
+    private fun hasRemoteAccess(): Boolean = hasSpiceConnectAccess(
+        hasAccountSession = _uiState.value.accountSession != null,
+        hasPairedCredential = activePairedCredential() != null,
+    )
 
     private fun activePairedCredential(): PairedDeviceCredential? {
         val credential = _uiState.value.pairedDeviceCredential ?: return null
@@ -1736,6 +1755,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun clearPairedCredential(message: String) {
         pairedCredentialStore.clear()
+        clearOptimisticRemoteState()
         val state = _uiState.value
         val accountFallback = state.accountSession != null
         if (!accountFallback) {
@@ -1774,7 +1794,9 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     private fun startSpiceConnect() {
         connectJob?.cancel()
         connectJob = viewModelScope.launch {
-            var nextDeviceSyncAtMs = 0L
+            var nextDeviceSnapshotAtMs = 0L
+            var nextDeviceHeartbeatAtMs = 0L
+            var lastPublishedFingerprint: String? = null
             while (true) {
                 if (!hasRemoteAccess()) return@launch
                 runCatching {
@@ -1782,23 +1804,37 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
                         val commands = api.fetchRemoteCommands(token, remoteDeviceId)
                         applyRemoteCommands(commands)
 
+                        if (commands.isNotEmpty()) {
+                            // MediaController callbacks settle asynchronously after a remote command.
+                            delay(SPICE_CONNECT_COMMAND_STATE_SETTLE_MS)
+                        }
+
                         val nowElapsedRealtimeMs = SystemClock.elapsedRealtime()
+                        val currentFingerprint = spiceConnectDeviceFingerprint()
+                        if (
+                            commands.isNotEmpty() ||
+                            currentFingerprint != lastPublishedFingerprint ||
+                            nowElapsedRealtimeMs >= nextDeviceHeartbeatAtMs
+                        ) {
+                            publishSpiceConnectDevice(token)
+                            lastPublishedFingerprint = spiceConnectDeviceFingerprint()
+                            nextDeviceHeartbeatAtMs = nowElapsedRealtimeMs + SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS
+                        }
+
+                        val isControllingRemoteDevice = activeRemoteTargetId() != null
                         val shouldSyncDevices = shouldSyncSpiceConnectDevices(
                             nowElapsedRealtimeMs = nowElapsedRealtimeMs,
-                            nextDeviceSyncAtMs = nextDeviceSyncAtMs,
+                            nextDeviceSyncAtMs = nextDeviceSnapshotAtMs,
                             receivedCommands = commands.isNotEmpty(),
+                            isControllingRemoteDevice = isControllingRemoteDevice,
                         )
                         if (shouldSyncDevices) {
-                            if (commands.isNotEmpty()) {
-                                // MediaController callbacks settle asynchronously after a remote command.
-                                delay(SPICE_CONNECT_COMMAND_STATE_SETTLE_MS)
-                            }
-                            publishSpiceConnectDevice(token)
                             val devices = api.fetchRemoteDevices(token)
                             applyRemoteDeviceSnapshot(devices)
-                            nextDeviceSyncAtMs = nextSpiceConnectDeviceSyncAt(
+                            nextDeviceSnapshotAtMs = nextSpiceConnectDeviceSyncAt(
                                 nowElapsedRealtimeMs = nowElapsedRealtimeMs,
                                 receivedCommands = commands.isNotEmpty(),
+                                isControllingRemoteDevice = isControllingRemoteDevice,
                             )
                         }
                     }
@@ -1824,13 +1860,31 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
             repeatMode = player.repeatMode,
             progressMs = player.positionMs,
             durationMs = player.durationMs,
+            volume = player.volume,
             queue = _uiState.value.playbackQueue,
             queueIndex = _uiState.value.queueIndex.coerceAtLeast(0),
         )
     }
 
+    private fun spiceConnectDeviceFingerprint(): String {
+        val state = _uiState.value
+        val player = playerState.value
+        return listOf(
+            state.currentTrack?.id.orEmpty(),
+            state.playbackQueue.joinToString(",") { it.id },
+            state.queueIndex,
+            player.isPlaying,
+            player.shuffleEnabled,
+            player.repeatMode,
+            player.volume,
+            player.positionMs / SPICE_CONNECT_PROGRESS_REPORT_BUCKET_MS,
+            player.durationMs,
+        ).joinToString("|")
+    }
+
     private fun applyRemoteCommands(commands: List<RemoteCommand>) {
         commands.forEach { command ->
+            Log.i(SPICE_CONNECT_LOG_TAG, "Applying ${command.command} (${command.id}) on $remoteDeviceId")
             when (command.command) {
                 "toggle" -> playerConnection.toggle()
                 "pause" -> playerConnection.pause()
@@ -1838,6 +1892,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
                 "next" -> playNextLocally()
                 "previous" -> playPreviousLocally()
                 "seek" -> command.seekPositionMs?.let(playerConnection::seekTo)
+                "volume" -> command.volume?.let(playerConnection::setVolume)
                 "shuffle" -> command.shuffleEnabled?.let(playerConnection::setShuffle)
                 "repeat" -> command.repeatMode?.let(playerConnection::setRepeatMode)
                 "play_track" -> command.payloadTrack?.let { track ->
@@ -1856,13 +1911,32 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         status: String = _uiState.value.connectStatus,
     ) {
         val state = _uiState.value
+        val nowElapsedRealtimeMs = SystemClock.elapsedRealtime()
+        if (optimisticRemoteStateUntilElapsedMs <= nowElapsedRealtimeMs) {
+            clearOptimisticRemoteState()
+        }
+        val optimisticDevice = optimisticRemoteDeviceId?.let { deviceId ->
+            state.remoteDevices.firstOrNull { it.deviceId == deviceId }
+        }
+        val reconciledDevices = if (optimisticDevice != null) {
+            devices.map { device ->
+                if (device.deviceId == optimisticDevice.deviceId) {
+                    optimisticDevice.copy(updatedAt = device.updatedAt)
+                } else {
+                    device
+                }
+            }
+        } else {
+            devices
+        }
         val selectedId = state.selectedPlaybackDeviceId
-        val selectedStillExists = selectedId.isBlank() || devices.any { it.deviceId == selectedId }
+        val selectedStillExists = selectedId.isBlank() || reconciledDevices.any { it.deviceId == selectedId }
         if (!selectedStillExists) {
+            clearOptimisticRemoteState(selectedId)
             connectPreferences.edit().remove(KEY_SELECTED_PLAYBACK_DEVICE_ID).apply()
         }
         _uiState.value = state.copy(
-            remoteDevices = devices,
+            remoteDevices = reconciledDevices,
             selectedPlaybackDeviceId = selectedId.takeIf { selectedStillExists }.orEmpty(),
             connectLoading = loading,
             connectStatus = if (selectedStillExists) status else "Selected device went offline; using this phone.",

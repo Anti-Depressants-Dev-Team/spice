@@ -1082,8 +1082,8 @@
                             title="Mini Player">${icon(IC.pip)}</button>`}
                     ${showServiceTools && toolbarVisible('queue') && html`<button class="nav-btn" onClick=${function() { callApi('openQueue'); }}
                             title="Queue">${icon(IC.queue)}</button>`}
-                    <button class="nav-btn" onClick=${function() { callApi('openSettings'); }}
-                            title="Settings">${icon(IC.settings)}</button>
+                    ${!nativeMode && html`<button class="nav-btn" onClick=${function() { callApi('openSettings'); }}
+                            title="Settings">${icon(IC.settings)}</button>`}
 
                     <!-- Separator -->
                     <div class="w-px h-4 bg-white/[0.06] mx-1"></div>

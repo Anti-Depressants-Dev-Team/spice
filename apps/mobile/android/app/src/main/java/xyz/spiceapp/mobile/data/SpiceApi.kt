@@ -1052,6 +1052,9 @@ internal fun parseRemoteCommands(payload: JSONObject): List<RemoteCommand> {
                 commandPayload.has("position") -> (commandPayload.optDouble("position", 0.0) * 1000).toLong().coerceAtLeast(0)
                 else -> null
             }
+            val volume = commandPayload.optInt("volume", -1).takeIf {
+                commandPayload.has("volume") && it in 0..100
+            }
             val shuffleEnabled = commandPayload.optBoolean("enabled").takeIf { commandPayload.has("enabled") }
             val repeatMode = parseRemoteRepeatMode(commandPayload.optString("mode")).takeIf {
                 commandPayload.has("mode")
@@ -1064,6 +1067,7 @@ internal fun parseRemoteCommands(payload: JSONObject): List<RemoteCommand> {
                     payloadQueue = payloadQueue,
                     payloadQueueIndex = payloadQueueIndex,
                     seekPositionMs = seekPositionMs,
+                    volume = volume,
                     shuffleEnabled = shuffleEnabled,
                     repeatMode = repeatMode,
                 ),

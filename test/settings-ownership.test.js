@@ -77,6 +77,12 @@ test('Native desktop settings move into SPICE Music while the wrapper keeps its 
   assert.match(spiceApp, /action: 'back' \| 'settings'/);
 });
 
+test('Native shell removes the wrapper settings gear from its title bar', () => {
+  const index = read('index.html');
+
+  assert.match(index, /\$\{!nativeMode\s*&&\s*html`<button class="nav-btn" onClick=\$\{function\(\) \{ callApi\('openSettings'\); \}\}/s);
+});
+
 test('desktop updater status reaches the settings window', () => {
   const main = read('main.js');
 

@@ -7,7 +7,15 @@ import {
   normalizeSpiceConnectDeviceInput,
   parseRemotePayload,
   safeRemotePayload,
+  spiceConnectCommandPollDelay,
+  SPICE_CONNECT_COMMAND_ACTIVE_POLL_INTERVAL_MS,
+  SPICE_CONNECT_COMMAND_HIDDEN_POLL_INTERVAL_MS,
+  SPICE_CONNECT_COMMAND_IDLE_POLL_INTERVAL_MS,
+  SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS,
+  SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS,
   SPICE_CONNECT_COMMAND_TTL_MS,
+  SPICE_CONNECT_OPTIMISTIC_STATE_WINDOW_MS,
+  SPICE_CONNECT_STALE_DEVICE_SECONDS,
 } from '../lib/spice-connect.ts';
 
 test('Spice Connect device normalization bounds client-reported playback state', () => {
@@ -136,4 +144,17 @@ test('Spice Connect command freshness rejects stale or invalid timestamps', () =
   assert.equal(isSpiceConnectCommandFresh(fresh, now), true);
   assert.equal(isSpiceConnectCommandFresh(stale, now), false);
   assert.equal(isSpiceConnectCommandFresh('not-a-date', now), false);
+});
+
+test('Spice Connect keeps active and background receivers responsive', () => {
+  assert.ok(SPICE_CONNECT_COMMAND_ACTIVE_POLL_INTERVAL_MS <= 2_000);
+  assert.ok(SPICE_CONNECT_COMMAND_IDLE_POLL_INTERVAL_MS <= 3_000);
+  assert.ok(SPICE_CONNECT_COMMAND_HIDDEN_POLL_INTERVAL_MS <= 5_000);
+  assert.ok(SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS <= 2_000);
+  assert.ok(SPICE_CONNECT_OPTIMISTIC_STATE_WINDOW_MS > SPICE_CONNECT_COMMAND_HIDDEN_POLL_INTERVAL_MS);
+  assert.ok(SPICE_CONNECT_STALE_DEVICE_SECONDS * 1000 >= SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS * 2);
+
+  assert.equal(spiceConnectCommandPollDelay({ visible: true, emptyPolls: 0 }), SPICE_CONNECT_COMMAND_ACTIVE_POLL_INTERVAL_MS);
+  assert.equal(spiceConnectCommandPollDelay({ visible: true, emptyPolls: 3 }), SPICE_CONNECT_COMMAND_IDLE_POLL_INTERVAL_MS);
+  assert.equal(spiceConnectCommandPollDelay({ visible: false, emptyPolls: 0 }), SPICE_CONNECT_COMMAND_HIDDEN_POLL_INTERVAL_MS);
 });

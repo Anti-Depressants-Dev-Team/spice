@@ -13,6 +13,29 @@ export type SpiceConnectCommandType =
 export type SpiceConnectRepeatMode = 'none' | 'all' | 'one';
 
 export const SPICE_CONNECT_COMMAND_TTL_MS = 240000;
+export const SPICE_CONNECT_COMMAND_ACTIVE_POLL_INTERVAL_MS = 1500;
+export const SPICE_CONNECT_COMMAND_IDLE_POLL_INTERVAL_MS = 3000;
+export const SPICE_CONNECT_COMMAND_HIDDEN_POLL_INTERVAL_MS = 5000;
+export const SPICE_CONNECT_COMMAND_IDLE_BACKOFF_POLLS = 3;
+export const SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS = 2000;
+export const SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS = 30000;
+export const SPICE_CONNECT_POST_COMMAND_SYNC_DELAY_MS = 300;
+export const SPICE_CONNECT_STATE_REPORT_DEBOUNCE_MS = 250;
+export const SPICE_CONNECT_OPTIMISTIC_STATE_WINDOW_MS = 6000;
+export const SPICE_CONNECT_STALE_DEVICE_SECONDS = 90;
+
+export function spiceConnectCommandPollDelay({
+  visible,
+  emptyPolls,
+}: {
+  visible: boolean;
+  emptyPolls: number;
+}) {
+  if (!visible) return SPICE_CONNECT_COMMAND_HIDDEN_POLL_INTERVAL_MS;
+  return emptyPolls >= SPICE_CONNECT_COMMAND_IDLE_BACKOFF_POLLS
+    ? SPICE_CONNECT_COMMAND_IDLE_POLL_INTERVAL_MS
+    : SPICE_CONNECT_COMMAND_ACTIVE_POLL_INTERVAL_MS;
+}
 
 export interface SpiceConnectDeviceInput {
   deviceId: string;

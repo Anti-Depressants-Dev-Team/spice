@@ -110,12 +110,12 @@ test('buildLocalWindowsUpdateManifest uses configured artifact metadata without 
   process.env.SPICE_LOCAL_WINDOWS_DOWNLOAD_URL = 'https://downloads.spice-app.xyz/spice-local-windows.zip';
   process.env.SPICE_LOCAL_WINDOWS_SHA256 = 'abc123';
   process.env.SPICE_LOCAL_WINDOWS_SIZE_BYTES = '42';
-  process.env.SPICE_LOCAL_WINDOWS_VERSION = '1.0.135';
+  process.env.SPICE_LOCAL_WINDOWS_VERSION = '1.0.136';
   delete process.env.SPICE_INSTALL_ORIGIN;
   delete process.env.SPICE_LOCAL_WINDOWS_RELEASE_NOTES_URL;
 
   const manifest = buildLocalWindowsUpdateManifest();
-  assert.equal(manifest.version, '1.0.135');
+  assert.equal(manifest.version, '1.0.136');
   assert.equal(manifest.download?.url, 'https://downloads.spice-app.xyz/spice-local-windows.zip');
   assert.equal(manifest.download?.sha256, 'abc123');
   assert.equal(manifest.download?.sizeBytes, 42);

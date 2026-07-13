@@ -1,5 +1,15 @@
 # SPICE Walkthrough
 
+## v1.0.136
+
+- [Spice.Connect main] Cut receiver command latency from tens of seconds to responsive active, idle, and background polling cadences, with event-driven state reports and short controller refreshes.
+- [Spice.Connect main] Preserve optimistic play, pause, seek, queue, shuffle, repeat, and volume updates until receivers publish their confirmed state instead of snapping controls back to stale snapshots.
+- [Spice.Mobile main] Let a securely paired phone discover and select its authorized playback devices without also signing into a Spice account.
+- [Spice.Mobile main] Format pairing codes as `XXXX-XXXX`, apply remote volume commands, and publish real player volume and playback changes promptly.
+- [Spice.Home main] Remove the wrapper Settings gear from SPICE Native while keeping it available in the standard desktop wrapper.
+- [Spice.Music main] Keep remote volume controls within the receiver's supported 0-100% range and improve Spice Connect command diagnostics.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.136`.
+
 ## v1.0.135
 
 - [Spice.Music main] Collapse the desktop sidebar into a usable icon rail instead of hiding navigation, with accessible labels and an immediate expand control.

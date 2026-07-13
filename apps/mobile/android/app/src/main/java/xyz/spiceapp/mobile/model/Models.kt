@@ -187,6 +187,7 @@ data class RemoteCommand(
     val payloadQueue: List<Track> = emptyList(),
     val payloadQueueIndex: Int = 0,
     val seekPositionMs: Long? = null,
+    val volume: Int? = null,
     val shuffleEnabled: Boolean? = null,
     val repeatMode: RepeatMode? = null,
 )
