@@ -11,7 +11,9 @@ import xyz.spiceapp.mobile.BuildConfig
 import xyz.spiceapp.mobile.data.provider.NewPipeYouTubeClient
 import xyz.spiceapp.mobile.data.provider.SoundCloudDirectClient
 import xyz.spiceapp.mobile.model.AccountSession
+import xyz.spiceapp.mobile.model.EmailVerificationChallenge
 import xyz.spiceapp.mobile.model.LibrarySyncSummary
+import xyz.spiceapp.mobile.model.PairedDeviceCredential
 import xyz.spiceapp.mobile.model.PendingPlaylistInvite
 import xyz.spiceapp.mobile.model.Playlist
 import xyz.spiceapp.mobile.model.PlaylistInvite
@@ -61,14 +63,50 @@ class SpiceApi(
         )
     }
 
-    suspend fun signUp(email: String, password: String, username: String): AccountSession = withContext(Dispatchers.IO) {
-        parseAccountSession(
+    suspend fun signUp(email: String, password: String, username: String): EmailVerificationChallenge = withContext(Dispatchers.IO) {
+        parseEmailVerificationChallenge(
             postJson(
                 "/api/auth/spice/signup",
                 JSONObject()
                     .put("email", email.trim())
                     .put("password", password)
                     .put("username", username.trim()),
+            ),
+        )
+    }
+
+    suspend fun verifyEmail(registrationId: String, code: String): AccountSession = withContext(Dispatchers.IO) {
+        parseAccountSession(
+            postJson(
+                "/api/auth/spice/verify-email",
+                JSONObject()
+                    .put("registrationId", registrationId)
+                    .put("code", code.trim()),
+            ),
+        )
+    }
+
+    suspend fun resendEmailVerification(registrationId: String): EmailVerificationChallenge = withContext(Dispatchers.IO) {
+        parseEmailVerificationChallenge(
+            postJson(
+                "/api/auth/spice/resend-verification",
+                JSONObject().put("registrationId", registrationId),
+            ),
+        )
+    }
+
+    suspend fun claimPairingCode(
+        code: String,
+        deviceId: String,
+        displayName: String,
+    ): PairedDeviceCredential = withContext(Dispatchers.IO) {
+        parsePairedDeviceCredential(
+            postJson(
+                "/api/remote/pairing/claim",
+                JSONObject()
+                    .put("code", code.trim())
+                    .put("deviceId", deviceId)
+                    .put("displayName", displayName),
             ),
         )
     }
@@ -861,6 +899,44 @@ internal fun parseAccountSession(payload: JSONObject): AccountSession {
     }
 
     return AccountSession(token, account)
+}
+
+internal fun parseEmailVerificationChallenge(payload: JSONObject): EmailVerificationChallenge {
+    val registrationId = payload.optString("registrationId").trim()
+    val email = payload.optString("email").trim()
+    if (!payload.optBoolean("verificationRequired", false) || registrationId.isEmpty() || email.isEmpty()) {
+        throw SpiceApiException("Spice returned an invalid email verification challenge.")
+    }
+    return EmailVerificationChallenge(
+        registrationId = registrationId,
+        email = email,
+        expiresAt = payload.optString("expiresAt").trim(),
+    )
+}
+
+internal fun parsePairedDeviceCredential(payload: JSONObject): PairedDeviceCredential {
+    val accessToken = payload.optString("accessToken").trim()
+    val authorizationId = payload.optString("authorizationId").trim()
+    val ownerUserId = payload.optString("userId").trim()
+    val expiresAt = payload.optString("expiresAt").trim()
+    val expiresAtEpochMs = parseSpiceTimestampEpochMs(expiresAt)
+    val device = payload.optJSONObject("device") ?: JSONObject()
+    val deviceId = device.optString("deviceId").trim()
+    val displayName = device.optString("displayName").trim().ifEmpty { "Spice Android" }
+    if (!accessToken.startsWith("spice_pair_") || payload.optString("scope") != "spice_connect"
+        || authorizationId.isEmpty() || ownerUserId.isEmpty() || expiresAtEpochMs <= 0L || deviceId.isEmpty()
+    ) {
+        throw SpiceApiException("Spice returned an invalid paired-device credential.")
+    }
+    return PairedDeviceCredential(
+        accessToken = accessToken,
+        authorizationId = authorizationId,
+        ownerUserId = ownerUserId,
+        expiresAt = expiresAt,
+        expiresAtEpochMs = expiresAtEpochMs,
+        deviceId = deviceId,
+        displayName = displayName,
+    )
 }
 
 internal fun parseAccount(payload: JSONObject): SpiceAccount =

@@ -210,6 +210,54 @@ class SpiceApiParserTest {
     }
 
     @Test
+    fun parsesEmailVerificationChallengePayload() {
+        val challenge = parseEmailVerificationChallenge(
+            JSONObject(
+                """
+                {
+                  "verificationRequired": true,
+                  "registrationId": "registration-1",
+                  "email": "li******@example.test",
+                  "expiresAt": "2026-07-13T12:10:00.000Z"
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals("registration-1", challenge.registrationId)
+        assertEquals("li******@example.test", challenge.email)
+        assertEquals("2026-07-13T12:10:00.000Z", challenge.expiresAt)
+    }
+
+    @Test
+    fun parsesScopedPairedDeviceCredential() {
+        val credential = parsePairedDeviceCredential(
+            JSONObject(
+                """
+                {
+                  "authorizationId": "authorization-1",
+                  "userId": "owner-1",
+                  "accessToken": "spice_pair_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG",
+                  "tokenType": "Bearer",
+                  "scope": "spice_connect",
+                  "expiresAt": "2026-08-12T12:10:00.000Z",
+                  "device": {
+                    "deviceId": "android-device-1",
+                    "displayName": "Spice Android"
+                  }
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals("authorization-1", credential.authorizationId)
+        assertEquals("owner-1", credential.ownerUserId)
+        assertEquals("android-device-1", credential.deviceId)
+        assertEquals("Spice Android", credential.displayName)
+        assertTrue(credential.expiresAtEpochMs > 0L)
+    }
+
+    @Test
     fun parsesAndSerializesTrackSnapshotsForSync() {
         val track = parseTrackSnapshot(
             JSONObject(

@@ -134,6 +134,25 @@ data class AccountSession(
     val account: SpiceAccount,
 )
 
+data class EmailVerificationChallenge(
+    val registrationId: String,
+    val email: String,
+    val expiresAt: String = "",
+)
+
+data class PairedDeviceCredential(
+    val accessToken: String,
+    val authorizationId: String,
+    val ownerUserId: String,
+    val expiresAt: String,
+    val expiresAtEpochMs: Long,
+    val deviceId: String,
+    val displayName: String,
+) {
+    fun isExpired(nowEpochMs: Long = System.currentTimeMillis()): Boolean =
+        expiresAtEpochMs <= 0L || expiresAtEpochMs <= nowEpochMs
+}
+
 data class LibrarySyncSummary(
     val likedCount: Int,
     val historyCount: Int,

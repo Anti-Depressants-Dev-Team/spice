@@ -23,8 +23,10 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import xyz.spiceapp.mobile.data.LibraryRepository
+import xyz.spiceapp.mobile.data.PairedCredentialStore
 import xyz.spiceapp.mobile.data.SessionStore
 import xyz.spiceapp.mobile.data.SpiceApi
+import xyz.spiceapp.mobile.data.SpiceApiException
 import xyz.spiceapp.mobile.data.toRemoteTrackJson
 import xyz.spiceapp.mobile.data.download.MediaDownloadClient
 import xyz.spiceapp.mobile.model.AccountSession
@@ -32,10 +34,12 @@ import xyz.spiceapp.mobile.model.AccentTheme
 import xyz.spiceapp.mobile.model.AppScreen
 import xyz.spiceapp.mobile.model.AuthMode
 import xyz.spiceapp.mobile.model.DownloadedTrack
+import xyz.spiceapp.mobile.model.EmailVerificationChallenge
 import xyz.spiceapp.mobile.model.FeedSection
 import xyz.spiceapp.mobile.model.LibraryTab
 import xyz.spiceapp.mobile.model.LibrarySyncSummary
 import xyz.spiceapp.mobile.model.LyricsPayload
+import xyz.spiceapp.mobile.model.PairedDeviceCredential
 import xyz.spiceapp.mobile.model.PendingPlaylistInvite
 import xyz.spiceapp.mobile.model.Playlist
 import xyz.spiceapp.mobile.model.PlaylistInvitePreview
@@ -74,6 +78,9 @@ data class SpiceUiState(
     val quality: StreamQuality = StreamQuality.Standard,
     val accentTheme: AccentTheme = AccentTheme.NeonSpice,
     val accountSession: AccountSession? = null,
+    val pairedDeviceCredential: PairedDeviceCredential? = null,
+    val pairingCode: String = "",
+    val pairingLoading: Boolean = false,
     val profileSummary: ProfileSummary? = null,
     val profileLoading: Boolean = false,
     val profileEditOpen: Boolean = false,
@@ -87,6 +94,8 @@ data class SpiceUiState(
     val authEmail: String = "",
     val authPassword: String = "",
     val authUsername: String = "",
+    val emailVerification: EmailVerificationChallenge? = null,
+    val authVerificationCode: String = "",
     val accountLoading: Boolean = false,
     val syncLoading: Boolean = false,
     val lastSync: LibrarySyncSummary? = null,
@@ -119,10 +128,16 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     private val api = SpiceApi()
     private val libraryRepository = LibraryRepository(application)
     private val sessionStore = SessionStore(application)
+    private val pairedCredentialStore = PairedCredentialStore(application)
     private val downloadClient = MediaDownloadClient(application)
     private val playerConnection = PlayerConnection(application) { handlePlaybackEnded() }
     private val connectPreferences = application.getSharedPreferences("spice_connect", Context.MODE_PRIVATE)
     private val remoteDeviceId = loadRemoteDeviceId()
+    private val initialPairedCredential = pairedCredentialStore.load()
+        ?.takeIf { it.deviceId == remoteDeviceId }
+        .also { credential ->
+            if (credential == null) pairedCredentialStore.clear()
+        }
     private var playJob: Job? = null
     private var downloadJob: Job? = null
     private var connectJob: Job? = null
@@ -132,6 +147,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
             quality = libraryRepository.quality(),
             accentTheme = libraryRepository.accentTheme(),
             accountSession = sessionStore.load(),
+            pairedDeviceCredential = initialPairedCredential,
             remoteDeviceId = remoteDeviceId,
             selectedPlaybackDeviceId = loadSelectedPlaybackDeviceId(),
         ),
@@ -146,7 +162,9 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value.accountSession?.let { session ->
             loadProfileSummary(session)
             loadPendingAccountInvites(session)
-            startSpiceConnect(session)
+        }
+        if (_uiState.value.accountSession != null || _uiState.value.pairedDeviceCredential != null) {
+            startSpiceConnect()
         }
     }
 
@@ -676,7 +694,12 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setAuthMode(mode: AuthMode) {
-        _uiState.value = _uiState.value.copy(authMode = mode, message = null)
+        _uiState.value = _uiState.value.copy(
+            authMode = mode,
+            emailVerification = null,
+            authVerificationCode = "",
+            message = null,
+        )
     }
 
     fun setAuthEmail(email: String) {
@@ -689,6 +712,12 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setAuthUsername(username: String) {
         _uiState.value = _uiState.value.copy(authUsername = username)
+    }
+
+    fun setAuthVerificationCode(code: String) {
+        _uiState.value = _uiState.value.copy(
+            authVerificationCode = code.filter(Char::isDigit).take(6),
+        )
     }
 
     fun openProfileEditor() {
@@ -832,30 +861,149 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
 
         _uiState.value = state.copy(accountLoading = true, message = null)
         viewModelScope.launch {
-            runCatching {
-                when (state.authMode) {
-                    AuthMode.SignIn -> api.signIn(email, password)
-                    AuthMode.SignUp -> api.signUp(email, password, username)
+            if (state.authMode == AuthMode.SignUp) {
+                runCatching { api.signUp(email, password, username) }
+                    .onSuccess { challenge ->
+                        _uiState.value = _uiState.value.copy(
+                            emailVerification = challenge,
+                            authVerificationCode = "",
+                            authPassword = "",
+                            accountLoading = false,
+                            message = "We sent a six-digit code to ${challenge.email}.",
+                        )
+                    }
+                    .onFailure { error ->
+                        _uiState.value = _uiState.value.copy(
+                            accountLoading = false,
+                            message = error.message ?: "Account registration failed.",
+                        )
+                    }
+            } else {
+                runCatching { api.signIn(email, password) }
+                    .onSuccess(::completeAccountSignIn)
+                    .onFailure { error ->
+                        _uiState.value = _uiState.value.copy(
+                            accountLoading = false,
+                            message = error.message ?: "Account sign-in failed.",
+                        )
+                    }
+            }
+        }
+    }
+
+    fun submitEmailVerification() {
+        val state = _uiState.value
+        val challenge = state.emailVerification ?: return
+        if (state.authVerificationCode.length != 6) {
+            _uiState.value = state.copy(message = "Enter the six-digit verification code.")
+            return
+        }
+        _uiState.value = state.copy(accountLoading = true, message = null)
+        viewModelScope.launch {
+            runCatching { api.verifyEmail(challenge.registrationId, state.authVerificationCode) }
+                .onSuccess(::completeAccountSignIn)
+                .onFailure { error ->
+                    _uiState.value = _uiState.value.copy(
+                        accountLoading = false,
+                        message = error.message ?: "Email verification failed.",
+                    )
                 }
-            }.onSuccess { session ->
-                sessionStore.save(session)
+        }
+    }
+
+    fun resendEmailVerification() {
+        val state = _uiState.value
+        val challenge = state.emailVerification ?: return
+        _uiState.value = state.copy(accountLoading = true, message = null)
+        viewModelScope.launch {
+            runCatching { api.resendEmailVerification(challenge.registrationId) }
+                .onSuccess { refreshed ->
+                    _uiState.value = _uiState.value.copy(
+                        emailVerification = refreshed,
+                        authVerificationCode = "",
+                        accountLoading = false,
+                        message = "A new verification code was sent to ${refreshed.email}.",
+                    )
+                }
+                .onFailure { error ->
+                    _uiState.value = _uiState.value.copy(
+                        accountLoading = false,
+                        message = error.message ?: "Could not resend the verification code.",
+                    )
+                }
+        }
+    }
+
+    fun cancelEmailVerification() {
+        _uiState.value = _uiState.value.copy(
+            emailVerification = null,
+            authVerificationCode = "",
+            accountLoading = false,
+            message = "Enter your account details to try again.",
+        )
+    }
+
+    fun setPairingCode(code: String) {
+        _uiState.value = _uiState.value.copy(
+            pairingCode = code
+                .uppercase()
+                .filter(Char::isLetterOrDigit)
+                .take(8),
+        )
+    }
+
+    fun claimPairingCode() {
+        val normalizedCode = _uiState.value.pairingCode.trim()
+        if (normalizedCode.length != 8) {
+            _uiState.value = _uiState.value.copy(message = "Enter the eight-character pairing code.")
+            return
+        }
+
+        _uiState.value = _uiState.value.copy(pairingLoading = true, message = null)
+        viewModelScope.launch {
+            runCatching {
+                api.claimPairingCode(
+                    code = normalizedCode,
+                    deviceId = remoteDeviceId,
+                    displayName = "Spice Android",
+                ).also(pairedCredentialStore::save)
+            }.onSuccess { credential ->
                 _uiState.value = _uiState.value.copy(
-                    accountSession = session,
-                    accountLoading = false,
-                    authPassword = "",
-                    message = "Signed in as ${session.account.email}.",
+                    pairedDeviceCredential = credential,
+                    pairingCode = "",
+                    pairingLoading = false,
+                    connectStatus = "This phone is securely paired for Spice Connect.",
+                    message = "Pairing complete. Spice Connect is ready.",
                 )
-                loadProfileSummary(session)
-                syncLibrary(session)
-                loadPendingAccountInvites(session)
-                startSpiceConnect(session)
+                startSpiceConnect()
+                refreshSpiceConnect()
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
-                    accountLoading = false,
-                    message = error.message ?: "Account sign-in failed.",
+                    pairingLoading = false,
+                    message = error.message ?: "Could not claim the pairing code.",
                 )
             }
         }
+    }
+
+    fun disconnectPairedDevice() {
+        clearPairedCredential("Paired-device access was removed from this phone.")
+    }
+
+    private fun completeAccountSignIn(session: AccountSession) {
+        sessionStore.save(session)
+        _uiState.value = _uiState.value.copy(
+            accountSession = session,
+            emailVerification = null,
+            authVerificationCode = "",
+            accountLoading = false,
+            authPassword = "",
+            message = "Signed in as ${session.account.email}.",
+        )
+        loadProfileSummary(session)
+        syncLibrary(session)
+        loadPendingAccountInvites(session)
+        startSpiceConnect()
     }
 
     fun signOut() {
@@ -867,6 +1015,8 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
             profileSummary = null,
             profileLoading = false,
             authPassword = "",
+            emailVerification = null,
+            authVerificationCode = "",
             lastSync = null,
             pendingAccountInvites = emptyList(),
             pendingInvitePreview = null,
@@ -879,6 +1029,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
             connectStatus = "",
             message = "Signed out of Spice account.",
         )
+        if (activePairedCredential() != null) startSpiceConnect()
     }
 
     fun syncNow() {
@@ -1335,16 +1486,17 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshSpiceConnect() {
-        val session = _uiState.value.accountSession
-        if (session == null) {
-            _uiState.value = _uiState.value.copy(message = "Sign in to use Spice Connect.")
+        if (!hasRemoteAccess()) {
+            _uiState.value = _uiState.value.copy(message = "Sign in or pair this phone to use Spice Connect.")
             return
         }
         _uiState.value = _uiState.value.copy(connectLoading = true, connectStatus = "")
         viewModelScope.launch {
             runCatching {
-                publishSpiceConnectDevice(session)
-                api.fetchRemoteDevices(session.token)
+                withRemoteAccess { token ->
+                    publishSpiceConnectDevice(token)
+                    api.fetchRemoteDevices(token)
+                }
             }.onSuccess { devices ->
                 applyRemoteDeviceSnapshot(
                     devices = devices,
@@ -1366,9 +1518,8 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         command: String,
         payload: JSONObject = JSONObject(),
     ) {
-        val session = _uiState.value.accountSession
-        if (session == null) {
-            _uiState.value = _uiState.value.copy(message = "Sign in to use Spice Connect.")
+        if (!hasRemoteAccess()) {
+            _uiState.value = _uiState.value.copy(message = "Sign in or pair this phone to use Spice Connect.")
             return
         }
         if (deviceId == remoteDeviceId) {
@@ -1377,13 +1528,15 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             runCatching {
-                api.sendRemoteCommand(
-                    token = session.token,
-                    targetDeviceId = deviceId,
-                    sourceDeviceId = remoteDeviceId,
-                    command = command,
-                    payload = payload,
-                )
+                withRemoteAccess { token ->
+                    api.sendRemoteCommand(
+                        token = token,
+                        targetDeviceId = deviceId,
+                        sourceDeviceId = remoteDeviceId,
+                        command = command,
+                        payload = payload,
+                    )
+                }
             }.onSuccess {
                 _uiState.value = _uiState.value.copy(
                     connectStatus = "Sent $command through Spice Connect.",
@@ -1569,15 +1722,67 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun startSpiceConnect(session: AccountSession) {
+    private fun hasRemoteAccess(): Boolean =
+        activePairedCredential() != null || _uiState.value.accountSession != null
+
+    private fun activePairedCredential(): PairedDeviceCredential? {
+        val credential = _uiState.value.pairedDeviceCredential ?: return null
+        if (credential.deviceId != remoteDeviceId || credential.isExpired()) {
+            clearPairedCredential("Paired-device access expired. Enter a new pairing code.")
+            return null
+        }
+        return credential
+    }
+
+    private fun clearPairedCredential(message: String) {
+        pairedCredentialStore.clear()
+        val state = _uiState.value
+        val accountFallback = state.accountSession != null
+        if (!accountFallback) {
+            connectJob?.cancel()
+            connectPreferences.edit().remove(KEY_SELECTED_PLAYBACK_DEVICE_ID).apply()
+        }
+        _uiState.value = state.copy(
+            pairedDeviceCredential = null,
+            pairingCode = "",
+            pairingLoading = false,
+            remoteDevices = if (accountFallback) state.remoteDevices else emptyList(),
+            selectedPlaybackDeviceId = if (accountFallback) state.selectedPlaybackDeviceId else "",
+            connectLoading = false,
+            connectStatus = if (accountFallback) "Using the signed-in Spice account for Connect." else "",
+            message = message,
+        )
+    }
+
+    private suspend fun <T> withRemoteAccess(block: suspend (token: String) -> T): T {
+        val pairedCredential = activePairedCredential()
+        val accountToken = _uiState.value.accountSession?.token
+        if (pairedCredential != null) {
+            try {
+                return block(pairedCredential.accessToken)
+            } catch (error: SpiceApiException) {
+                if (error.statusCode != 401) throw error
+                clearPairedCredential("Paired-device access was revoked or expired.")
+                if (!accountToken.isNullOrBlank()) return block(accountToken)
+                throw SpiceApiException("Pairing expired or was revoked. Enter a new pairing code.", 401, error)
+            }
+        }
+        if (!accountToken.isNullOrBlank()) return block(accountToken)
+        throw SpiceApiException("Sign in or pair this phone to use Spice Connect.", 401)
+    }
+
+    private fun startSpiceConnect() {
         connectJob?.cancel()
         connectJob = viewModelScope.launch {
             while (true) {
+                if (!hasRemoteAccess()) return@launch
                 runCatching {
-                    publishSpiceConnectDevice(session)
-                    applyRemoteCommands(api.fetchRemoteCommands(session.token, remoteDeviceId))
-                    val devices = api.fetchRemoteDevices(session.token)
-                    applyRemoteDeviceSnapshot(devices)
+                    withRemoteAccess { token ->
+                        publishSpiceConnectDevice(token)
+                        applyRemoteCommands(api.fetchRemoteCommands(token, remoteDeviceId))
+                        val devices = api.fetchRemoteDevices(token)
+                        applyRemoteDeviceSnapshot(devices)
+                    }
                 }.onFailure { error ->
                     _uiState.value = _uiState.value.copy(
                         connectStatus = error.message ?: _uiState.value.connectStatus,
@@ -1588,10 +1793,10 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun publishSpiceConnectDevice(session: AccountSession) {
+    private suspend fun publishSpiceConnectDevice(token: String) {
         val player = playerState.value
         api.updateRemoteDevice(
-            token = session.token,
+            token = token,
             deviceId = remoteDeviceId,
             displayName = "Spice Android",
             currentTrack = _uiState.value.currentTrack,

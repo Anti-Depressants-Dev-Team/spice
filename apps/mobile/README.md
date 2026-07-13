@@ -47,6 +47,8 @@ Settings includes Spice account sign-in and account creation against `music.spic
 ~~~text
 POST /api/auth/spice/signin
 POST /api/auth/spice/signup
+POST /api/auth/spice/verify-email
+POST /api/auth/spice/resend-verification
 GET/POST /api/sync/likes
 GET/POST /api/sync/history
 GET/POST /api/sync/playlists
@@ -60,6 +62,16 @@ GET/POST/DELETE /api/playlists/shared/{playlistId}/tracks
 ~~~
 
 Playlist sync covers Android-owned private playlists and displays shared playlist metadata from the hosted API. Share uses the existing hosted invite route, so Android syncs the local playlist first, then opens the system share sheet with the web-compatible `?playlistInvite=` link. Tapping that hosted link can open the native app, preview the playlist, and accept it into the signed-in account. Direct username invites appear in Settings under the account section. Playlist cards expose member controls for owners and joined members. Owner/editor shared playlists can add the current track through the hosted shared-track route, while the management sheet lists live shared tracks and offers removal where the backend grants permission.
+
+## Secure Spice Connect pairing
+
+Settings can claim the eight-character phone code created on an already signed-in Spice device:
+
+~~~text
+POST /api/remote/pairing/claim
+~~~
+
+The returned `spice_pair_...` credential is restricted to this Android device and Spice Connect remote APIs. It is stored in its own Android Keystore AES-GCM blob, separate from the cloud account JWT, and is preferred for remote-device and command requests. The app tracks the owner user ID, authorization ID, expiry, and device ID; it removes the credential locally when it expires or when the backend returns `401` after revocation. Pairing credentials expire after 30 days and do not grant account, sync, playlist, or profile access.
 
 ## Commands
 

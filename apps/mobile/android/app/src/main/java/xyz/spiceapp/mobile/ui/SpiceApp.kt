@@ -170,6 +170,13 @@ fun SpiceApp(
     onAuthPasswordChanged: (String) -> Unit,
     onAuthUsernameChanged: (String) -> Unit,
     onSubmitAccount: () -> Unit,
+    onAuthVerificationCodeChanged: (String) -> Unit,
+    onSubmitEmailVerification: () -> Unit,
+    onResendEmailVerification: () -> Unit,
+    onCancelEmailVerification: () -> Unit,
+    onPairingCodeChanged: (String) -> Unit,
+    onClaimPairingCode: () -> Unit,
+    onDisconnectPairedDevice: () -> Unit,
     onSignOut: () -> Unit,
     onOpenProfileEditor: () -> Unit,
     onDismissProfileEditor: () -> Unit,
@@ -288,6 +295,13 @@ fun SpiceApp(
                 onAuthPasswordChanged = onAuthPasswordChanged,
                 onAuthUsernameChanged = onAuthUsernameChanged,
                 onSubmitAccount = onSubmitAccount,
+                onAuthVerificationCodeChanged = onAuthVerificationCodeChanged,
+                onSubmitEmailVerification = onSubmitEmailVerification,
+                onResendEmailVerification = onResendEmailVerification,
+                onCancelEmailVerification = onCancelEmailVerification,
+                onPairingCodeChanged = onPairingCodeChanged,
+                onClaimPairingCode = onClaimPairingCode,
+                onDisconnectPairedDevice = onDisconnectPairedDevice,
                 onSignOut = onSignOut,
                 onAccentSelected = onAccentSelected,
                 onOpenProfileEditor = onOpenProfileEditor,
@@ -1323,6 +1337,13 @@ private fun SettingsScreen(
     onAuthPasswordChanged: (String) -> Unit,
     onAuthUsernameChanged: (String) -> Unit,
     onSubmitAccount: () -> Unit,
+    onAuthVerificationCodeChanged: (String) -> Unit,
+    onSubmitEmailVerification: () -> Unit,
+    onResendEmailVerification: () -> Unit,
+    onCancelEmailVerification: () -> Unit,
+    onPairingCodeChanged: (String) -> Unit,
+    onClaimPairingCode: () -> Unit,
+    onDisconnectPairedDevice: () -> Unit,
     onSignOut: () -> Unit,
     onAccentSelected: (AccentTheme) -> Unit,
     onOpenProfileEditor: () -> Unit,
@@ -1371,12 +1392,25 @@ private fun SettingsScreen(
                         onAuthPasswordChanged = onAuthPasswordChanged,
                         onAuthUsernameChanged = onAuthUsernameChanged,
                         onSubmitAccount = onSubmitAccount,
+                        onAuthVerificationCodeChanged = onAuthVerificationCodeChanged,
+                        onSubmitEmailVerification = onSubmitEmailVerification,
+                        onResendEmailVerification = onResendEmailVerification,
+                        onCancelEmailVerification = onCancelEmailVerification,
                         onSignOut = onSignOut,
                         onOpenProfileEditor = onOpenProfileEditor,
                         onSyncNow = onSyncNow,
                         onRefreshPendingInvites = onRefreshPendingInvites,
                         onAcceptPendingInvite = onAcceptPendingInvite,
                         onRejectPendingInvite = onRejectPendingInvite,
+                    )
+                }
+                item { HorizontalDivider() }
+                item {
+                    SecurePairingSection(
+                        uiState = uiState,
+                        onPairingCodeChanged = onPairingCodeChanged,
+                        onClaimPairingCode = onClaimPairingCode,
+                        onDisconnectPairedDevice = onDisconnectPairedDevice,
                     )
                 }
                 if (BuildConfig.DEBUG) {
@@ -1469,6 +1503,10 @@ private fun AccountSection(
     onAuthPasswordChanged: (String) -> Unit,
     onAuthUsernameChanged: (String) -> Unit,
     onSubmitAccount: () -> Unit,
+    onAuthVerificationCodeChanged: (String) -> Unit,
+    onSubmitEmailVerification: () -> Unit,
+    onResendEmailVerification: () -> Unit,
+    onCancelEmailVerification: () -> Unit,
     onSignOut: () -> Unit,
     onOpenProfileEditor: () -> Unit,
     onSyncNow: () -> Unit,
@@ -1514,6 +1552,50 @@ private fun AccountSection(
                 onAccept = onAcceptPendingInvite,
                 onReject = onRejectPendingInvite,
             )
+            return
+        }
+
+        val verification = uiState.emailVerification
+        if (verification != null) {
+            Text(
+                "Enter the six-digit code sent to ${verification.email}. The code expires after 10 minutes.",
+                color = SpiceTextMuted,
+                fontSize = 13.sp,
+            )
+            OutlinedTextField(
+                value = uiState.authVerificationCode,
+                onValueChange = onAuthVerificationCodeChanged,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Verification code") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { onSubmitEmailVerification() }),
+                shape = RoundedCornerShape(8.dp),
+            )
+            Button(
+                onClick = onSubmitEmailVerification,
+                enabled = !uiState.accountLoading && uiState.authVerificationCode.length == 6,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (uiState.accountLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Rounded.Check, null)
+                }
+                Text("Verify and sign in", modifier = Modifier.padding(start = 8.dp))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = onResendEmailVerification,
+                    enabled = !uiState.accountLoading,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Resend code") }
+                TextButton(
+                    onClick = onCancelEmailVerification,
+                    enabled = !uiState.accountLoading,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Start again") }
+            }
             return
         }
 
@@ -1572,6 +1654,84 @@ private fun AccountSection(
                 Icon(Icons.Rounded.LibraryMusic, null)
             }
             Text(uiState.authMode.label, modifier = Modifier.padding(start = 8.dp))
+        }
+    }
+}
+
+@Composable
+private fun SecurePairingSection(
+    uiState: SpiceUiState,
+    onPairingCodeChanged: (String) -> Unit,
+    onClaimPairingCode: () -> Unit,
+    onDisconnectPairedDevice: () -> Unit,
+) {
+    val credential = uiState.pairedDeviceCredential
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Devices, null, tint = SpiceCyan)
+            Text(
+                "Secure phone pairing",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+        if (credential != null) {
+            StatusRow("Paired", credential.displayName, SpiceCyan)
+            Text("Owner: ${credential.ownerUserId}", color = SpiceTextMuted, fontSize = 13.sp)
+            Text("Authorization: ${credential.authorizationId}", color = SpiceTextMuted, fontSize = 13.sp)
+            Text("Device: ${credential.deviceId}", color = SpiceTextMuted, fontSize = 13.sp)
+            Text("Expires: ${credential.expiresAt}", color = SpiceTextMuted, fontSize = 13.sp)
+            Text(
+                "This scoped credential is stored separately from your Spice account session and is removed automatically if the server rejects or expires it.",
+                color = SpiceTextMuted,
+                fontSize = 13.sp,
+            )
+            TextButton(
+                onClick = onDisconnectPairedDevice,
+                enabled = !uiState.pairingLoading,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Rounded.Delete, null)
+                Text("Remove pairing from this phone", modifier = Modifier.padding(start = 8.dp))
+            }
+        } else {
+            Text(
+                "Create a phone code on an already signed-in Spice device, then enter it here. Codes expire after five minutes.",
+                color = SpiceTextMuted,
+                fontSize = 13.sp,
+            )
+            OutlinedTextField(
+                value = uiState.pairingCode,
+                onValueChange = onPairingCodeChanged,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Pairing code") },
+                placeholder = { Text("ABCD-2345") },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Ascii,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(onDone = { onClaimPairingCode() }),
+                shape = RoundedCornerShape(8.dp),
+            )
+            Button(
+                onClick = onClaimPairingCode,
+                enabled = !uiState.pairingLoading && uiState.pairingCode.length == 8,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (uiState.pairingLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Rounded.Devices, null)
+                }
+                Text("Pair this phone", modifier = Modifier.padding(start = 8.dp))
+            }
+            Text(
+                "Pairing grants only Spice Connect device access for 30 days. It does not sign this phone into the owner's cloud account.",
+                color = SpiceTextMuted,
+                fontSize = 13.sp,
+            )
         }
     }
 }
@@ -1997,7 +2157,7 @@ private fun SpiceConnectReceiverMenu(
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val signedIn = uiState.accountSession != null
+    val hasRemoteAccess = uiState.accountSession != null || uiState.pairedDeviceCredential != null
     val targets = uiState.remoteDevices.filter { it.deviceId != uiState.remoteDeviceId }
     val targetLabel = selectedRemoteDevice?.displayName ?: "This phone"
 
@@ -2005,7 +2165,7 @@ private fun SpiceConnectReceiverMenu(
         IconButton(
             onClick = {
                 expanded = true
-                if (signedIn) onRefresh()
+                if (hasRemoteAccess) onRefresh()
             },
             modifier = Modifier.fillMaxSize(),
         ) {
@@ -2044,8 +2204,8 @@ private fun SpiceConnectReceiverMenu(
             )
             HorizontalDivider()
             when {
-                !signedIn -> DropdownMenuItem(
-                    text = { Text("Sign in to see Spice Connect devices", color = SpiceTextMuted) },
+                !hasRemoteAccess -> DropdownMenuItem(
+                    text = { Text("Sign in or pair to see Spice Connect devices", color = SpiceTextMuted) },
                     onClick = {},
                     enabled = false,
                 )
