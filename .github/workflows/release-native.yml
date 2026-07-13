@@ -22,7 +22,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="v$(node -p "require('./package.json').version")"
-          gh release view "$VERSION" || gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --generate-notes
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            exit 0
+          fi
+          if gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --generate-notes; then
+            exit 0
+          fi
+          echo "Release creation raced with another workflow; verifying the shared release now exists."
+          gh release view "$VERSION" >/dev/null
 
   build-native-windows:
     needs: prepare-native-release

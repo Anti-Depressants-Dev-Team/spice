@@ -156,3 +156,17 @@ test("runtime release publishing detects an existing tag before creating it", ()
   assert.match(workflow, /\$existingTags -contains \$tag/);
   assert.doesNotMatch(workflow, /if \(gh release view/);
 });
+
+test("tag release workflows tolerate concurrent release creation", () => {
+  for (const name of ["release.yml", "release-native.yml"]) {
+    const workflow = fs.readFileSync(
+      path.join(__dirname, "..", ".github", "workflows", name),
+      "utf8",
+    );
+
+    assert.match(workflow, /if gh release view "\$VERSION"/);
+    assert.match(workflow, /if gh release create "\$VERSION"/);
+    assert.match(workflow, /Release creation raced with another workflow/);
+    assert.match(workflow, /gh release view "\$VERSION" >\/dev\/null/);
+  }
+});
