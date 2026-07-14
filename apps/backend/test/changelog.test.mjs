@@ -74,5 +74,5 @@ test('walkthrough parser keeps release entries in file order', () => {
 test('readWalkthrough reads the packaged public changelog', async () => {
   const walkthrough = await readWalkthrough();
 
-  assert.match(walkthrough, /^# SPICE Walkthrough\s+## v1\.0\.136/m);
+  assert.match(walkthrough, /^# SPICE Walkthrough\s+## v1\.0\.137/m);
 });

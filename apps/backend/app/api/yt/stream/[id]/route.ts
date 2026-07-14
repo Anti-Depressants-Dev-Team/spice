@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 
 import { audioContentDisposition, audioDownloadExtension } from '@/lib/audio-download';
+import { createMp3DownloadResponse } from '@/lib/audio-transcode';
 import { corsHeadersForRequest, jsonResponse, optionsResponse } from '@/lib/cors';
 import { requireLocalMediaNamespace } from '@/lib/runtime-target';
 import { verifySignedStream } from '@/lib/stream-signing';
@@ -13,6 +14,8 @@ import { verifySignedStream } from '@/lib/stream-signing';
  * the browser's `<audio>` element can seek freely.
  */
 export const runtime = 'nodejs';
+
+const YOUTUBE_AUDIO_USER_AGENT = 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)';
 
 export function OPTIONS(request: NextRequest) {
   return optionsResponse(request);
@@ -57,11 +60,33 @@ export async function GET(
 
   // Forward Range header from the browser so seeking works.
   const headers: Record<string, string> = {
-    'User-Agent': 'com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
+    'User-Agent': YOUTUBE_AUDIO_USER_AGENT,
   };
   let rangeHeader = request.headers.get('range');
 
   const isDownload = request.nextUrl.searchParams.get('download') === 'true';
+  const isMp3Download = isDownload && request.nextUrl.searchParams.get('format') === 'mp3';
+
+  if (isMp3Download) {
+    try {
+      return await createMp3DownloadResponse({
+        sourceUrl: upstreamUrl,
+        title: request.nextUrl.searchParams.get('title'),
+        userAgent: YOUTUBE_AUDIO_USER_AGENT,
+        headers: corsHeadersForRequest(request),
+        signal: request.signal,
+      });
+    } catch (error) {
+      return jsonResponse(
+        {
+          error: 'mp3_conversion_failed',
+          message: error instanceof Error ? error.message : 'The audio could not be converted to MP3.',
+        },
+        { status: 502 },
+        request,
+      );
+    }
+  }
 
   if (isDownload) {
     if (rangeHeader) {

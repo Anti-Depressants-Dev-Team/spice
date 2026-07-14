@@ -81,3 +81,77 @@ test('Last.fm scrobble requires an explicit playback start timestamp', async () 
     /playback start timestamp/,
   );
 });
+
+test('Last.fm scrobble requires an explicit provider acknowledgement', async (t) => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.LASTFM_API_KEY;
+  const originalSharedSecret = process.env.LASTFM_SHARED_SECRET;
+  let responsePayload = {
+    scrobbles: {
+      '@attr': { accepted: '1', ignored: '0' },
+      scrobble: { ignoredMessage: { code: '0', '#text': '' } },
+    },
+  };
+
+  process.env.LASTFM_API_KEY = 'api-key';
+  process.env.LASTFM_SHARED_SECRET = 'shared-secret';
+  globalThis.fetch = async () => new Response(JSON.stringify(responsePayload), { status: 200 });
+
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) delete process.env.LASTFM_API_KEY;
+    else process.env.LASTFM_API_KEY = originalApiKey;
+    if (originalSharedSecret === undefined) delete process.env.LASTFM_SHARED_SECRET;
+    else process.env.LASTFM_SHARED_SECRET = originalSharedSecret;
+  });
+
+  const input = {
+    sessionKey: 'session-key',
+    timestamp: 1_700_000_000,
+    track: { title: 'Digital Love', artist: 'Daft Punk' },
+  };
+  await submitLastFmScrobble(input);
+
+  responsePayload = {};
+  await assert.rejects(submitLastFmScrobble(input), /did not acknowledge/);
+});
+
+test('Last.fm scrobble treats filtered HTTP-200 responses as failures', async (t) => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.LASTFM_API_KEY;
+  const originalSharedSecret = process.env.LASTFM_SHARED_SECRET;
+
+  process.env.LASTFM_API_KEY = 'api-key';
+  process.env.LASTFM_SHARED_SECRET = 'shared-secret';
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    scrobbles: {
+      '@attr': { accepted: '0', ignored: '1' },
+      scrobble: {
+        ignoredMessage: {
+          code: '1',
+          '#text': 'Artist name failed filter: Unknown Artist',
+        },
+      },
+    },
+  }), { status: 200 });
+
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    if (originalApiKey === undefined) delete process.env.LASTFM_API_KEY;
+    else process.env.LASTFM_API_KEY = originalApiKey;
+    if (originalSharedSecret === undefined) delete process.env.LASTFM_SHARED_SECRET;
+    else process.env.LASTFM_SHARED_SECRET = originalSharedSecret;
+  });
+
+  await assert.rejects(
+    submitLastFmScrobble({
+      sessionKey: 'session-key',
+      timestamp: 1_700_000_000,
+      track: {
+        title: 'Digital Love',
+        artist: 'Unknown Artist',
+      },
+    }),
+    /Artist name failed filter/,
+  );
+});

@@ -31,6 +31,25 @@ interface LastFmApiResponse {
   message?: string;
 }
 
+interface LastFmIgnoredMessage {
+  '#text'?: string;
+  code?: number | string;
+}
+
+interface LastFmScrobbleResponse extends LastFmApiResponse {
+  scrobbles?: {
+    '@attr'?: {
+      accepted?: number | string;
+      ignored?: number | string;
+    };
+    scrobble?: {
+      ignoredMessage?: LastFmIgnoredMessage;
+    } | Array<{
+      ignoredMessage?: LastFmIgnoredMessage;
+    }>;
+  };
+}
+
 interface LastFmTokenResponse extends LastFmApiResponse {
   token?: string;
 }
@@ -57,7 +76,7 @@ export async function submitLastFmScrobble(input: LastFmSubmitInput) {
     throw new Error('Last.fm scrobble requires a playback start timestamp.');
   }
 
-  return postLastFm({
+  const response = await postLastFm<LastFmScrobbleResponse>({
     method: 'track.scrobble',
     sessionKey: input.sessionKey,
     track: input.track,
@@ -66,6 +85,9 @@ export async function submitLastFmScrobble(input: LastFmSubmitInput) {
       timestamp: String(input.timestamp),
     },
   });
+
+  assertLastFmScrobbleAccepted(response);
+  return response;
 }
 
 export async function createLastFmAuthToken(credentials: LastFmApiCredentials) {
@@ -137,7 +159,7 @@ export async function createLastFmSession(credentials: LastFmApiCredentials & { 
   };
 }
 
-async function postLastFm({
+async function postLastFm<T extends LastFmApiResponse = LastFmApiResponse>({
   method,
   sessionKey,
   track,
@@ -171,8 +193,38 @@ async function postLastFm({
 
   params.api_sig = signLastFmParams(params, resolvedCredentials.sharedSecret);
 
-  const data = await postLastFmParams<LastFmApiResponse>(params);
+  const data = await postLastFmParams<T>(params);
   return data;
+}
+
+function assertLastFmScrobbleAccepted(response: LastFmScrobbleResponse) {
+  if (!response.scrobbles) {
+    throw new Error('Last.fm did not acknowledge the scrobble.');
+  }
+
+  const accepted = Number(response.scrobbles['@attr']?.accepted);
+  const scrobble = Array.isArray(response.scrobbles.scrobble)
+    ? response.scrobbles.scrobble[0]
+    : response.scrobbles.scrobble;
+  const ignoredMessage = scrobble?.ignoredMessage;
+  const ignoredCode = Number(ignoredMessage?.code || 0);
+
+  if (accepted > 0 && ignoredCode === 0) return;
+
+  const detail = ignoredMessage?.['#text']?.trim()
+    || lastFmIgnoredCodeMessage(ignoredCode)
+    || 'Last.fm filtered the scrobble.';
+  throw new Error(detail);
+}
+
+function lastFmIgnoredCodeMessage(code: number) {
+  return {
+    1: 'Last.fm filtered the artist metadata.',
+    2: 'Last.fm filtered the track metadata.',
+    3: 'Last.fm rejected the scrobble because its timestamp was too old.',
+    4: 'Last.fm rejected the scrobble because its timestamp was too new.',
+    5: 'Last.fm rejected the scrobble because the daily limit was reached.',
+  }[code];
 }
 
 async function postLastFmAuth<T extends LastFmApiResponse>(params: Record<string, string>, sharedSecret: string) {

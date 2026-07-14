@@ -151,9 +151,9 @@ YouTube direct resolution can still fail when YouTube changes its web/player int
 
 ## Downloads And Resolver Experiments
 
-`MediaDownloadClient` wraps `yt-dlp` for explicit user-triggered downloads. The wrapper initializes the embedded yt-dlp, FFmpeg, and aria2 runtimes, uses collision-safe output names, and downloads audio with metadata to app-local music storage. If a bundled yt-dlp build fails on YouTube, Android attempts one stable runtime refresh before retrying. The compact full-player action reports progress, allows cancellation, and stores completed download records in the Library Downloads tab for open/share/remove actions.
+`MediaDownloadClient` wraps `yt-dlp` for explicit user-triggered downloads. The wrapper initializes the embedded yt-dlp, FFmpeg, and aria2 runtimes, uses collision-safe output names, converts downloaded audio to MP3 with metadata, and saves it to app-local music storage. If a bundled yt-dlp build fails on YouTube, Android attempts one stable runtime refresh before retrying. The compact full-player action reports progress, allows cancellation, and stores completed download records in the Library Downloads tab for open/share/remove actions.
 
-For direct SoundCloud/local streams, Android saves the resolved audio URL itself instead of forcing signed stream URLs back through yt-dlp. YouTube downloads still use yt-dlp with the provider page URL.
+For direct SoundCloud/local streams, Android passes the resolved audio URL through yt-dlp and the embedded FFmpeg runtime so the saved file is MP3. YouTube downloads use the provider page URL through the same conversion pipeline.
 
 `JsResolverBridge` embeds QuickJS for resolver parity experiments. It can execute small shared JavaScript resolver snippets, but it is not a Node.js environment and does not provide network, filesystem, or npm module loading by itself. Treat it as a compatibility lab for shared parsing code, not as a drop-in replacement for the backend's `youtubei.js` runtime.
 

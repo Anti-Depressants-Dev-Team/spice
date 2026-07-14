@@ -8,6 +8,11 @@ import java.nio.file.Files
 
 class MediaDownloadClientTest {
     @Test
+    fun convertsDownloadsToMp3() {
+        assertEquals("mp3", DOWNLOAD_AUDIO_FORMAT)
+    }
+
+    @Test
     fun sanitizesDownloadFileStem() {
         assertEquals(
             "Artist Song Name",
@@ -21,7 +26,7 @@ class MediaDownloadClientTest {
     fun detectsCompletedDownloadFileByStemAndTimestamp() {
         val directory = Files.createTempDirectory("spice-download-test").toFile()
         try {
-            val old = File(directory, "Artist Song.m4a")
+            val old = File(directory, "Artist Song.mp3")
             old.writeText("old")
             old.setLastModified(100)
             val fresh = File(directory, "Artist Song.webm")
@@ -43,7 +48,7 @@ class MediaDownloadClientTest {
         val directory = Files.createTempDirectory("spice-download-name-test").toFile()
         try {
             assertEquals("Artist Song", uniqueDownloadFileStem(directory, "Artist Song"))
-            File(directory, "Artist Song.m4a").writeText("first")
+            File(directory, "Artist Song.mp3").writeText("first")
             assertEquals("Artist Song (2)", uniqueDownloadFileStem(directory, "Artist Song"))
             File(directory, "Artist Song (2).webm").writeText("second")
             assertEquals("Artist Song (3)", uniqueDownloadFileStem(directory, "Artist Song"))
@@ -56,7 +61,7 @@ class MediaDownloadClientTest {
     fun ignoresEmptyCompletedDownloadFiles() {
         val directory = Files.createTempDirectory("spice-download-empty-test").toFile()
         try {
-            File(directory, "Artist Song.m4a").createNewFile()
+            File(directory, "Artist Song.mp3").createNewFile()
             assertNull(completedDownloadFile(directory, "Artist Song", startedAt = 0))
         } finally {
             directory.deleteRecursively()

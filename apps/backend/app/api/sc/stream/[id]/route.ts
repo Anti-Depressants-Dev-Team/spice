@@ -1,11 +1,14 @@
 import type { NextRequest } from 'next/server';
 
 import { audioContentDisposition, audioDownloadExtension } from '@/lib/audio-download';
+import { createMp3DownloadResponse } from '@/lib/audio-transcode';
 import { corsHeadersForRequest, jsonResponse, optionsResponse } from '@/lib/cors';
 import { requireLocalMediaNamespace } from '@/lib/runtime-target';
 import { verifySignedStream } from '@/lib/stream-signing';
 
 export const runtime = 'nodejs';
+
+const SOUNDCLOUD_AUDIO_USER_AGENT = 'SPICE-Music-Player/1.0';
 
 export function OPTIONS(request: NextRequest) {
   return optionsResponse(request);
@@ -43,11 +46,33 @@ export async function GET(
   }
 
   const headers: Record<string, string> = {
-    'User-Agent': 'SPICE-Music-Player/1.0',
+    'User-Agent': SOUNDCLOUD_AUDIO_USER_AGENT,
   };
   let rangeHeader = request.headers.get('range');
 
   const isDownload = request.nextUrl.searchParams.get('download') === 'true';
+  const isMp3Download = isDownload && request.nextUrl.searchParams.get('format') === 'mp3';
+
+  if (isMp3Download) {
+    try {
+      return await createMp3DownloadResponse({
+        sourceUrl: upstreamUrl,
+        title: request.nextUrl.searchParams.get('title'),
+        userAgent: SOUNDCLOUD_AUDIO_USER_AGENT,
+        headers: corsHeadersForRequest(request),
+        signal: request.signal,
+      });
+    } catch (error) {
+      return jsonResponse(
+        {
+          error: 'mp3_conversion_failed',
+          message: error instanceof Error ? error.message : 'The audio could not be converted to MP3.',
+        },
+        { status: 502 },
+        request,
+      );
+    }
+  }
 
   if (isDownload) {
     if (rangeHeader) {

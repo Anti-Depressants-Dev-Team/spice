@@ -2,7 +2,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { localModeFeatureStatus, localModeOptionalFeatureStatus } from '@/lib/local-mode-feature-status';
 import styles from './admin-dashboard.module.css';
 
@@ -48,10 +48,23 @@ const costGuardrails = [
 
 const liveServiceStatuses = new Set(['Local', 'Cloud', 'Cached']);
 
+type AdminFeedback = {
+  id: string;
+  userId: string;
+  email: string;
+  category: string;
+  content: string;
+  rating: number | null;
+  createdAt: string;
+};
+
 export default function AdminDashboardView() {
   const [token, setToken] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [accounts, setAccounts] = useState<any[]>([]);
+  const [feedback, setFeedback] = useState<AdminFeedback[]>([]);
+  const [feedbackLoading, setFeedbackLoading] = useState(true);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,8 +80,33 @@ export default function AdminDashboardView() {
   });
   const [savingSettings, setSavingSettings] = useState(false);
 
+  const loadFeedback = useCallback(async (authToken: string, silent = false) => {
+    if (!silent) setFeedbackLoading(true);
+    setFeedbackError(null);
+
+    try {
+      const response = await fetch(cloudApiPath('/admin/feedback'), {
+        cache: 'no-store',
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.message || 'Feedback could not be loaded.');
+      }
+
+      const payload = await response.json();
+      setFeedback(Array.isArray(payload.feedback) ? payload.feedback : []);
+    } catch (loadError) {
+      setFeedbackError(loadError instanceof Error ? loadError.message : 'Feedback could not be loaded.');
+    } finally {
+      if (!silent) setFeedbackLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
+
+    let feedbackTimer: number | undefined;
 
     const savedToken = localStorage.getItem('spice_cloud_token');
     setToken(savedToken);
@@ -78,12 +116,13 @@ export default function AdminDashboardView() {
       setLoading(false);
       return;
     }
+    const authToken = savedToken;
 
     async function initializeDashboard() {
       try {
         // 1. Verify current session
         const verifyRes = await fetch(cloudApiPath('/account/me'), {
-          headers: { Authorization: `Bearer ${savedToken}` },
+          headers: { Authorization: `Bearer ${authToken}` },
         });
 
         if (!verifyRes.ok) {
@@ -107,7 +146,7 @@ export default function AdminDashboardView() {
 
         // 2. Fetch all accounts
         const accountsRes = await fetch(cloudApiPath('/admin/accounts'), {
-          headers: { Authorization: `Bearer ${savedToken}` },
+          headers: { Authorization: `Bearer ${authToken}` },
         });
         if (!accountsRes.ok) throw new Error('fetch_accounts_failed');
         const accountsData = await accountsRes.json();
@@ -115,7 +154,7 @@ export default function AdminDashboardView() {
 
         // 3. Fetch system settings
         const settingsRes = await fetch(cloudApiPath('/admin/system'), {
-          headers: { Authorization: `Bearer ${savedToken}` },
+          headers: { Authorization: `Bearer ${authToken}` },
         });
         if (settingsRes.ok) {
           const settingsData = await settingsRes.json();
@@ -123,6 +162,12 @@ export default function AdminDashboardView() {
             setSystemSettings(settingsData.settings);
           }
         }
+
+        // 4. Load the newest feedback and keep the inbox fresh while the dashboard is open.
+        await loadFeedback(authToken);
+        feedbackTimer = window.setInterval(() => {
+          void loadFeedback(authToken, true);
+        }, 30_000);
       } catch (err) {
         console.error(err);
         setError('connection_error');
@@ -132,7 +177,10 @@ export default function AdminDashboardView() {
     }
 
     void initializeDashboard();
-  }, []);
+    return () => {
+      if (feedbackTimer !== undefined) window.clearInterval(feedbackTimer);
+    };
+  }, [loadFeedback]);
 
   const handleUpdate = async (
     userId: string,
@@ -261,9 +309,9 @@ export default function AdminDashboardView() {
 
   const displayMetrics = [
     { label: 'Accounts', value: loading ? '...' : accounts.length.toString(), detail: `${accounts.filter((a) => a.accountRole === 'admin').length} admin accounts` },
+    { label: 'Feedback', value: feedbackLoading ? '...' : feedback.length.toString(), detail: 'Latest submissions, refreshed every 30 seconds' },
     { label: 'Runtime split', value: 'Local', detail: 'Heavy media work on the user PC' },
     { label: 'Cloud lane', value: '4 APIs', detail: 'Auth, sync, metadata, feedback' },
-    { label: 'Shelved surfaces', value: '3', detail: 'Home app, Anime, Movie are frozen' },
   ];
 
   if (loading) {
@@ -390,6 +438,54 @@ export default function AdminDashboardView() {
             <p>{metric.detail}</p>
           </article>
         ))}
+      </section>
+
+      <section className={styles.feedbackPanel} aria-label="User feedback inbox">
+        <div className={styles.feedbackHeading}>
+          <div className={styles.panelHeading}>
+            <span>User feedback</span>
+            <h2>Latest submissions</h2>
+            <p>New feedback appears here automatically while this dashboard is open.</p>
+          </div>
+          <button
+            type="button"
+            className={styles.feedbackRefreshButton}
+            disabled={feedbackLoading || !token}
+            onClick={() => token && void loadFeedback(token)}
+          >
+            {feedbackLoading ? 'Refreshing...' : 'Refresh inbox'}
+          </button>
+        </div>
+
+        {feedbackError && (
+          <p className={styles.feedbackError} role="alert">{feedbackError}</p>
+        )}
+
+        <div className={styles.feedbackList}>
+          {feedback.map((item) => (
+            <article key={item.id} className={styles.feedbackCard}>
+              <div className={styles.feedbackMeta}>
+                <span className={styles.feedbackCategory}>{formatFeedbackCategory(item.category)}</span>
+                <span className={styles.feedbackRating} aria-label={item.rating ? `${item.rating} out of 5 stars` : 'No rating'}>
+                  {item.rating ? `${'★'.repeat(item.rating)}${'☆'.repeat(5 - item.rating)}` : 'No rating'}
+                </span>
+                <time dateTime={item.createdAt}>{formatFeedbackDate(item.createdAt)}</time>
+              </div>
+              <p className={styles.feedbackContent}>{item.content}</p>
+              <div className={styles.feedbackAuthor}>
+                <strong>{item.email}</strong>
+                <span>{item.userId}</span>
+              </div>
+            </article>
+          ))}
+
+          {!feedbackLoading && feedback.length === 0 && !feedbackError && (
+            <div className={styles.feedbackEmpty}>
+              <strong>No feedback yet</strong>
+              <p>Signed-in user submissions will appear here as soon as they arrive.</p>
+            </div>
+          )}
+        </div>
       </section>
 
       <section className={styles.costGrid} aria-label="Runtime cost guardrails">
@@ -654,4 +750,15 @@ export default function AdminDashboardView() {
 function cloudApiPath(path: string) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   return SPICE_RUNTIME_TARGET === 'vercel' ? `/api${normalizedPath}` : `/api/cloud${normalizedPath}`;
+}
+
+function formatFeedbackCategory(category: string) {
+  const normalized = category.replace(/[-_]+/gu, ' ').trim();
+  return normalized ? normalized[0].toUpperCase() + normalized.slice(1) : 'General';
+}
+
+function formatFeedbackDate(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return 'Unknown time';
+  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }

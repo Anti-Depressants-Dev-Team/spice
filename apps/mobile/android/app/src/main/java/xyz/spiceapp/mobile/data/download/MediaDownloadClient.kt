@@ -8,10 +8,10 @@ import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import xyz.spiceapp.mobile.model.Track
 import java.io.File
-import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
+
+internal const val DOWNLOAD_AUDIO_FORMAT = "mp3"
 
 class MediaDownloadClient(
     private val context: Context,
@@ -24,7 +24,7 @@ class MediaDownloadClient(
             ?: File(context.filesDir, "downloads"),
         progress: (DownloadProgress) -> Unit = {},
     ): DownloadResult {
-        progress(DownloadProgress(-1f, -1, "Preparing download engine..."))
+        progress(DownloadProgress(-1f, -1, "Preparing MP3 download..."))
         ensureInitialized(context)
         outputDirectory.mkdirs()
 
@@ -37,7 +37,7 @@ class MediaDownloadClient(
         val request = YoutubeDLRequest(sourceUrl)
             .addOption("--no-playlist")
             .addOption("--extract-audio")
-            .addOption("--audio-format", "m4a")
+            .addOption("--audio-format", DOWNLOAD_AUDIO_FORMAT)
             .addOption("--audio-quality", "0")
             .addOption("--no-mtime")
             .addOption("--embed-metadata")
@@ -67,100 +67,10 @@ class MediaDownloadClient(
         )
     }
 
-    fun downloadDirectAudio(
-        track: Track,
-        sourceUrl: String,
-        processId: String = newProcessId(),
-        outputDirectory: File = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
-            ?: File(context.filesDir, "downloads"),
-        progress: (DownloadProgress) -> Unit = {},
-    ): DownloadResult {
-        outputDirectory.mkdirs()
-        val connection = (URL(sourceUrl).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 12_000
-            readTimeout = 60_000
-            instanceFollowRedirects = true
-            setRequestProperty("Accept", "audio/*,application/octet-stream,*/*")
-            setRequestProperty("User-Agent", "Spice-Native-Android/1.0")
-        }
-
-        return try {
-            val status = connection.responseCode
-            if (status !in 200..299) {
-                return DownloadResult(
-                    processId = processId,
-                    outputTemplate = "",
-                    outputDirectory = outputDirectory.absolutePath,
-                    outputFilePath = "",
-                    outputFileName = "",
-                    outputBytes = 0,
-                    exitCode = status,
-                    output = "",
-                    errorOutput = "Direct download failed with HTTP $status.",
-                )
-            }
-
-            val contentType = connection.contentType.orEmpty()
-            if (contentType.contains("mpegurl", ignoreCase = true) || sourceUrl.contains(".m3u8", ignoreCase = true)) {
-                return DownloadResult(
-                    processId = processId,
-                    outputTemplate = "",
-                    outputDirectory = outputDirectory.absolutePath,
-                    outputFilePath = "",
-                    outputFileName = "",
-                    outputBytes = 0,
-                    exitCode = 415,
-                    output = "",
-                    errorOutput = "Direct download resolved to an HLS playlist, not a single audio file.",
-                )
-            }
-
-            val totalBytes = connection.contentLengthLong.takeIf { it > 0 } ?: 0
-            val file = uniqueOutputFile(outputDirectory, safeFileStem("${track.artist} - ${track.title}"), extensionFor(contentType, sourceUrl))
-            var downloaded = 0L
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            connection.inputStream.use { input ->
-                file.outputStream().use { output ->
-                    while (true) {
-                        if (cancelledProcessIds.remove(processId)) {
-                            file.delete()
-                            throw InterruptedException("Download cancelled.")
-                        }
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        output.write(buffer, 0, read)
-                        downloaded += read
-                        val percent = if (totalBytes > 0) downloaded * 100f / totalBytes else -1f
-                        progress(DownloadProgress(percent, -1, "${formatBytes(downloaded)} downloaded"))
-                    }
-                }
-            }
-
-            DownloadResult(
-                processId = processId,
-                outputTemplate = file.absolutePath,
-                outputDirectory = outputDirectory.absolutePath,
-                outputFilePath = file.absolutePath,
-                outputFileName = file.name,
-                outputBytes = file.length().coerceAtLeast(0),
-                exitCode = 0,
-                output = "Downloaded ${file.name}",
-                errorOutput = "",
-            )
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    fun cancel(processId: String): Boolean {
-        cancelledProcessIds.add(processId)
-        return YoutubeDL.getInstance().destroyProcessById(processId)
-    }
+    fun cancel(processId: String): Boolean = YoutubeDL.getInstance().destroyProcessById(processId)
 
     companion object {
         private val initializationLock = Any()
-        private val cancelledProcessIds = ConcurrentHashMap.newKeySet<String>()
         @Volatile private var initialized = false
         @Volatile private var updateAttempted = false
 
@@ -245,44 +155,7 @@ internal fun uniqueDownloadFileStem(directory: File, fileStem: String): String {
     return candidate
 }
 
-private fun uniqueOutputFile(directory: File, fileStem: String, extension: String): File {
-    var candidate = File(directory, "$fileStem.$extension")
-    var index = 1
-    while (candidate.exists()) {
-        candidate = File(directory, "$fileStem.$index.$extension")
-        index += 1
-    }
-    return candidate
-}
-
-private fun extensionFor(contentType: String, url: String): String {
-    val fromContentType = when {
-        contentType.contains("mpeg", ignoreCase = true) -> "mp3"
-        contentType.contains("mp4", ignoreCase = true) || contentType.contains("aac", ignoreCase = true) -> "m4a"
-        contentType.contains("ogg", ignoreCase = true) -> "ogg"
-        contentType.contains("opus", ignoreCase = true) -> "opus"
-        contentType.contains("webm", ignoreCase = true) -> "webm"
-        else -> ""
-    }
-    if (fromContentType.isNotBlank()) return fromContentType
-    val path = runCatching { URL(url).path.substringAfterLast("/") }.getOrDefault("")
-    val extension = path.substringAfterLast(".", "").lowercase().takeIf { it.length in 2..5 }
-    return extension ?: "m4a"
-}
-
 private fun isYouTubeUrl(url: String): Boolean =
     runCatching { URL(url).host.lowercase() }
         .getOrDefault("")
         .let { it == "youtu.be" || it == "youtube.com" || it.endsWith(".youtube.com") }
-
-private fun formatBytes(bytes: Long): String {
-    if (bytes < 1024) return "$bytes B"
-    val units = listOf("KB", "MB", "GB")
-    var value = bytes / 1024.0
-    var unitIndex = 0
-    while (value >= 1024 && unitIndex < units.lastIndex) {
-        value /= 1024.0
-        unitIndex += 1
-    }
-    return "%.1f %s".format(value, units[unitIndex])
-}

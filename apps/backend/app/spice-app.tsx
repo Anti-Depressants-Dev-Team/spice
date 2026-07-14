@@ -76,6 +76,15 @@ import {
 } from '@/lib/profile-identity';
 import { mergeSongsPlayedCount } from '@/lib/profile-sync';
 import {
+  beginProfileListenDelivery,
+  createProfileListenDeliveryState,
+  finishProfileListenDelivery,
+  profileListenRetryDelayMs,
+  type ProfileListenDeliveryState,
+  type ProfileListenProvider,
+  type ProfileListenType,
+} from '@/lib/profile-listen-delivery';
+import {
   normalizePlayerVolume,
   playerVolumeGain,
   shouldUsePlayerGainPath,
@@ -649,7 +658,6 @@ interface Track {
 type AppPage = 'home' | 'search' | 'library' | 'account' | 'settings';
 type SearchProvider = 'hybrid' | 'youtube_music' | 'youtube_videos' | 'soundcloud';
 type StreamProtocol = 'proxy' | 'web' | 'embed';
-type ProfileListenType = 'playing_now' | 'scrobble';
 type ProfileSyncStatus = 'idle' | 'playing' | 'scrobbled' | 'error';
 type AccentTheme = 'pink' | 'blue' | 'orange' | 'green' | 'gold' | 'crimson' | 'deeppurple';
 type VisualSurface = 'midnight' | 'glass' | 'solid' | 'aurora';
@@ -1073,13 +1081,6 @@ interface ProfileSyncResponse {
   };
 }
 
-interface ScrobbleState {
-  trackKey: string;
-  startedAt: number;
-  nowPlayingSent: boolean;
-  scrobbled: boolean;
-}
-
 interface PreparedCrossfade {
   id: number;
   outgoingTrackKey: string;
@@ -1394,19 +1395,6 @@ const extensionFromAudioUrl = (url: string) => {
   } catch {
     return 'm4a';
   }
-};
-
-const downloadExtensionFromStream = (stream: any) => {
-  const container = typeof stream?.container === 'string' ? stream.container.toLowerCase() : '';
-  if (container === 'mp4') return 'm4a';
-  if (container === 'mpeg') return 'mp3';
-  if (container && /^[a-z0-9]+$/u.test(container)) return container;
-  const mimeType = typeof stream?.mimeType === 'string' ? stream.mimeType.toLowerCase() : '';
-  if (mimeType.includes('mp4')) return 'm4a';
-  if (mimeType.includes('webm')) return 'webm';
-  if (mimeType.includes('mpeg')) return 'mp3';
-  if (mimeType.includes('ogg')) return 'ogg';
-  return 'm4a';
 };
 
 const scrobbleThresholdSeconds = (durationSeconds: number) => {
@@ -1865,20 +1853,20 @@ export default function SpiceApp() {
     const track = songShareDialog.track;
     const downloadUrl = directAudioDownloadUrl(track);
 
-    if (downloadUrl) {
+    if (downloadUrl && extensionFromAudioUrl(downloadUrl) === 'mp3') {
       const link = document.createElement('a');
       link.href = downloadUrl;
-      link.download = `${sanitizeDownloadName(track)}.${extensionFromAudioUrl(downloadUrl)}`;
+      link.download = `${sanitizeDownloadName(track)}.mp3`;
       link.rel = 'noopener noreferrer';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      showSpiceNotice(`Downloading "${track.title}".`, 'success');
+      showSpiceNotice(`Downloading "${track.title}" as MP3.`, 'success');
       setSongShareDialog(null);
       return;
     }
 
-    showSpiceNotice(`Preparing download for "${track.title}"...`, 'info');
+    showSpiceNotice(`Converting "${track.title}" to MP3...`, 'info');
 
     const isSoundCloud = isSoundCloudTrack(track);
 
@@ -1908,19 +1896,33 @@ export default function SpiceApp() {
         // Convert relative URL to absolute URL to parse/append params
         const finalUrl = new URL(spiceApiResponseUrl('local', streamUrl), typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
         finalUrl.searchParams.set('download', 'true');
+        finalUrl.searchParams.set('format', 'mp3');
         finalUrl.searchParams.set('title', downloadTitle);
-        finalUrl.searchParams.set('container', streamObj ? downloadExtensionFromStream(streamObj) : 'm4a');
 
-        // This will trigger the browser's download manager safely without unloading
+        const downloadResponse = await fetch(finalUrl.toString());
+        if (!downloadResponse.ok) {
+          let message = 'The audio could not be converted to MP3.';
+          try {
+            const payload = await downloadResponse.json();
+            if (typeof payload?.message === 'string') message = payload.message;
+          } catch {
+            // Keep the stable fallback for non-JSON proxy errors.
+          }
+          throw new Error(message);
+        }
+
+        const downloadBlob = await downloadResponse.blob();
+        const objectUrl = URL.createObjectURL(downloadBlob);
         const link = document.createElement('a');
-        link.href = finalUrl.toString();
-        link.download = `${downloadTitle}.${streamObj ? downloadExtensionFromStream(streamObj) : 'm4a'}`;
+        link.href = objectUrl;
+        link.download = `${downloadTitle}.mp3`;
         link.rel = 'noopener noreferrer';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
 
-        showSpiceNotice(`Started downloading "${track.title}".`, 'success');
+        showSpiceNotice(`Downloaded "${track.title}" as MP3.`, 'success');
         setSongShareDialog(null);
       } else {
         throw new Error('Stream not available for download.');
@@ -2510,7 +2512,8 @@ export default function SpiceApp() {
   const directEmbedRetryRef = useRef<Set<string>>(new Set());
   const embedProxyRetryRef = useRef<Set<string>>(new Set());
   const syncLockRef = useRef<boolean>(false);
-  const scrobbleStateRef = useRef<ScrobbleState | null>(null);
+  const scrobbleStateRef = useRef<ProfileListenDeliveryState | null>(null);
+  const profileListenRetryTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   const remoteDeviceReportInFlightRef = useRef(false);
   const remoteDeviceLoadInFlightRef = useRef(false);
   const remoteCommandPollInFlightRef = useRef(false);
@@ -4561,6 +4564,11 @@ export default function SpiceApp() {
   }, [cloudToken, activeProfileId, isProfileHydrated]);
 
   const currentTrackKey = playbackTrackKey(currentTrack);
+  const activeProfileListenProviders = (): ProfileListenProvider[] => [
+    lastFmSessionKey.trim() || lastFmAccountLinked ? 'lastfm' : null,
+    listenBrainzToken.trim() || listenBrainzAccountLinked ? 'listenbrainz' : null,
+  ].filter((provider): provider is ProfileListenProvider => provider !== null);
+
   const setPlaybackPlaying = (nextPlaying: boolean) => {
     isPlayingRef.current = nextPlaying;
     setIsPlaying(nextPlaying);
@@ -4652,13 +4660,10 @@ export default function SpiceApp() {
     if (
       profileSyncEnabled
       && currentTrack.id !== 'placeholder'
-      && (lastFmSessionKey.trim() || lastFmAccountLinked || listenBrainzToken.trim() || listenBrainzAccountLinked)
       && scrobbleState
       && scrobbleState.trackKey === currentTrackKey
-      && !scrobbleState.scrobbled
     ) {
-      scrobbleState.scrobbled = true;
-      void submitProfileListen('scrobble', scrobbleState.startedAt);
+      requestProfileListen('scrobble', scrobbleState, activeProfileListenProviders());
     }
 
     if (preparedCrossfadeRef.current?.started && finalizePreparedCrossfade()) return;
@@ -4762,83 +4767,157 @@ export default function SpiceApp() {
     }
   }, []);
 
-  async function submitProfileListen(type: ProfileListenType, listenedAt: number) {
-    if (!profileSyncEnabled || currentTrack.id === 'placeholder') return;
-
+  async function submitProfileListen(
+    type: ProfileListenType,
+    listenedAt: number,
+    providers: ProfileListenProvider[],
+    track: Track,
+    durationSeconds: number,
+  ): Promise<Partial<Record<ProfileListenProvider, ProfileSyncProviderResult>>> {
     const lastfmSession = lastFmSessionKey.trim();
-    const shouldSyncLastFm = Boolean(lastfmSession || lastFmAccountLinked);
     const listenbrainzToken = listenBrainzToken.trim();
-    const shouldSyncListenBrainz = Boolean(listenbrainzToken || listenBrainzAccountLinked);
-    if (!shouldSyncLastFm && !shouldSyncListenBrainz) {
-      setProfileSyncStatus('idle');
-      return;
-    }
-
-    const durationMs = currentTrack.durationMs || (duration > 0 ? Math.round(duration * 1000) : undefined);
-    try {
-      const response = await spiceFetch('cloud', '/profile/listens', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(cloudToken ? { Authorization: `Bearer ${cloudToken}` } : {}),
+    const durationMs = track.durationMs || (durationSeconds > 0 ? Math.round(durationSeconds * 1000) : undefined);
+    const response = await spiceFetch('cloud', '/profile/listens', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(cloudToken ? { Authorization: `Bearer ${cloudToken}` } : {}),
+      },
+      body: JSON.stringify({
+        type,
+        listenedAt,
+        providers: {
+          lastfm: providers.includes('lastfm')
+            ? {
+              sessionKey: lastfmSession || undefined,
+            }
+            : undefined,
+          listenbrainz: providers.includes('listenbrainz')
+            ? {
+              token: listenbrainzToken || undefined,
+            }
+            : undefined,
         },
-        body: JSON.stringify({
-          type,
-          listenedAt,
-          providers: {
-            lastfm: shouldSyncLastFm
-              ? {
-                sessionKey: lastfmSession || undefined,
-              }
-              : undefined,
-            listenbrainz: shouldSyncListenBrainz
-              ? {
-                token: listenbrainzToken || undefined,
-              }
-              : undefined,
-          },
-          track: {
-            id: currentTrack.id,
-            title: currentTrack.title,
-            artist: profileArtistName(currentTrack),
-            album: currentTrack.album?.title,
-            durationMs,
-            sourceId: currentTrack.sourceId,
-            permalinkUrl: profileOriginUrl(currentTrack),
-          },
-        }),
-      });
-      const data = await response.json().catch(() => ({})) as ProfileSyncResponse;
-      if (!response.ok) {
-        throw new Error((data as any).error || `Profile sync failed with status ${response.status}.`);
-      }
-
-      const syncedProviders = [
-        data.results?.lastfm?.ok ? 'Last.fm' : null,
-        data.results?.listenbrainz?.ok ? 'ListenBrainz' : null,
-      ].filter(Boolean);
-      const failedProviders = [
-        data.results?.lastfm && !data.results.lastfm.skipped && !data.results.lastfm.ok
-          ? `Last.fm: ${data.results.lastfm.error || 'failed'}`
-          : null,
-        data.results?.listenbrainz && !data.results.listenbrainz.skipped && !data.results.listenbrainz.ok
-          ? `ListenBrainz: ${data.results.listenbrainz.error || 'failed'}`
-          : null,
-      ].filter(Boolean);
-
-      if (syncedProviders.length > 0) {
-        setProfileSyncStatus(type === 'playing_now' ? 'playing' : 'scrobbled');
-        logDebug('profile', `${type === 'playing_now' ? 'Now playing' : 'Scrobble'} sent to ${syncedProviders.join(', ')} for "${currentTrack.title}".`);
-      }
-
-      if (failedProviders.length > 0) {
-        setProfileSyncStatus('error');
-        logDebug('error', `Profile sync issue: ${failedProviders.join(' | ')}`);
-      }
-    } catch (error) {
-      setProfileSyncStatus('error');
-      logDebug('error', `Profile sync request failed: ${error instanceof Error ? error.message : error}`);
+        track: {
+          id: track.id,
+          title: track.title,
+          artist: profileArtistName(track),
+          album: track.album?.title,
+          durationMs,
+          sourceId: track.sourceId,
+          permalinkUrl: profileOriginUrl(track),
+        },
+      }),
+    });
+    const data = await response.json().catch(() => ({})) as ProfileSyncResponse & { error?: string };
+    if (!response.ok) {
+      throw new Error(data.error || `Profile sync failed with status ${response.status}.`);
     }
+
+    return Object.fromEntries(providers.map((provider) => [
+      provider,
+      data.results?.[provider] ?? {
+        ok: false,
+        error: `${provider === 'lastfm' ? 'Last.fm' : 'ListenBrainz'} did not return a delivery result.`,
+      },
+    ]));
+  }
+
+  function requestProfileListen(
+    type: ProfileListenType,
+    state: ProfileListenDeliveryState,
+    providers: ProfileListenProvider[],
+    track: Track = currentTrack,
+    durationSeconds: number = duration,
+  ) {
+    const requestedProviders = beginProfileListenDelivery(
+      state,
+      type,
+      providers,
+      currentTimestampMs(),
+    );
+    if (requestedProviders.length === 0) return;
+
+    void submitProfileListen(type, state.startedAt, requestedProviders, track, durationSeconds)
+      .then((results) => {
+        finishProfileListenDelivery(
+          state,
+          type,
+          Object.fromEntries(requestedProviders.map((provider) => [provider, results[provider]?.ok === true])),
+          currentTimestampMs(),
+        );
+        const syncedProviders = requestedProviders.filter((provider) => results[provider]?.ok);
+        const failedProviders = requestedProviders.filter((provider) => !results[provider]?.ok);
+        scheduleProfileListenRetry(type, state, failedProviders, track, durationSeconds);
+        if (scrobbleStateRef.current !== state) return;
+
+        if (syncedProviders.length > 0) {
+          setProfileSyncStatus(type === 'playing_now' ? 'playing' : 'scrobbled');
+          logDebug(
+            'profile',
+            `${type === 'playing_now' ? 'Now playing' : 'Scrobble'} sent to ${syncedProviders.map(profileProviderLabel).join(', ')} for "${track.title}".`,
+          );
+        }
+
+        if (failedProviders.length > 0) {
+          const failures = failedProviders.map((provider) => (
+            `${profileProviderLabel(provider)}: ${results[provider]?.error || 'failed'}`
+          ));
+          setProfileSyncStatus('error');
+          logDebug('error', `Profile sync issue: ${failures.join(' | ')}`);
+        }
+
+        const lastFmResult = results.lastfm;
+        if (lastFmResult?.ok) {
+          setLastFmLinkStatus(type === 'playing_now'
+            ? `Now playing on Last.fm: ${track.title}.`
+            : `Scrobbled ${track.title} to Last.fm.`);
+        } else if (lastFmResult) {
+          setLastFmLinkStatus(`Last.fm ${type === 'playing_now' ? 'now-playing update' : 'scrobble'} failed: ${lastFmResult.error || 'Unknown provider error'}.`);
+        }
+      })
+      .catch((error) => {
+        finishProfileListenDelivery(
+          state,
+          type,
+          Object.fromEntries(requestedProviders.map((provider) => [provider, false])),
+          currentTimestampMs(),
+        );
+        scheduleProfileListenRetry(type, state, requestedProviders, track, durationSeconds);
+        if (scrobbleStateRef.current !== state) return;
+
+        const message = error instanceof Error ? error.message : String(error);
+        setProfileSyncStatus('error');
+        logDebug('error', `Profile sync request failed: ${message}`);
+        if (requestedProviders.includes('lastfm')) {
+          setLastFmLinkStatus(`Last.fm ${type === 'playing_now' ? 'now-playing update' : 'scrobble'} failed: ${message}.`);
+        }
+      });
+  }
+
+  function scheduleProfileListenRetry(
+    type: ProfileListenType,
+    state: ProfileListenDeliveryState,
+    providers: ProfileListenProvider[],
+    track: Track,
+    durationSeconds: number,
+  ) {
+    if (providers.length === 0) return;
+    if (type === 'playing_now' && scrobbleStateRef.current !== state) return;
+
+    const retryDelay = profileListenRetryDelayMs(state, type, providers, currentTimestampMs());
+    if (retryDelay === null) return;
+
+    const timeout = setTimeout(() => {
+      profileListenRetryTimeoutsRef.current.delete(timeout);
+      if (type === 'playing_now' && scrobbleStateRef.current !== state) return;
+      requestProfileListen(type, state, providers, track, durationSeconds);
+    }, retryDelay + 25);
+    profileListenRetryTimeoutsRef.current.add(timeout);
+  }
+
+  function profileProviderLabel(provider: ProfileListenProvider) {
+    return provider === 'lastfm' ? 'Last.fm' : 'ListenBrainz';
   }
 
   async function handleFeedbackSubmit(e?: React.FormEvent) {
@@ -4937,26 +5016,24 @@ export default function SpiceApp() {
       return;
     }
 
-    scrobbleStateRef.current = {
-      trackKey: currentTrackKey,
-      startedAt: Math.floor(currentTimestampMs() / 1000),
-      nowPlayingSent: false,
-      scrobbled: false,
-    };
+    scrobbleStateRef.current = createProfileListenDeliveryState(
+      currentTrackKey,
+      Math.floor(currentTimestampMs() / 1000),
+    );
     setProfileSyncStatus('idle');
   }, [currentTrackKey]);
 
   useEffect(() => {
     if (!profileSyncEnabled || currentTrack.id === 'placeholder' || !isPlaying) return;
-    if (!lastFmSessionKey.trim() && !lastFmAccountLinked && !listenBrainzToken.trim() && !listenBrainzAccountLinked) return;
+    const providers = activeProfileListenProviders();
+    if (providers.length === 0) return;
 
     const scrobbleState = scrobbleStateRef.current;
     if (!scrobbleState || scrobbleState.trackKey !== currentTrackKey) return;
 
     const progressSeconds = Math.max(0, progress);
-    if (!scrobbleState.nowPlayingSent && progressSeconds >= 2) {
-      scrobbleState.nowPlayingSent = true;
-      void submitProfileListen('playing_now', scrobbleState.startedAt);
+    if (progressSeconds >= 2) {
+      requestProfileListen('playing_now', scrobbleState, providers);
     }
 
     const durationSeconds = duration > 0
@@ -4966,9 +5043,8 @@ export default function SpiceApp() {
         : 0;
     const threshold = scrobbleThresholdSeconds(durationSeconds);
     const wallClockElapsed = Math.floor(currentTimestampMs() / 1000) - scrobbleState.startedAt;
-    if (!scrobbleState.scrobbled && progressSeconds >= threshold && wallClockElapsed >= threshold) {
-      scrobbleState.scrobbled = true;
-      void submitProfileListen('scrobble', scrobbleState.startedAt);
+    if (progressSeconds >= threshold && wallClockElapsed >= threshold) {
+      requestProfileListen('scrobble', scrobbleState, providers);
     }
   }, [profileSyncEnabled, cloudToken, lastFmSessionKey, lastFmAccountLinked, listenBrainzToken, listenBrainzAccountLinked, isPlaying, progress, duration, currentTrackKey]);
 
@@ -4980,6 +5056,8 @@ export default function SpiceApp() {
   useEffect(() => {
     return () => {
       clearPlaybackRetryTimer();
+      for (const timeout of profileListenRetryTimeoutsRef.current) clearTimeout(timeout);
+      profileListenRetryTimeoutsRef.current.clear();
     };
   }, []);
 
@@ -10086,6 +10164,16 @@ const getMaskedEmail = (email: string) => {
                   </div>
                 )}
               </div>
+              {isMounted && (cloudUser?.isAdmin || cloudUser?.accountRole === 'admin') && (
+                <a
+                  className="app-topbar__settings"
+                  href="/admin-dashboard"
+                  aria-label="Open admin dashboard"
+                  title="Admin dashboard"
+                >
+                  {Icons.shield}
+                </a>
+              )}
               <button
                 className={`app-topbar__settings ${currentPage === 'settings' && !selectedPlaylist ? 'active' : ''}`}
                 type="button"
@@ -11552,6 +11640,21 @@ const getMaskedEmail = (email: string) => {
                         )}
 
                         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                          {(cloudUser.isAdmin || cloudUser.accountRole === 'admin') && (
+                            <a
+                              className="btn btn--ghost"
+                              href="/admin-dashboard"
+                              style={{
+                                padding: '10px 20px',
+                                fontSize: '0.85rem',
+                                color: 'var(--accent-pink)',
+                                borderColor: 'var(--accent-pink)',
+                                textDecoration: 'none',
+                              }}
+                            >
+                              {Icons.shield} Admin Dashboard
+                            </a>
+                          )}
                           <button
                             className="btn btn--primary"
                             onClick={() => syncWithCloud()}

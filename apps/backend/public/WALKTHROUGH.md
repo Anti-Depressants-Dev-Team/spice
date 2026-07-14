@@ -1,5 +1,14 @@
 # SPICE Walkthrough
 
+## v1.0.137
+
+- [Spice.Music main] Mark Last.fm scrobbles as delivered only after an explicit accepted response, surface filtered HTTP-200 responses as errors, and retry transient provider failures independently with bounded backoff.
+- [Spice.Music main] Convert browser song downloads to MP3 inside the local runtime with a packaged FFmpeg binary while keeping Vercel builds free of the native binary.
+- [Spice.Mobile main] Route direct and provider downloads through the embedded yt-dlp/FFmpeg pipeline so Android saves MP3 files with metadata consistently.
+- [Spice.Admin main] Add an admin-authorized feedback inbox that loads the newest persisted submissions and refreshes automatically while the operations dashboard is open.
+- [Spice.Music main] Show a theme-aware Admin Dashboard shortcut only for authenticated SPICE admin accounts, with the dashboard authorization check remaining authoritative.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.137`.
+
 ## v1.0.136
 
 - [Spice.Connect main] Cut receiver command latency from tens of seconds to responsive active, idle, and background polling cadences, with event-driven state reports and short controller refreshes.

@@ -442,16 +442,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         _uiState.value = _uiState.value.copy(downloadProgress = label)
                     }
-                    if (source.directFile) {
-                        val direct = downloadClient.downloadDirectAudio(track, source.url, processId, progress = progressHandler)
-                        if (direct.exitCode == 415) {
-                            downloadClient.downloadAudio(track, source.url, processId, progress = progressHandler)
-                        } else {
-                            direct
-                        }
-                    } else {
-                        downloadClient.downloadAudio(track, source.url, processId, progress = progressHandler)
-                    }
+                    downloadClient.downloadAudio(track, source.url, processId, progress = progressHandler)
                 }
                 _uiState.value = if (result.exitCode == 0) {
                     val file = result.outputFilePath
@@ -2002,9 +1993,9 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun downloadSource(track: Track): DownloadSource =
         if (track.sourceId.startsWith("youtube")) {
-            DownloadSource("https://www.youtube.com/watch?v=${track.id}", directFile = false)
+            DownloadSource("https://www.youtube.com/watch?v=${track.id}")
         } else {
-            DownloadSource(api.resolvePlayable(track, _uiState.value.quality).stream.url, directFile = true)
+            DownloadSource(api.resolvePlayable(track, _uiState.value.quality).stream.url)
         }
 
     private fun loadRemoteDeviceId(): String {
@@ -2143,5 +2134,4 @@ private data class SharedTrackEditResult(
 
 private data class DownloadSource(
     val url: String,
-    val directFile: Boolean,
 )

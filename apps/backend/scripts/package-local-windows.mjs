@@ -91,6 +91,25 @@ async function assertPackagedAssets(root) {
       'The local runtime package is missing apps/backend/public.',
     );
   }
+
+  const ffmpegBinaryName = packagePlatform === 'linux' ? 'ffmpeg' : 'ffmpeg.exe';
+  const ffmpegBinary = [
+    path.join(root, 'node_modules', 'ffmpeg-static', ffmpegBinaryName),
+    path.join(backendRoot, 'node_modules', 'ffmpeg-static', ffmpegBinaryName),
+  ].find((candidate) => existsSync(candidate));
+  if (!ffmpegBinary) {
+    throw new Error(`The local runtime package is missing the ${packagePlatform} FFmpeg binary required for MP3 downloads.`);
+  }
+
+  await assertExists(
+    `${ffmpegBinary}.LICENSE`,
+    'The packaged FFmpeg binary is missing its license text.',
+  );
+  await assertExists(
+    `${ffmpegBinary}.README`,
+    'The packaged FFmpeg binary is missing its source and build notice.',
+  );
+  if (packagePlatform === 'linux') await chmod(ffmpegBinary, 0o755);
 }
 
 async function pruneLocalPackage(root) {
@@ -602,6 +621,7 @@ async function scanForForbiddenLocalPayload(root) {
   await walk(root, async (file) => {
     const relative = path.relative(root, file).replaceAll(path.sep, '/');
     if (/\.(png|jpg|jpeg|gif|ico|webp|woff2?)$/i.test(file)) return;
+    if (/node_modules\/ffmpeg-static\/ffmpeg(?:\.exe)?$/i.test(relative)) return;
     const text = await readFile(file, 'utf8').catch(() => '');
     if (!text) return;
     if (hasForbiddenDbMarker(text)) {
