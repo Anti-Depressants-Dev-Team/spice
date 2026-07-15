@@ -88,7 +88,7 @@ data class SpiceUiState(
     val downloads: List<DownloadedTrack> = emptyList(),
     val libraryTab: LibraryTab = LibraryTab.Playlists,
     val quality: StreamQuality = StreamQuality.Standard,
-    val accentTheme: AccentTheme = AccentTheme.NeonSpice,
+    val accentTheme: AccentTheme = AccentTheme.MidnightVelvet,
     val accountSession: AccountSession? = null,
     val pairedDeviceCredential: PairedDeviceCredential? = null,
     val pairingCode: String = "",

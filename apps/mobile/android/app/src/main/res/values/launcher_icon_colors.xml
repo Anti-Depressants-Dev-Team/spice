@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="launcher_neon_spice">#EC4899</color>
+    <color name="launcher_ocean_breeze">#3B82F6</color>
+    <color name="launcher_solar_fire">#F97316</color>
+    <color name="launcher_jade_emerald">#10B981</color>
+    <color name="launcher_imperial_gold">#F59E0B</color>
+    <color name="launcher_crimson_moon">#FF003C</color>
+    <color name="launcher_midnight_velvet">#7C3AED</color>
+</resources>

@@ -1588,7 +1588,7 @@ private fun AccentSection(selected: AccentTheme, onSelected: (AccentTheme) -> Un
             Text("Global Accent Colors", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         }
         Text(
-            "Select a dynamic accent theme for highlights, buttons, and player controls.",
+            "Select a dynamic accent theme for highlights, controls, and your home-screen app icon.",
             color = SpiceTextMuted,
             fontSize = 13.sp,
         )

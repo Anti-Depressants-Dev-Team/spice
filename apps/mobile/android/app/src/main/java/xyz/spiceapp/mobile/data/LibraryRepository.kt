@@ -206,8 +206,8 @@ class LibraryRepository(context: Context) {
     }
 
     fun accentTheme(): AccentTheme = runCatching {
-        AccentTheme.valueOf(preferences.getString(KEY_ACCENT_THEME, AccentTheme.NeonSpice.name).orEmpty())
-    }.getOrDefault(AccentTheme.NeonSpice)
+        AccentTheme.valueOf(preferences.getString(KEY_ACCENT_THEME, AccentTheme.MidnightVelvet.name).orEmpty())
+    }.getOrDefault(AccentTheme.MidnightVelvet)
 
     fun setAccentTheme(theme: AccentTheme) {
         preferences.edit().putString(KEY_ACCENT_THEME, theme.name).apply()

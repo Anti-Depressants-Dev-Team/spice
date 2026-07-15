@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
@@ -137,6 +138,9 @@ private fun SpiceRoot(
     ) {}
     val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
     val playerState = viewModel.playerState.collectAsStateWithLifecycle().value
+    LaunchedEffect(uiState.accentTheme) {
+        LauncherIconManager(context.applicationContext).apply(uiState.accentTheme)
+    }
     val ensureNotificationPermission = {
         if (
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
