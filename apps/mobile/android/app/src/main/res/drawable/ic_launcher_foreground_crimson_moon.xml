@@ -13,10 +13,10 @@
                 android:endY="89"
                 android:type="linear">
                 <item
-                    android:color="@color/launcher_midnight_velvet"
+                    android:color="@color/launcher_crimson_moon"
                     android:offset="0" />
                 <item
-                    android:color="@color/launcher_midnight_velvet_dark"
+                    android:color="@color/launcher_crimson_moon_dark"
                     android:offset="1" />
             </gradient>
         </aapt:attr>

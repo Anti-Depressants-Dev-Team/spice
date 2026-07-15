@@ -1,10 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <color name="launcher_icon_background_start">#15101C</color>
+    <color name="launcher_icon_background_end">#09070D</color>
+    <color name="launcher_icon_border">#2E1B3D</color>
     <color name="launcher_neon_spice">#EC4899</color>
+    <color name="launcher_neon_spice_dark">#831843</color>
     <color name="launcher_ocean_breeze">#3B82F6</color>
+    <color name="launcher_ocean_breeze_dark">#1E3A8A</color>
     <color name="launcher_solar_fire">#F97316</color>
+    <color name="launcher_solar_fire_dark">#7C2D12</color>
     <color name="launcher_jade_emerald">#10B981</color>
+    <color name="launcher_jade_emerald_dark">#064E3B</color>
     <color name="launcher_imperial_gold">#F59E0B</color>
+    <color name="launcher_imperial_gold_dark">#78350F</color>
     <color name="launcher_crimson_moon">#FF003C</color>
-    <color name="launcher_midnight_velvet">#7C3AED</color>
+    <color name="launcher_crimson_moon_dark">#880020</color>
+    <color name="launcher_midnight_velvet">#6D28D9</color>
+    <color name="launcher_midnight_velvet_dark">#4C1D95</color>
 </resources>
