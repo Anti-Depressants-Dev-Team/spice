@@ -9,6 +9,7 @@ export const desc = disabledDrizzleCall;
 export const eq = disabledDrizzleCall;
 export const gt = disabledDrizzleCall;
 export const inArray = disabledDrizzleCall;
+export const isNotNull = disabledDrizzleCall;
 export const isNull = disabledDrizzleCall;
 export const lt = disabledDrizzleCall;
 export const lte = disabledDrizzleCall;

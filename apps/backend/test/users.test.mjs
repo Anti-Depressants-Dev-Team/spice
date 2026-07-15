@@ -11,7 +11,7 @@ test('User Profile, Privacy, Likes, and Search - Integration Tests', { skip: !ha
   const drizzleOrm = await import('drizzle-orm');
 
   const { users, profiles, playlists, profileLikes } = schema;
-  const { eq, and, isNull, ilike } = drizzleOrm;
+  const { eq, and, or, isNull, isNotNull, ilike } = drizzleOrm;
 
   await t.test('Profile display name sharing (no uniqueness constraint)', async () => {
     const timestamp = Date.now();
@@ -270,6 +270,52 @@ test('User Profile, Privacy, Likes, and Search - Integration Tests', { skip: !ha
       assert.ok(searchResults.length > 0);
       assert.equal(searchResults[0].id, user.id);
     } finally {
+      await db.delete(users).where(eq(users.id, user.id));
+    }
+  });
+
+  await t.test('User search excludes local-only profiles without a cloud username', async () => {
+    const timestamp = Date.now();
+    const [user] = await db.insert(users).values({
+      email: `profile-search-${timestamp}@example.com`,
+      username: `account_${timestamp}`,
+    }).returning();
+    const searchableName = `Listener_${timestamp}`;
+
+    try {
+      await db.insert(profiles).values([
+        {
+          id: 'default',
+          userId: user.id,
+          username: `listener_${timestamp}`,
+          displayName: searchableName,
+          gradient: 'linear-gradient(135deg, #a855f7, #ec4899)',
+          joinedAt: 'July 2026',
+        },
+        {
+          id: 'profile_local_only',
+          userId: user.id,
+          username: null,
+          displayName: searchableName,
+          gradient: 'linear-gradient(135deg, #a855f7, #ec4899)',
+          joinedAt: 'July 2026',
+        },
+      ]);
+
+      const results = await db
+        .select({ id: profiles.id })
+        .from(profiles)
+        .where(and(
+          isNotNull(profiles.username),
+          or(
+            ilike(profiles.username, `%${searchableName}%`),
+            ilike(profiles.displayName, `%${searchableName}%`),
+          ),
+        ));
+
+      assert.deepEqual(results.map((profile) => profile.id), ['default']);
+    } finally {
+      await db.delete(profiles).where(eq(profiles.userId, user.id));
       await db.delete(users).where(eq(users.id, user.id));
     }
   });

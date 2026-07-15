@@ -1,5 +1,12 @@
 # SPICE Walkthrough
 
+## v1.0.143
+
+- [Spice.Account main] Keep local-only profiles out of listener search and cloud profile hydration, and bind Native account sessions to the exact local profile that owns them.
+- [Spice.Player main] Add a bookmark-style Save to playlist action to the standard, expanded, and mini players, including one-step playlist creation with the current song already added.
+- [Spice.Player main] Preserve shuffle playback history so Previous returns to songs already heard, Next walks forward through that history, and fresh shuffle picks avoid repeats until the queue is exhausted.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.143`.
+
 ## v1.0.142
 
 - [Spice.Music main] Restore authenticated Listen Together session creation by applying and verifying the missing production uniqueness migration used by the host-session upsert.

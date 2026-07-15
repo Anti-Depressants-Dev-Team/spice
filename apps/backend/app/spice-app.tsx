@@ -43,6 +43,13 @@ import {
 } from './playback-profiles';
 import { createCrossfadePlan, crossfadeGains, crossfadeStateAt } from './crossfade';
 import { buildSmartQueue, smartQueueArtistKeys, smartQueueTrackKey } from './smart-queue';
+import {
+  alignShuffleHistory,
+  nextShuffleTrack,
+  previousShuffleTrack,
+  resetShuffleHistory,
+  type ShuffleHistoryState,
+} from './shuffle-history';
 import { buildHomeHistoryShelves } from './home-history';
 import {
   createThemeCssVariables,
@@ -110,7 +117,11 @@ import {
   SPICE_CONNECT_STALE_DEVICE_SECONDS,
 } from '@/lib/spice-connect';
 import { SPICE_MEDIA_CORE_VERSION, RELEASE_NOTIFICATION_STORAGE_KEY, type ReleaseNotification } from '@/lib/release-notifications';
-import { isHydratedCloudToken, readCloudSessionFromStorage } from '@/lib/profile-cloud-session';
+import {
+  accountBoundProfiles,
+  isHydratedCloudToken,
+  readCloudSessionFromStorage,
+} from '@/lib/profile-cloud-session';
 import {
   DEFAULT_PROFILE_DISPLAY_NAME,
   mergeProfileAvatarUrl,
@@ -357,6 +368,11 @@ const Icons = {
   heartFilled: (
     <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1" width="16" height="16">
       <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+    </svg>
+  ),
+  bookmark: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+      <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z" />
     </svg>
   ),
   home: (
@@ -1181,6 +1197,7 @@ interface PreparedCrossfade {
   slot: 0 | 1;
   queueSnapshot: Track[];
   shuffled: boolean;
+  shuffleHistory?: ShuffleHistoryState;
   ready: boolean;
   started: boolean;
 }
@@ -1309,6 +1326,8 @@ const dedupeTracks = (tracks: Track[]) => {
 
 const playbackTrackKey = (track: Track) =>
   `${track.sourceId ?? 'youtube_music'}:${track.id}`;
+
+const shuffleQueueKeys = (tracks: Track[]) => tracks.map(playbackTrackKey);
 
 const currentTimestampMs = () => Date.now();
 
@@ -2197,6 +2216,9 @@ export default function SpiceApp() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newPlTitle, setNewPlTitle] = useState('');
   const [newPlDesc, setNewPlDesc] = useState('');
+  const [playlistPickerTrack, setPlaylistPickerTrack] = useState<Track | null>(null);
+  const [playlistPickerSavingId, setPlaylistPickerSavingId] = useState<string | null>(null);
+  const [newPlaylistSeedTrack, setNewPlaylistSeedTrack] = useState<Track | null>(null);
   const [showEditPlaylistDialog, setShowEditPlaylistDialog] = useState(false);
   const [editPlTitle, setEditPlTitle] = useState('');
   const [editPlDesc, setEditPlDesc] = useState('');
@@ -2642,6 +2664,7 @@ export default function SpiceApp() {
   const recommendationListenProgressRef = useRef<RecommendationListenProgress | null>(null);
   const personalizedQueueContinuationSuppressedRef = useRef<string | null>(null);
   const playlistQueueOriginRef = useRef<string | null>(null);
+  const shuffleHistoryRef = useRef<ShuffleHistoryState | null>(null);
   const relatedQueueInFlightRef = useRef<Map<string, Promise<Track[]>>>(new Map());
   const relatedQueueCacheRef = useRef<Map<string, Track[]>>(new Map());
   const syncOutboxRef = useRef<DurableSyncOutbox<SyncOutboxPayload> | null>(null);
@@ -2821,8 +2844,16 @@ export default function SpiceApp() {
   }, [activeProfileId, listenTogetherHostSessionId, cloudToken, cloudUser, cloudUsername]);
 
   const autoSyncProfiles = (updatedProfiles: UserProfile[]) => {
-    if (!cloudTokenRef.current) return;
-    syncOutboxRef.current?.enqueue(activeProfileIdRef.current, 'profiles', { profiles: updatedProfiles });
+    const token = cloudTokenRef.current;
+    if (!token) return;
+    const profilesForAccount = accountBoundProfiles(
+      updatedProfiles,
+      token,
+      cloudUserRef.current?.id,
+    );
+    syncOutboxRef.current?.enqueue(activeProfileIdRef.current, 'profiles', {
+      profiles: profilesForAccount,
+    });
   };
 
   // ── Sync Active Profile back to Profiles DB Helper ──────────────
@@ -3295,6 +3326,13 @@ export default function SpiceApp() {
         cloudTokenRef.current = nextToken;
         cloudUserRef.current = nextUser;
         cloudUsernameRef.current = nextUsername;
+        if (nextToken) {
+          localStorage.setItem('spice_cloud_profile_id', activeProf.id);
+        } else if (localStorage.getItem('spice_cloud_profile_id') !== activeProf.id) {
+          localStorage.removeItem('spice_cloud_token');
+          localStorage.removeItem('spice_token');
+          localStorage.removeItem('spice_cloud_user');
+        }
 
         const savedPlayback = getPlaybackState(activeProf.id);
         if (savedPlayback) {
@@ -3312,6 +3350,7 @@ export default function SpiceApp() {
         currentTrackRef.current = IDLE_PLAYER_TRACK;
         queueRef.current = [IDLE_PLAYER_TRACK];
         playlistQueueOriginRef.current = null;
+        shuffleHistoryRef.current = null;
         queueIndexRef.current = 0;
         progressRef.current = 0;
         durationRef.current = 0;
@@ -3949,10 +3988,32 @@ export default function SpiceApp() {
   // provenance, so use the explicit origin recorded when playback starts.
   const isIntentionalPlaylistQueue = () => playlistQueueOriginRef.current !== null;
 
-  const nextCrossfadeTarget = () => {
+  const nextCrossfadeTarget = (): {
+    track: Track;
+    queueIndex: number;
+    shuffleHistory?: ShuffleHistoryState;
+  } | null => {
     const currentQueue = queueRef.current;
     const currentIndex = queueIndexRef.current;
     if (currentQueue.length < 2 || repeatModeRef.current === 'one') return null;
+
+    if (isShuffleRef.current) {
+      const next = nextShuffleTrack(
+        shuffleHistoryRef.current,
+        shuffleQueueKeys(currentQueue),
+        currentIndex,
+        {
+          random: getSecureRandom,
+          wrap: repeatModeRef.current === 'all',
+        },
+      );
+      if (next.index === null) return null;
+      const track = currentQueue[next.index];
+      return track && track.id !== currentTrackRef.current.id
+        ? { track, queueIndex: next.index, shuffleHistory: next.state }
+        : null;
+    }
+
     const atQueueTail = currentIndex >= currentQueue.length - 1;
     if (
       atQueueTail
@@ -3961,12 +4022,7 @@ export default function SpiceApp() {
         repeatModeRef.current,
       )
     ) return null;
-    let nextIndex = (currentIndex + 1) % currentQueue.length;
-    if (isShuffleRef.current) {
-      do {
-        nextIndex = randomIndex(currentQueue.length);
-      } while (nextIndex === currentIndex && currentQueue.length > 1);
-    }
+    const nextIndex = (currentIndex + 1) % currentQueue.length;
     const track = currentQueue[nextIndex];
     return track && track.id !== currentTrackRef.current.id ? { track, queueIndex: nextIndex } : null;
   };
@@ -3986,6 +4042,7 @@ export default function SpiceApp() {
       slot,
       queueSnapshot: queueRef.current,
       shuffled: isShuffleRef.current,
+      shuffleHistory: target.shuffleHistory,
       ready: false,
       started: false,
     };
@@ -4068,7 +4125,11 @@ export default function SpiceApp() {
     const currentQueueIndex = queueIndexRef.current;
     const hasEligibleNextTrack = currentQueue.length > 1
       && repeatModeRef.current !== 'one'
-      && !(repeatModeRef.current === 'none' && currentQueueIndex >= currentQueue.length - 1);
+      && !(
+        repeatModeRef.current === 'none'
+        && !isShuffleRef.current
+        && currentQueueIndex >= currentQueue.length - 1
+      );
     if (
       !profile?.crossfade.enabled
       || profile.crossfade.durationMs <= 0
@@ -4193,6 +4254,9 @@ export default function SpiceApp() {
     setAudioTransitionGain(incoming, 1);
     currentTrackRef.current = prepared.track;
     queueIndexRef.current = prepared.queueIndex;
+    if (prepared.shuffled && prepared.shuffleHistory) {
+      shuffleHistoryRef.current = prepared.shuffleHistory;
+    }
     streamUrlRef.current = prepared.streamUrl;
     progressRef.current = incoming.currentTime;
     durationRef.current = Number.isFinite(incoming.duration)
@@ -4578,8 +4642,13 @@ export default function SpiceApp() {
       }
 
       // 9. Push Merged States to Cloud Database (each independently)
+      const profilesForAccount = accountBoundProfiles(
+        profilesToPersist,
+        token,
+        activeSessionUser?.id,
+      );
       const pushEndpoints: Array<{ label: string; url: string; body: unknown }> = [
-        { label: 'Profiles', url: spiceApiUrl('cloud', '/sync/profiles'), body: { profiles: profilesToPersist } },
+        { label: 'Profiles', url: spiceApiUrl('cloud', '/sync/profiles'), body: { profiles: profilesForAccount } },
       ];
       const skippedPushLabels: string[] = [];
 
@@ -4661,6 +4730,7 @@ export default function SpiceApp() {
 
       localStorage.setItem('spice_cloud_token', data.token);
       localStorage.setItem('spice_cloud_user', JSON.stringify(data.user));
+      localStorage.setItem('spice_cloud_profile_id', authProfileId);
       setCloudToken(data.token);
       setCloudUser(data.user);
       remoteRequestGenerationRef.current += 1;
@@ -4761,6 +4831,7 @@ export default function SpiceApp() {
     syncOutboxRef.current?.cancelProfile(logoutProfileId);
     localStorage.removeItem('spice_cloud_token');
     localStorage.removeItem('spice_cloud_user');
+    localStorage.removeItem('spice_cloud_profile_id');
     localStorage.removeItem(remotePairingCredentialStorageKey(logoutProfileId));
     setCloudToken(null);
     setCloudUser(null);
@@ -5115,6 +5186,7 @@ export default function SpiceApp() {
       }
     } else if (
       currentRepeatMode === 'none'
+      && !isShuffleRef.current
       && currentQueueIndex === currentQueue.length - 1
       && isIntentionalPlaylistQueue()
     ) {
@@ -5816,6 +5888,13 @@ export default function SpiceApp() {
 
     queueRef.current = updatedQueue;
     queueIndexRef.current = updatedIndex;
+    shuffleHistoryRef.current = isShuffleRef.current
+      ? alignShuffleHistory(
+        shuffleHistoryRef.current,
+        shuffleQueueKeys(updatedQueue),
+        updatedIndex,
+      )
+      : null;
     setQueue(updatedQueue);
     setQueueIndex(updatedIndex);
 
@@ -6100,19 +6179,20 @@ export default function SpiceApp() {
     const currentIndex = (overrideIndex !== undefined && typeof overrideIndex === 'number')
       ? overrideIndex
       : queueIndexRef.current;
-    let prevIdx = currentIndex;
     if (isShuffleRef.current) {
-      if (currentQueue.length > 1) {
-        do {
-          prevIdx = randomIndex(currentQueue.length);
-        } while (prevIdx === currentIndex);
-      } else {
-        prevIdx = 0;
-      }
-    } else {
-      prevIdx = (currentIndex - 1 + currentQueue.length) % currentQueue.length;
+      const previous = previousShuffleTrack(
+        shuffleHistoryRef.current,
+        shuffleQueueKeys(currentQueue),
+        currentIndex,
+      );
+      shuffleHistoryRef.current = previous.state;
+      if (previous.index === null) return;
+      void playTrackRef.current(currentQueue[previous.index], currentQueue, previous.index);
+      return;
     }
-    playTrack(currentQueue[prevIdx]);
+
+    const prevIdx = (currentIndex - 1 + currentQueue.length) % currentQueue.length;
+    void playTrackRef.current(currentQueue[prevIdx], currentQueue, prevIdx);
   };
 
   const handleNext = (overrideIndex?: any) => {
@@ -6152,6 +6232,10 @@ export default function SpiceApp() {
           playbackTrackKey(item) === sourceTrackKey
         ));
         const nextTrack = refreshedIndex >= 0 ? refreshedQueue[refreshedIndex + 1] : additions[0];
+        if (isShuffleRef.current && refreshedQueue.length > 1) {
+          handleNextRef.current(refreshedIndex >= 0 ? refreshedIndex : undefined);
+          return;
+        }
         if (nextTrack) {
           void playTrackRef.current(nextTrack, refreshedQueue, refreshedIndex + 1);
           return;
@@ -6167,20 +6251,28 @@ export default function SpiceApp() {
       return;
     }
 
-    let nextIdx = currentIndex;
     if (isShuffleRef.current) {
-      if (currentQueue.length > 1) {
-        do {
-          nextIdx = randomIndex(currentQueue.length);
-        } while (nextIdx === currentIndex);
-      } else {
-        nextIdx = 0;
+      const next = nextShuffleTrack(
+        shuffleHistoryRef.current,
+        shuffleQueueKeys(currentQueue),
+        currentIndex,
+        {
+          random: getSecureRandom,
+          wrap: repeatModeRef.current === 'all',
+        },
+      );
+      shuffleHistoryRef.current = next.state;
+      if (next.index === null) {
+        shouldAutoPlayRef.current = false;
+        setPlaybackPlaying(false);
+        return;
       }
-    } else {
-      nextIdx = (currentIndex + 1) % currentQueue.length;
+      void playTrackRef.current(currentQueue[next.index], currentQueue, next.index);
+      return;
     }
 
-    playTrack(currentQueue[nextIdx]);
+    const nextIdx = (currentIndex + 1) % currentQueue.length;
+    void playTrackRef.current(currentQueue[nextIdx], currentQueue, nextIdx);
   };
 
   useEffect(() => {
@@ -6233,6 +6325,9 @@ export default function SpiceApp() {
   const applyLocalShuffleMode = (enabled: boolean) => {
     setIsShuffle(enabled);
     isShuffleRef.current = enabled;
+    shuffleHistoryRef.current = enabled
+      ? resetShuffleHistory(shuffleQueueKeys(queueRef.current), queueIndexRef.current)
+      : null;
     localStorage.setItem(PLAYER_SHUFFLE_STORAGE_KEY, String(enabled));
   };
 
@@ -7605,7 +7700,7 @@ export default function SpiceApp() {
       id: createPlaylistId(),
       title: newPlTitle,
       description: newPlDesc || 'Custom Spice compilation.',
-      tracks: [],
+      tracks: newPlaylistSeedTrack ? [newPlaylistSeedTrack] : [],
       gradient: PRESET_GRADIENTS[randomIndex(PRESET_GRADIENTS.length)],
       isPublic: newPlIsPublic,
       createdAt: new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
@@ -7617,6 +7712,10 @@ export default function SpiceApp() {
     setNewPlTitle('');
     setNewPlDesc('');
     setNewPlIsPublic(true);
+    if (newPlaylistSeedTrack) {
+      showSpiceNotice('Playlist created with the current song.', 'success');
+    }
+    setNewPlaylistSeedTrack(null);
     setShowCreateDialog(false);
   };
 
@@ -7794,6 +7893,29 @@ export default function SpiceApp() {
       setSelectedPlaylist(updated.find(p => p.id === playlistId) || null);
     }
     return wasAdded;
+  };
+
+  const openPlaylistPicker = (track: Track) => {
+    if (!track || track.id === 'placeholder' || track.id === 'spice-connect-placeholder') return;
+    setPlaylistPickerSavingId(null);
+    setPlaylistPickerTrack(track);
+  };
+
+  const savePlaylistPickerSelection = async (playlistId: string) => {
+    const track = playlistPickerTrack;
+    if (!track || playlistPickerSavingId) return;
+    setPlaylistPickerSavingId(playlistId);
+    try {
+      const added = await addTrackToPlaylist(track, playlistId);
+      if (added) {
+        showSpiceNotice('Added track to playlist.', 'success');
+        setPlaylistPickerTrack(null);
+      } else {
+        showSpiceNotice('Song already in playlist.', 'info');
+      }
+    } finally {
+      setPlaylistPickerSavingId(null);
+    }
   };
 
   const removeTrackFromPlaylist = async (trackId: string, playlistId: string, position?: number) => {
@@ -9282,8 +9404,7 @@ export default function SpiceApp() {
   const shufflePlaylistPlay = (playlist: Playlist) => {
     const tracks = playlist.tracks;
     if (!tracks || tracks.length === 0) return;
-    setIsShuffle(true);
-    localStorage.setItem(PLAYER_SHUFFLE_STORAGE_KEY, 'true');
+    applyLocalShuffleMode(true);
     const shuffled = [...tracks].sort(() => getSecureRandom() - 0.5);
     startTrackOnActiveReceiver(shuffled[0], shuffled, playlist.id);
   };
@@ -9372,8 +9493,10 @@ const getMaskedEmail = (email: string) => {
 
     if (nextToken) {
       localStorage.setItem('spice_cloud_token', nextToken);
+      localStorage.setItem('spice_cloud_profile_id', profileId);
     } else {
       localStorage.removeItem('spice_cloud_token');
+      localStorage.removeItem('spice_cloud_profile_id');
     }
     if (nextUser) {
       localStorage.setItem('spice_cloud_user', JSON.stringify(nextUser));
@@ -9427,6 +9550,7 @@ const getMaskedEmail = (email: string) => {
     currentTrackRef.current = IDLE_PLAYER_TRACK;
     queueRef.current = [IDLE_PLAYER_TRACK];
     playlistQueueOriginRef.current = null;
+    shuffleHistoryRef.current = null;
     queueIndexRef.current = 0;
     progressRef.current = 0;
     durationRef.current = 0;
@@ -11194,7 +11318,7 @@ const getMaskedEmail = (email: string) => {
                               const isSelf = user.id === cloudUser?.id;
                               return (
                                 <div
-                                  key={user.id}
+                                  key={`${user.id}:${user.profileId || user.username}`}
                                   className="app-topbar__result-item"
                                 >
                                   <button
@@ -12457,7 +12581,7 @@ const getMaskedEmail = (email: string) => {
                               const hasAvatar = !!user.avatarUrl;
                               const isSelf = user.id === cloudUser?.id;
                               return (
-                                <div key={user.id} className="library-item animate-in" onClick={() => handleSelectUser(user)}>
+                                <div key={`${user.id}:${user.profileId || user.username}`} className="library-item animate-in" onClick={() => handleSelectUser(user)}>
                                   {hasAvatar ? (
                                     <img className="library-item__art library-item__art--round" src={user.avatarUrl} alt={user.displayName} />
                                   ) : (
@@ -15024,11 +15148,93 @@ const getMaskedEmail = (email: string) => {
         </div>
       )}
 
+      {/* ═══ Save Current Track to Playlist Dialog ═══ */}
+      {playlistPickerTrack && (
+        <div className="dialog-overlay playlist-picker-overlay" onClick={() => setPlaylistPickerTrack(null)}>
+          <div className="dialog-box playlist-picker" onClick={(event) => event.stopPropagation()}>
+            <div className="playlist-picker__header">
+              <div>
+                <span className="playlist-picker__eyebrow">Now playing</span>
+                <h2>Save to playlist</h2>
+              </div>
+              <button
+                type="button"
+                className="playlist-picker__close"
+                onClick={() => setPlaylistPickerTrack(null)}
+                aria-label="Close playlist picker"
+              >
+                {Icons.close}
+              </button>
+            </div>
+
+            <div className="playlist-picker__track">
+              <img src={playlistPickerTrack.artworkUrl || '/icon.svg'} alt="" />
+              <span>
+                <strong className="truncate">{playlistPickerTrack.title}</strong>
+                <small className="truncate">{playlistPickerTrack.artists.map((artist) => artist.name).join(', ')}</small>
+              </span>
+              {Icons.bookmark}
+            </div>
+
+            {allEditablePlaylists.length > 0 ? (
+              <div className="playlist-picker__list" role="list" aria-label="Playlists">
+                {allEditablePlaylists.map((playlist) => {
+                  const alreadySaved = playlist.tracks.some((track) => track.id === playlistPickerTrack.id);
+                  const isSaving = playlistPickerSavingId === playlist.id;
+                  return (
+                    <button
+                      key={playlist.id}
+                      type="button"
+                      className="playlist-picker__option"
+                      onClick={() => void savePlaylistPickerSelection(playlist.id)}
+                      disabled={alreadySaved || playlistPickerSavingId !== null}
+                    >
+                      <span
+                        className="playlist-picker__cover"
+                        style={{ background: playlist.coverUrl ? 'var(--bg-surface)' : playlist.gradient }}
+                      >
+                        {playlist.coverUrl ? <img src={playlist.coverUrl} alt="" /> : Icons.playlist}
+                      </span>
+                      <span className="playlist-picker__copy">
+                        <strong className="truncate">{playlist.title}</strong>
+                        <small>{playlist.shared ? 'Shared playlist' : `${playlist.tracks.length} ${playlist.tracks.length === 1 ? 'song' : 'songs'}`}</small>
+                      </span>
+                      <span className={`playlist-picker__status ${alreadySaved ? 'is-saved' : ''}`}>
+                        {alreadySaved ? 'Saved' : isSaving ? 'Saving…' : 'Add'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="playlist-picker__empty">Create your first playlist, then this song will be one tap away from it.</p>
+            )}
+
+            <button
+              type="button"
+              className="playlist-picker__create"
+              onClick={() => {
+                setNewPlaylistSeedTrack(playlistPickerTrack);
+                setPlaylistPickerTrack(null);
+                setShowCreateDialog(true);
+              }}
+            >
+              <span>+</span> Create a new playlist
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ═══ Create Custom Playlist Dialog ═══ */}
       {showCreateDialog && (
-        <div className="dialog-overlay" onClick={() => setShowCreateDialog(false)}>
+        <div className="dialog-overlay" onClick={() => { setShowCreateDialog(false); setNewPlaylistSeedTrack(null); }}>
           <div className="dialog-box" onClick={(e) => e.stopPropagation()}>
             <h2>Create Playlist</h2>
+            {newPlaylistSeedTrack && (
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', margin: '-6px 0 16px' }}>
+                “{newPlaylistSeedTrack.title}” will be added automatically.
+              </p>
+            )}
             <form onSubmit={createPlaylist}>
               <label style={{ fontSize: '0.8rem', color: '#a1a1aa' }}>Playlist Name</label>
               <input
@@ -15056,7 +15262,7 @@ const getMaskedEmail = (email: string) => {
                 <option value="private">Private (only visible to you)</option>
               </select>
               <div className="dialog-box__actions" style={{ marginTop: '16px' }}>
-                <button type="button" className="btn btn--ghost" style={{ padding: '8px 16px' }} onClick={() => setShowCreateDialog(false)}>
+                <button type="button" className="btn btn--ghost" style={{ padding: '8px 16px' }} onClick={() => { setShowCreateDialog(false); setNewPlaylistSeedTrack(null); }}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn--primary" style={{ padding: '8px 16px' }}>
@@ -15602,6 +15808,16 @@ const getMaskedEmail = (email: string) => {
           >
             {likedTracks.has(playerTrack.id) ? Icons.heartFilled : Icons.heart}
           </button>
+
+          <button
+            className={`now-playing__btn now-playing__save ${playlistPickerTrack && playbackTrackKey(playlistPickerTrack) === playbackTrackKey(playerTrack) ? 'active' : ''}`}
+            onClick={() => openPlaylistPicker(playerTrack)}
+            disabled={playerIsPlaceholder}
+            title="Save to playlist"
+            aria-label={`Save ${playerTrack.title} to a playlist`}
+          >
+            {Icons.bookmark}
+          </button>
         </div>
 
         {/* Center: song info & seek slider */}
@@ -16029,6 +16245,16 @@ const getMaskedEmail = (email: string) => {
                           <span style={{ display: 'inline-flex', transform: 'scale(1.2)' }}>
                             {likedTracks.has(playerTrack.id) ? Icons.heartFilled : Icons.heart}
                           </span>
+                        </button>
+
+                        <button
+                          className="expanded-player__round-action"
+                          onClick={() => openPlaylistPicker(playerTrack)}
+                          disabled={playerIsPlaceholder}
+                          title="Save to playlist"
+                          aria-label={`Save ${playerTrack.title} to a playlist`}
+                        >
+                          {Icons.bookmark}
                         </button>
 
                         <button
@@ -16523,6 +16749,17 @@ const getMaskedEmail = (email: string) => {
                 title={likedTracks.has(playerTrack.id) ? 'Unlike' : 'Like'}
               >
                 {likedTracks.has(playerTrack.id) ? Icons.heartFilled : Icons.heart}
+              </button>
+
+              <button
+                onClick={() => openPlaylistPicker(playerTrack)}
+                disabled={playerIsPlaceholder}
+                className="mini-player__action-btn"
+                title="Save to playlist"
+                aria-label={`Save ${playerTrack.title} to a playlist`}
+                style={{ width: '26px', height: '26px' }}
+              >
+                <span style={{ transform: 'scale(0.85)', display: 'inline-flex' }}>{Icons.bookmark}</span>
               </button>
 
               <button

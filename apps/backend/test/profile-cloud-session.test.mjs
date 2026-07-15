@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { isHydratedCloudToken, readCloudSessionFromStorage } from '../lib/profile-cloud-session.ts';
+import {
+  accountBoundProfiles,
+  isHydratedCloudToken,
+  readCloudSessionFromStorage,
+} from '../lib/profile-cloud-session.ts';
 
 function storage(values) {
   return {
@@ -49,6 +53,38 @@ test('Native account session fills an active profile with no saved cloud session
     user: { email: 'native@example.com', username: 'native-user' },
     username: 'native-user',
   });
+});
+
+test('Native fallback stays bound to its profile instead of signing in another local profile', () => {
+  const values = {
+    spice_profiles_list: JSON.stringify([
+      { id: 'default', cloudToken: null, cloudUser: null },
+      { id: 'profile_sigma', cloudToken: null, cloudUser: null },
+    ]),
+    spice_cloud_profile_id: 'default',
+    spice_cloud_token: 'native-token',
+    spice_cloud_user: JSON.stringify({ id: 'account-1', username: 'callmeryan' }),
+  };
+
+  assert.deepEqual(
+    readCloudSessionFromStorage(storage(values), 'profile_sigma'),
+    { token: null, user: null, username: null },
+  );
+  assert.equal(readCloudSessionFromStorage(storage(values), 'default').token, 'native-token');
+});
+
+test('only profiles carrying a session for the active account are cloud synced', () => {
+  const profiles = [
+    { id: 'default', cloudToken: 'token-a', cloudUser: { id: 'account-1' } },
+    { id: 'alt', cloudToken: 'token-b', cloudUser: { id: 'account-1' } },
+    { id: 'sigma', cloudToken: null, cloudUser: null },
+    { id: 'other', cloudToken: 'token-c', cloudUser: { id: 'account-2' } },
+  ];
+
+  assert.deepEqual(
+    accountBoundProfiles(profiles, 'token-a', 'account-1').map((profile) => profile.id),
+    ['default', 'alt'],
+  );
 });
 
 test('profile account snapshot supplies its username when the legacy profile field is empty', () => {

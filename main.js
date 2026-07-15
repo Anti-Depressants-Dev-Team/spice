@@ -3414,9 +3414,25 @@ app.whenReady().then(async () => {
     if (view && !view.webContents.isDestroyed()) {
       view.webContents
         .executeJavaScript(`
+          (() => {
+            const profileId = localStorage.getItem('spice_cloud_profile_id');
+            if (profileId) {
+              try {
+                const profiles = JSON.parse(localStorage.getItem('spice_profiles_list') || '[]');
+                if (Array.isArray(profiles)) {
+                  localStorage.setItem('spice_profiles_list', JSON.stringify(profiles.map((profile) => (
+                    profile && profile.id === profileId
+                      ? { ...profile, cloudToken: null, cloudUser: null, cloudUsername: null }
+                      : profile
+                  ))));
+                }
+              } catch (_) {}
+            }
+          })();
           localStorage.removeItem('spice_cloud_token');
           localStorage.removeItem('spice_token');
           localStorage.removeItem('spice_cloud_user');
+          localStorage.removeItem('spice_cloud_profile_id');
         `)
         .catch(() => {});
     }

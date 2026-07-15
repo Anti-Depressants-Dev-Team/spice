@@ -38,6 +38,14 @@ export function readCloudSessionFromStorage<TUser>(
     };
   }
 
+  const fallbackProfileId = readString(storage.getItem('spice_cloud_profile_id'))
+    ?? readString(profiles.find((profile) => profile.id === 'default')?.id)
+    ?? readString(profiles[0]?.id)
+    ?? activeProfileId;
+  if (fallbackProfileId !== activeProfileId) {
+    return { token: null, user: null, username: null };
+  }
+
   const fallbackUser = parseObject<TUser>(storage.getItem('spice_cloud_user'));
 
   return {
@@ -45,6 +53,27 @@ export function readCloudSessionFromStorage<TUser>(
     user: fallbackUser,
     username: readUserUsername(fallbackUser),
   };
+}
+
+export function accountBoundProfiles<TProfile extends CloudSessionProfile>(
+  profiles: TProfile[],
+  sessionToken: string | null,
+  accountUserId?: string | null,
+) {
+  const token = readString(sessionToken);
+  const userId = readString(accountUserId);
+  if (!token) return [];
+
+  return profiles.filter((profile) => {
+    const profileToken = readString(profile.cloudToken);
+    if (!profileToken) return false;
+    if (profileToken === token) return true;
+
+    const profileUserId = isObject(profile.cloudUser)
+      ? readString(profile.cloudUser.id)
+      : null;
+    return Boolean(userId && profileUserId === userId);
+  });
 }
 
 function parseProfiles(value: string | null): CloudSessionProfile[] {

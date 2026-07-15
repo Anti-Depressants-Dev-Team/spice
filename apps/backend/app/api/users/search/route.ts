@@ -2,7 +2,7 @@ import { jsonResponse, optionsResponse } from '@/lib/cors';
 import { verifySession } from '@/lib/auth';
 import { db } from '@/db';
 import { users, profiles } from '@/db/schema';
-import { or, ilike, eq } from 'drizzle-orm';
+import { and, or, ilike, eq, isNotNull } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
 
@@ -34,11 +34,12 @@ export async function GET(request: Request) {
       return jsonResponse({ users: [] });
     }
 
-    // Search profiles by display name or username
+    // A cloud username is the durable signal that this local profile was
+    // explicitly connected to an account. Local-only profiles must never be
+    // discoverable through the listener directory.
     const results = await db
       .select({
         id: users.id,
-        username: users.username,
         profileUsername: profiles.username,
         displayName: profiles.displayName,
         bio: profiles.bio,
@@ -50,12 +51,14 @@ export async function GET(request: Request) {
         profileId: profiles.id,
       })
       .from(users)
-      .leftJoin(profiles, eq(profiles.userId, users.id))
+      .innerJoin(profiles, eq(profiles.userId, users.id))
       .where(
-        or(
-          ilike(users.username, `%${query}%`),
-          ilike(profiles.username, `%${query}%`),
-          ilike(profiles.displayName, `%${query}%`)
+        and(
+          isNotNull(profiles.username),
+          or(
+            ilike(profiles.username, `%${query}%`),
+            ilike(profiles.displayName, `%${query}%`)
+          )
         )
       )
       .limit(100);
@@ -74,8 +77,8 @@ export async function GET(request: Request) {
     const formattedUsers = deduplicated.map(u => ({
       id: u.id,
       profileId: u.profileId,
-      username: u.profileUsername || u.username || 'unknown',
-      displayName: u.displayName || u.profileUsername || u.username || 'Spice Listener',
+      username: u.profileUsername || 'unknown',
+      displayName: u.displayName || u.profileUsername || 'Spice Listener',
       bio: u.bio || 'A fresh Spice listener.',
       avatarUrl: u.avatarUrl || null,
       gradient: u.gradient || 'linear-gradient(135deg, #a855f7, #ec4899)',

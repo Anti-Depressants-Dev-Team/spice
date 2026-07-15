@@ -2,7 +2,7 @@ import { jsonResponse, optionsResponse } from '@/lib/cors';
 import { verifySession } from '@/lib/auth';
 import { db } from '@/db';
 import { profiles } from '@/db/schema';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import {
   profileWriteMatches,
   profileWriteValues,
@@ -30,7 +30,10 @@ export async function GET(request: Request) {
     }
 
     const userProfiles = await db.query.profiles.findMany({
-      where: eq(profiles.userId, session.userId),
+      where: and(
+        eq(profiles.userId, session.userId),
+        isNotNull(profiles.username),
+      ),
     });
 
     return jsonResponse({

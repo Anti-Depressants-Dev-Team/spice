@@ -262,10 +262,72 @@ function installNativeSessionSnapshot() {
     try {
         const snapshot = ipcRenderer.sendSync('native-account-snapshot-sync');
         if (snapshot && snapshot.token) {
-            window.localStorage.setItem('spice_cloud_token', snapshot.token);
-            window.localStorage.setItem('spice_token', snapshot.token);
-            if (snapshot.user) {
-                window.localStorage.setItem('spice_cloud_user', JSON.stringify(snapshot.user));
+            let profiles = [];
+            try {
+                const parsed = JSON.parse(window.localStorage.getItem('spice_profiles_list') || '[]');
+                if (Array.isArray(parsed)) profiles = parsed;
+            } catch (_) {}
+
+            const activeProfileId = window.localStorage.getItem('spice_active_profile_id') || 'default';
+            const storedProfileId = window.localStorage.getItem('spice_cloud_profile_id');
+            const snapshotUserId = snapshot.user && typeof snapshot.user.id === 'string'
+                ? snapshot.user.id
+                : null;
+            const profileUserId = (profile) => profile && profile.cloudUser && typeof profile.cloudUser.id === 'string'
+                ? profile.cloudUser.id
+                : null;
+            const canReceiveSnapshot = (profile) => (
+                profile
+                && (!profile.cloudToken || profile.cloudToken === snapshot.token || (snapshotUserId && profileUserId(profile) === snapshotUserId))
+            );
+
+            let targetIndex = profiles.findIndex((profile) => profile && profile.cloudToken === snapshot.token);
+            if (targetIndex < 0 && snapshotUserId) {
+                targetIndex = profiles.findIndex((profile) => profile && profile.cloudToken && profileUserId(profile) === snapshotUserId);
+            }
+            if (targetIndex < 0 && storedProfileId) {
+                const storedIndex = profiles.findIndex((profile) => profile && profile.id === storedProfileId);
+                if (storedIndex >= 0 && canReceiveSnapshot(profiles[storedIndex])) targetIndex = storedIndex;
+            }
+            if (targetIndex < 0) {
+                const defaultIndex = profiles.findIndex((profile) => profile && profile.id === 'default');
+                if (defaultIndex >= 0 && canReceiveSnapshot(profiles[defaultIndex])) targetIndex = defaultIndex;
+            }
+            if (targetIndex < 0) {
+                targetIndex = profiles.findIndex(canReceiveSnapshot);
+            }
+
+            const targetProfileId = targetIndex >= 0
+                ? profiles[targetIndex].id
+                : (profiles.length === 0 ? 'default' : null);
+            if (targetIndex >= 0) {
+                profiles[targetIndex] = {
+                    ...profiles[targetIndex],
+                    cloudToken: snapshot.token,
+                    cloudUser: snapshot.user || null,
+                    ...(snapshot.user && typeof snapshot.user.username === 'string'
+                        ? { cloudUsername: snapshot.user.username }
+                        : {}),
+                };
+                window.localStorage.setItem('spice_profiles_list', JSON.stringify(profiles));
+            }
+
+            if (targetProfileId) {
+                window.localStorage.setItem('spice_cloud_profile_id', targetProfileId);
+            } else {
+                window.localStorage.removeItem('spice_cloud_profile_id');
+            }
+
+            if (targetProfileId === activeProfileId) {
+                window.localStorage.setItem('spice_cloud_token', snapshot.token);
+                window.localStorage.setItem('spice_token', snapshot.token);
+                if (snapshot.user) {
+                    window.localStorage.setItem('spice_cloud_user', JSON.stringify(snapshot.user));
+                }
+            } else {
+                window.localStorage.removeItem('spice_cloud_token');
+                window.localStorage.removeItem('spice_token');
+                window.localStorage.removeItem('spice_cloud_user');
             }
         }
     } catch (error) {
