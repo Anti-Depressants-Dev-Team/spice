@@ -193,3 +193,11 @@ export function listenTogetherNeedsSeek(localProgressSeconds: number, targetProg
   if (!Number.isFinite(localProgressSeconds) || !Number.isFinite(targetProgressMs)) return false;
   return Math.abs(localProgressSeconds * 1000 - targetProgressMs) > LISTEN_TOGETHER_DRIFT_TOLERANCE_MS;
 }
+
+export function listenTogetherApiErrorMessage(payload: unknown, fallback: string) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return fallback;
+  const message = (payload as { message?: unknown }).message;
+  if (typeof message !== 'string') return fallback;
+  const normalized = message.trim();
+  return normalized ? normalized.slice(0, 240) : fallback;
+}

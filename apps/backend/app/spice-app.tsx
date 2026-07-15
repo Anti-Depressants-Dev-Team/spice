@@ -93,6 +93,7 @@ import {
   type SyncOutboxItem,
 } from './sync-outbox';
 import {
+  listenTogetherApiErrorMessage,
   listenTogetherNeedsSeek,
   listenTogetherTrackKey,
 } from './listen-together-core';
@@ -149,6 +150,8 @@ const SHARED_PLAYLIST_INVITE_POLL_INTERVAL_MS = 5 * 60 * 1000;
 const LISTEN_TOGETHER_INVITE_POLL_INTERVAL_MS = 60 * 1000;
 const LISTEN_TOGETHER_HOST_INVITE_POLL_INTERVAL_MS = 30 * 1000;
 const LISTEN_TOGETHER_SYNC_INTERVAL_MS = 5000;
+const LISTEN_TOGETHER_START_FAILURE_MESSAGE = 'Listen Together could not start right now. Please try again.';
+const LISTEN_TOGETHER_NETWORK_FAILURE_MESSAGE = 'Could not reach Listen Together. Check your connection and try again.';
 const UPDATE_RELOAD_REMOTE_SUPPRESS_MS = 30 * 1000;
 const UPDATE_RELOAD_REMOTE_SUPPRESS_KEY = 'spice_update_reload_remote_suppress_until';
 const SYNC_OUTBOX_STORAGE_KEY = 'spice_sync_outbox_v1';
@@ -8192,8 +8195,8 @@ export default function SpiceApp() {
         },
         body: JSON.stringify({ profileId: activeProfileId })
       });
-      if (res.ok) {
-        const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && typeof data.session?.id === 'string') {
         setListenTogetherSession(data.session);
         setListenTogetherHostSessionId(null);
         setListenTogetherHostName(null);
@@ -8206,10 +8209,13 @@ export default function SpiceApp() {
         showSpiceNotice('Listen Together session started!', 'success');
         void fetchListenTogetherInvitesList(data.session.id);
       } else {
-        showSpiceNotice('Failed to start session.', 'danger');
+        const message = listenTogetherApiErrorMessage(data, LISTEN_TOGETHER_START_FAILURE_MESSAGE);
+        setListenTogetherStatus(message);
+        showSpiceNotice(message, 'danger');
       }
     } catch {
-      showSpiceNotice('Failed to start session.', 'danger');
+      setListenTogetherStatus(LISTEN_TOGETHER_NETWORK_FAILURE_MESSAGE);
+      showSpiceNotice(LISTEN_TOGETHER_NETWORK_FAILURE_MESSAGE, 'danger');
     } finally {
       setIsCreatingListenTogetherSession(false);
     }
@@ -8339,8 +8345,8 @@ export default function SpiceApp() {
           },
           body: JSON.stringify({ profileId: activeProfileId })
         });
-        if (res.ok) {
-          const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && typeof data.session?.id === 'string') {
           setListenTogetherSession(data.session);
           setListenTogetherHostSessionId(null);
           setListenTogetherHostName(null);
@@ -8371,10 +8377,13 @@ export default function SpiceApp() {
             showSpiceNotice(inviteData.message || 'Failed to send invite.', 'danger');
           }
         } else {
-          showSpiceNotice('Failed to start session.', 'danger');
+          const message = listenTogetherApiErrorMessage(data, LISTEN_TOGETHER_START_FAILURE_MESSAGE);
+          setListenTogetherStatus(message);
+          showSpiceNotice(message, 'danger');
         }
       } catch {
-        showSpiceNotice('Failed to start session.', 'danger');
+        setListenTogetherStatus(LISTEN_TOGETHER_NETWORK_FAILURE_MESSAGE);
+        showSpiceNotice(LISTEN_TOGETHER_NETWORK_FAILURE_MESSAGE, 'danger');
       } finally {
         setIsCreatingListenTogetherSession(false);
       }

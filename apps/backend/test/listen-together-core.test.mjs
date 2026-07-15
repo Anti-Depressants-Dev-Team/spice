@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import {
   isListenTogetherSessionActive,
+  listenTogetherApiErrorMessage,
   listenTogetherNeedsSeek,
   listenTogetherTrackKey,
   normalizeListenTogetherHostState,
@@ -89,6 +90,19 @@ test('Listen Together activity and drift thresholds are bounded', () => {
   assert.equal(isListenTogetherSessionActive(10_000, 130_001), false);
   assert.equal(listenTogetherNeedsSeek(10, 11_500), false);
   assert.equal(listenTogetherNeedsSeek(10, 11_501), true);
+});
+
+test('Listen Together API errors use a bounded server message with a safe fallback', () => {
+  assert.equal(
+    listenTogetherApiErrorMessage({ message: '  Database update is still finishing.  ' }, 'Fallback'),
+    'Database update is still finishing.',
+  );
+  assert.equal(listenTogetherApiErrorMessage({ message: '   ' }, 'Fallback'), 'Fallback');
+  assert.equal(listenTogetherApiErrorMessage(null, 'Fallback'), 'Fallback');
+  assert.equal(
+    listenTogetherApiErrorMessage({ message: 'x'.repeat(300) }, 'Fallback').length,
+    240,
+  );
 });
 
 test('Listen Together uniqueness migration removes legacy duplicates before adding indexes', async () => {
