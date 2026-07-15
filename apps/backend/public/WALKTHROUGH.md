@@ -1,5 +1,13 @@
 # SPICE Walkthrough
 
+## v1.0.142
+
+- [Spice.Music main] Restore authenticated Listen Together session creation by applying and verifying the missing production uniqueness migration used by the host-session upsert.
+- [Spice.Music main] Classify database schema drift as a retryable service error, emit privacy-safe request diagnostics, and keep direct session-route preflights and responses origin-aware.
+- [Spice.Music main] Show actionable session-start failures in both the Listen Together status panel and toast, including when a profile invite needs to create the room first.
+- [Spice.Music main] Normalize blank profile identifiers to the default profile and keep malformed or oversized API error payloads out of the player UI.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.142`.
+
 ## v1.0.141
 
 - [Spice.Connect main] Add one-click playback handoff between desktop, browser, and Android receivers, carrying the exact track, queue, position, play state, volume, shuffle, and repeat mode before pausing the source device.
