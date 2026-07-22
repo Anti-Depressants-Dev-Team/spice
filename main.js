@@ -3,13 +3,30 @@ const {
   BrowserWindow,
   BrowserView,
   ipcMain,
+  net,
+  protocol,
   shell,
   session,
   dialog,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
+const { pathToFileURL } = require("url");
 const { autoUpdater } = require("electron-updater");
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "spice-offline",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+    },
+  },
+]);
 const { SpiceLocalRuntimeManager } = require("./spice-local-runtime-manager");
 const {
   DEFAULT_SHELL_THEME,
@@ -520,6 +537,251 @@ function initStore() {
     console.error("Failed to initialize electron-store:", error);
   }
 }
+
+const OFFLINE_AUDIO_EXTENSIONS = new Set([
+  ".mp3",
+  ".m4a",
+  ".aac",
+  ".ogg",
+  ".opus",
+  ".wav",
+  ".flac",
+  ".webm",
+]);
+const OFFLINE_LIBRARY_DIRECTORY_KEY = "offlineLibraryDirectory";
+const OFFLINE_LIBRARY_METADATA_KEY = "offlineLibraryMetadata";
+const OFFLINE_LIBRARY_PROTOCOL_TOKEN_KEY = "offlineLibraryProtocolToken";
+const MAX_OFFLINE_AUDIO_BYTES = 500 * 1024 * 1024;
+let offlineLibraryProtocolAccessToken = null;
+
+function offlineLibraryProtocolToken() {
+  if (offlineLibraryProtocolAccessToken) return offlineLibraryProtocolAccessToken;
+  const configured = store && store.get(OFFLINE_LIBRARY_PROTOCOL_TOKEN_KEY);
+  offlineLibraryProtocolAccessToken = typeof configured === "string" && /^[a-f0-9]{48}$/i.test(configured)
+    ? configured
+    : crypto.randomBytes(24).toString("hex");
+  if (store && configured !== offlineLibraryProtocolAccessToken) {
+    store.set(OFFLINE_LIBRARY_PROTOCOL_TOKEN_KEY, offlineLibraryProtocolAccessToken);
+  }
+  return offlineLibraryProtocolAccessToken;
+}
+
+function defaultOfflineLibraryDirectory() {
+  return path.join(app.getPath("music"), "Spice");
+}
+
+function offlineLibraryDirectory() {
+  const configured = store && store.get(OFFLINE_LIBRARY_DIRECTORY_KEY);
+  return typeof configured === "string" && path.isAbsolute(configured)
+    ? path.resolve(configured)
+    : defaultOfflineLibraryDirectory();
+}
+
+function safeOfflineFileStem(value) {
+  const cleaned = String(value || "Spice download")
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, " ")
+    .replace(/[. ]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 140);
+  return cleaned || "Spice download";
+}
+
+function isTrustedSpiceWebContents(webContents) {
+  try {
+    const parsed = new URL(webContents.getURL());
+    return (
+      parsed.protocol === "https:" && parsed.hostname === "music.spice-app.xyz"
+    ) || (
+      parsed.protocol === "http:"
+      && (parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost")
+      && parsed.port === "3939"
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+function requireTrustedSpiceSender(event) {
+  if (!isTrustedSpiceWebContents(event.sender)) {
+    throw new Error("Offline library access is restricted to the Spice music client.");
+  }
+}
+
+function offlineMetadata() {
+  const value = store && store.get(OFFLINE_LIBRARY_METADATA_KEY, {});
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+async function ensureOfflineLibraryDirectory() {
+  const directory = offlineLibraryDirectory();
+  await fs.promises.mkdir(directory, { recursive: true });
+  return directory;
+}
+
+async function uniqueOfflineFilePath(directory, requestedStem, extension = ".mp3") {
+  const stem = safeOfflineFileStem(requestedStem);
+  const safeExtension = OFFLINE_AUDIO_EXTENSIONS.has(extension.toLowerCase())
+    ? extension.toLowerCase()
+    : ".mp3";
+  let suffix = 1;
+  let candidate = path.join(directory, `${stem}${safeExtension}`);
+  while (fs.existsSync(candidate)) {
+    suffix += 1;
+    candidate = path.join(directory, `${stem} (${suffix})${safeExtension}`);
+  }
+  return candidate;
+}
+
+async function listOfflineLibraryTracks() {
+  const directory = await ensureOfflineLibraryDirectory();
+  const metadata = offlineMetadata();
+  const entries = await fs.promises.readdir(directory, { withFileTypes: true });
+  const tracks = await Promise.all(entries
+    .filter((entry) => entry.isFile() && OFFLINE_AUDIO_EXTENSIONS.has(path.extname(entry.name).toLowerCase()))
+    .map(async (entry) => {
+      const filePath = path.join(directory, entry.name);
+      const stat = await fs.promises.stat(filePath);
+      const saved = metadata[entry.name] && typeof metadata[entry.name] === "object"
+        ? metadata[entry.name]
+        : {};
+      const fallbackTitle = path.basename(entry.name, path.extname(entry.name));
+      return {
+        fileName: entry.name,
+        bytes: stat.size,
+        updatedAt: stat.mtime.toISOString(),
+        url: `spice-offline://audio/${encodeURIComponent(entry.name)}?access=${offlineLibraryProtocolToken()}`,
+        track: {
+          id: `offline:${encodeURIComponent(entry.name)}`,
+          title: saved.title || fallbackTitle,
+          artists: Array.isArray(saved.artists) && saved.artists.length
+            ? saved.artists
+            : [{ id: "offline-artist", name: "Offline library" }],
+          album: saved.album,
+          durationMs: saved.durationMs,
+          artworkUrl: saved.artworkUrl,
+          sourceId: "offline",
+          permalinkUrl: `spice-offline://audio/${encodeURIComponent(entry.name)}?access=${offlineLibraryProtocolToken()}`,
+        },
+      };
+    }));
+  return tracks.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+async function installOfflineAudioProtocol() {
+  protocol.handle("spice-offline", async (request) => {
+    try {
+      const parsed = new URL(request.url);
+      if (parsed.hostname !== "audio") return new Response("Not found", { status: 404 });
+      if (parsed.searchParams.get("access") !== offlineLibraryProtocolToken()) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      const fileName = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
+      if (!fileName || path.basename(fileName) !== fileName) {
+        return new Response("Invalid offline audio path", { status: 400 });
+      }
+      const extension = path.extname(fileName).toLowerCase();
+      if (!OFFLINE_AUDIO_EXTENSIONS.has(extension)) {
+        return new Response("Unsupported audio file", { status: 415 });
+      }
+      const directory = await ensureOfflineLibraryDirectory();
+      const filePath = path.join(directory, fileName);
+      if (!fs.existsSync(filePath)) return new Response("Not found", { status: 404 });
+      const headers = {};
+      const range = request.headers.get("range");
+      if (range) headers.Range = range;
+      return net.fetch(pathToFileURL(filePath).toString(), { headers });
+    } catch (error) {
+      console.error("[Offline Library] Protocol error:", error);
+      return new Response("Offline audio unavailable", { status: 500 });
+    }
+  });
+}
+
+ipcMain.handle("spice-offline-library-settings", async (event) => {
+  requireTrustedSpiceSender(event);
+  const directory = await ensureOfflineLibraryDirectory();
+  return { directory };
+});
+
+ipcMain.handle("spice-offline-library-choose-directory", async (event) => {
+  requireTrustedSpiceSender(event);
+  const options = {
+    title: "Choose Spice offline music folder",
+    defaultPath: offlineLibraryDirectory(),
+    properties: ["openDirectory", "createDirectory"],
+  };
+  const result = mainWindow && !mainWindow.isDestroyed()
+    ? await dialog.showOpenDialog(mainWindow, options)
+    : await dialog.showOpenDialog(options);
+  if (result.canceled || !result.filePaths[0]) {
+    return { canceled: true, directory: offlineLibraryDirectory() };
+  }
+  const directory = path.resolve(result.filePaths[0]);
+  await fs.promises.mkdir(directory, { recursive: true });
+  if (store) store.set(OFFLINE_LIBRARY_DIRECTORY_KEY, directory);
+  return { canceled: false, directory };
+});
+
+ipcMain.handle("spice-offline-library-list", async (event) => {
+  requireTrustedSpiceSender(event);
+  return { directory: offlineLibraryDirectory(), tracks: await listOfflineLibraryTracks() };
+});
+
+ipcMain.handle("spice-offline-library-save", async (event, payload = {}) => {
+  requireTrustedSpiceSender(event);
+  const bytes = payload.bytes instanceof ArrayBuffer
+    ? Buffer.from(payload.bytes)
+    : Buffer.from(payload.bytes || []);
+  if (!bytes.length || bytes.length > MAX_OFFLINE_AUDIO_BYTES) {
+    throw new Error("The downloaded audio file is empty or too large.");
+  }
+  const track = payload.track && typeof payload.track === "object" ? payload.track : {};
+  const directory = await ensureOfflineLibraryDirectory();
+  const filePath = await uniqueOfflineFilePath(
+    directory,
+    payload.fileName || `${track.artists?.[0]?.name || "Unknown artist"} - ${track.title || "Spice download"}`,
+    ".mp3",
+  );
+  const temporaryPath = `${filePath}.spice-part`;
+  await fs.promises.writeFile(temporaryPath, bytes, { flag: "wx" });
+  await fs.promises.rename(temporaryPath, filePath);
+  const fileName = path.basename(filePath);
+  const metadata = offlineMetadata();
+  metadata[fileName] = {
+    title: track.title,
+    artists: track.artists,
+    album: track.album,
+    durationMs: track.durationMs,
+    artworkUrl: track.artworkUrl,
+  };
+  if (store) store.set(OFFLINE_LIBRARY_METADATA_KEY, metadata);
+  return { success: true, directory, fileName };
+});
+
+ipcMain.handle("spice-offline-library-remove", async (event, fileName) => {
+  requireTrustedSpiceSender(event);
+  if (typeof fileName !== "string" || path.basename(fileName) !== fileName) {
+    throw new Error("Invalid offline audio file.");
+  }
+  const filePath = path.join(offlineLibraryDirectory(), fileName);
+  await fs.promises.rm(filePath, { force: true });
+  const metadata = offlineMetadata();
+  delete metadata[fileName];
+  if (store) store.set(OFFLINE_LIBRARY_METADATA_KEY, metadata);
+  return { success: true };
+});
+
+ipcMain.handle("spice-offline-library-show", async (event, fileName) => {
+  requireTrustedSpiceSender(event);
+  const directory = await ensureOfflineLibraryDirectory();
+  if (typeof fileName === "string" && path.basename(fileName) === fileName) {
+    shell.showItemInFolder(path.join(directory, fileName));
+  } else {
+    await shell.openPath(directory);
+  }
+  return { success: true };
+});
 
 // Basic UI IPC Handlers - Registered immediately for responsiveness
 ipcMain.on("window-minimize", (event) => {
@@ -3166,6 +3428,7 @@ app.whenReady().then(async () => {
   }
 
   initStore();
+  await installOfflineAudioProtocol();
   // NUCLEAR OPTION: Clear Cache on Startup
   if (session.defaultSession) {
     try {

@@ -8,6 +8,7 @@ data class Track(
     val durationMs: Long = 0,
     val artworkUrl: String = "",
     val sourceId: String = "youtube_music",
+    val localUri: String = "",
 )
 
 data class FeedSection(
@@ -185,6 +186,8 @@ data class RemoteDevice(
     val durationMs: Long = 0,
     val volume: Int = 70,
     val updatedAt: String = "",
+    val rememberedUntil: String = "",
+    val isOnline: Boolean = true,
     val observedAtElapsedRealtimeMs: Long = 0L,
 )
 
@@ -228,6 +231,12 @@ enum class StreamQuality(val label: String) {
     High("High definition"),
     Standard("Standard"),
     DataSaver("Data saver"),
+}
+
+enum class SearchProvider(val label: String) {
+    All("YouTube + SoundCloud"),
+    YouTube("YouTube only"),
+    SoundCloud("SoundCloud only"),
 }
 
 enum class AuthMode(val label: String) {

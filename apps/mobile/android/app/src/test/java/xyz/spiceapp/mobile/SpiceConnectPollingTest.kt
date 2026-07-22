@@ -8,10 +8,10 @@ import org.junit.Test
 class SpiceConnectPollingTest {
     @Test
     fun keepsCommandPollingResponsiveWhileDeviceSyncUsesLongerCadence() {
-        assertEquals(1_000L, SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS)
-        assertEquals(500L, SPICE_CONNECT_COMMAND_STATE_SETTLE_MS)
-        assertEquals(30_000L, SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS)
-        assertEquals(1_000L, SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS)
+        assertEquals(500L, SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS)
+        assertEquals(250L, SPICE_CONNECT_COMMAND_STATE_SETTLE_MS)
+        assertEquals(20_000L, SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS)
+        assertEquals(750L, SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS)
         assertEquals(6_000L, SPICE_CONNECT_OPTIMISTIC_STATE_WINDOW_MS)
     }
 
@@ -50,7 +50,7 @@ class SpiceConnectPollingTest {
             ),
         )
         assertEquals(
-            2_500L,
+            2_000L,
             nextSpiceConnectDeviceSyncAt(
                 nowElapsedRealtimeMs = 1_500L,
                 receivedCommands = true,
@@ -58,7 +58,7 @@ class SpiceConnectPollingTest {
             ),
         )
         assertEquals(
-            31_500L,
+            21_500L,
             nextSpiceConnectDeviceSyncAt(
                 nowElapsedRealtimeMs = 1_500L,
                 receivedCommands = false,
@@ -78,7 +78,7 @@ class SpiceConnectPollingTest {
             ),
         )
         assertEquals(
-            3_000L,
+            2_750L,
             nextSpiceConnectDeviceSyncAt(
                 nowElapsedRealtimeMs = 2_000L,
                 receivedCommands = false,

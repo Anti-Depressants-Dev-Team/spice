@@ -1,6 +1,7 @@
 package xyz.spiceapp.mobile.data
 
 import android.content.Context
+import android.net.Uri
 import androidx.room.withTransaction
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -23,12 +24,14 @@ import xyz.spiceapp.mobile.data.local.toTrack
 import xyz.spiceapp.mobile.model.AccentTheme
 import xyz.spiceapp.mobile.model.DownloadedTrack
 import xyz.spiceapp.mobile.model.Playlist
+import xyz.spiceapp.mobile.model.SearchProvider
 import xyz.spiceapp.mobile.model.StreamQuality
 import xyz.spiceapp.mobile.model.Track
 import java.io.File
 import java.util.UUID
 
 class LibraryRepository(context: Context) {
+    private val appContext = context.applicationContext
     private val database = SpiceDatabase.get(context)
     private val dao = database.libraryDao()
     private val preferences = context.getSharedPreferences("spice_native_library", Context.MODE_PRIVATE)
@@ -195,15 +198,21 @@ class LibraryRepository(context: Context) {
         }
     }
 
-    suspend fun addDownload(track: Track, file: File, mimeType: String = "audio/mp4"): DownloadedTrack {
+    suspend fun addDownload(
+        track: Track,
+        savedLocation: String,
+        fileName: String,
+        bytes: Long,
+        mimeType: String = "audio/mpeg",
+    ): DownloadedTrack {
         val now = System.currentTimeMillis()
         val download = DownloadedTrack(
             id = UUID.randomUUID().toString(),
             track = track,
-            filePath = file.absolutePath,
-            fileName = file.name,
+            filePath = savedLocation,
+            fileName = fileName,
             mimeType = mimeType,
-            bytes = file.length().coerceAtLeast(0),
+            bytes = bytes.coerceAtLeast(0),
             downloadedAt = now,
         )
 
@@ -217,7 +226,11 @@ class LibraryRepository(context: Context) {
 
     suspend fun removeDownload(download: DownloadedTrack): Boolean {
         dao.deleteDownload(download.id)
-        return File(download.filePath).deleteIfExists()
+        return if (download.filePath.startsWith("content://")) {
+            appContext.contentResolver.delete(Uri.parse(download.filePath), null, null) >= 0
+        } else {
+            File(download.filePath).deleteIfExists()
+        }
     }
 
     suspend fun replacePlaylists(playlists: List<Playlist>) {
@@ -267,6 +280,14 @@ class LibraryRepository(context: Context) {
 
     fun setQuality(quality: StreamQuality) {
         preferences.edit().putString(KEY_QUALITY, quality.name).apply()
+    }
+
+    fun searchProvider(): SearchProvider = runCatching {
+        SearchProvider.valueOf(preferences.getString(KEY_SEARCH_PROVIDER, SearchProvider.All.name).orEmpty())
+    }.getOrDefault(SearchProvider.All)
+
+    fun setSearchProvider(provider: SearchProvider) {
+        preferences.edit().putString(KEY_SEARCH_PROVIDER, provider.name).apply()
     }
 
     fun crossfadeDurationMs(): Long =
@@ -432,6 +453,11 @@ class LibraryRepository(context: Context) {
                 durationMs = row.trackDurationMs,
                 artworkUrl = row.trackArtworkUrl,
                 sourceId = row.trackSourceId,
+                localUri = if (row.filePath.startsWith("content://")) {
+                    row.filePath
+                } else {
+                    Uri.fromFile(File(row.filePath)).toString()
+                },
             ),
             filePath = row.filePath,
             fileName = row.fileName,
@@ -473,6 +499,7 @@ class LibraryRepository(context: Context) {
         const val KEY_LEGACY_LIKED = "liked"
         const val KEY_ACCENT_THEME = "accent_theme"
         const val KEY_QUALITY = "quality"
+        const val KEY_SEARCH_PROVIDER = "search_provider"
         const val KEY_CROSSFADE_DURATION_MS = "crossfade_duration_ms"
         const val KEY_SMART_QUEUE_ENABLED = "smart_queue_enabled"
         const val KEY_TRACK_PRIORITIES = "track_priorities_v1"

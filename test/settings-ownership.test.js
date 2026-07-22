@@ -133,6 +133,22 @@ test('desktop updater status reaches the settings window', () => {
   assert.match(viewPreload, /return \(\) => ipcRenderer\.removeListener\('update-status', listener\)/);
 });
 
+test('desktop offline library is an explicit Spice-only file bridge', () => {
+  const main = read('main.js');
+  const viewPreload = read('preload-view.js');
+  const spiceApp = read('apps/backend/app/spice-app.tsx');
+
+  assert.match(main, /path\.join\(app\.getPath\("music"\), "Spice"\)/);
+  assert.match(main, /requireTrustedSpiceSender\(event\)/);
+  assert.match(main, /path\.basename\(fileName\) !== fileName/);
+  assert.match(main, /protocol\.handle\("spice-offline"/);
+  assert.match(main, /parsed\.searchParams\.get\("access"\) !== offlineLibraryProtocolToken\(\)/);
+  assert.match(viewPreload, /if \(!IS_SPICE_MUSIC \|\| window\.spiceDesktopOfflineLibrary\) return/);
+  assert.match(viewPreload, /spice-offline-library-save/);
+  assert.match(spiceApp, /Library → Downloads/);
+  assert.match(spiceApp, /Download playlist/);
+});
+
 test('custom palettes and desktop boot launch are opt-in settings', () => {
   const spiceApp = read('apps/backend/app/spice-app.tsx');
   const viewPreload = read('preload-view.js');
@@ -146,7 +162,7 @@ test('custom palettes and desktop boot launch are opt-in settings', () => {
   assert.match(viewPreload, /setStartOnBoot: \(enabled\) => ipcRenderer\.invoke\('set-start-on-boot'/);
 });
 
-test('fresh launch and profile changes both reset the player to the idle prompt', () => {
+test('fresh launch stays idle while the selected Spice Connect receiver persists', () => {
   const spiceApp = read('apps/backend/app/spice-app.tsx');
   const switchProfileStart = spiceApp.indexOf('const switchProfile =');
   const switchProfileEnd = spiceApp.indexOf('const createProfile =', switchProfileStart);
@@ -159,8 +175,8 @@ test('fresh launch and profile changes both reset the player to the idle prompt'
   assert.match(switchProfile, /setCurrentTrack\(IDLE_PLAYER_TRACK\)/);
   assert.match(switchProfile, /setDuration\(0\)/);
   assert.doesNotMatch(switchProfile, /setCurrentTrack\(savedPlayback\.currentTrack\)/);
-  assert.match(spiceApp, /const \[selectedRemoteDeviceId, setSelectedRemoteDeviceId\] = useState\(''\)/);
-  assert.match(spiceApp, /localStorage\.removeItem\('spice_connect_receiver_id'\)/);
+  assert.match(spiceApp, /localStorage\.getItem\('spice_connect_receiver_id'\) \|\| ''/);
+  assert.match(spiceApp, /localStorage\.setItem\('spice_connect_receiver_id', safeDeviceId\)/);
 });
 
 test('SPICE BrowserViews keep Connect polling active while minimized', () => {

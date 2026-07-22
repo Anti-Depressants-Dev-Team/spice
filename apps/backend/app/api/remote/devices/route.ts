@@ -1,14 +1,17 @@
 import { jsonResponse, optionsResponse } from '@/lib/cors';
 import { db } from '@/db';
 import { remoteDeviceAuthorizations, remoteDevices } from '@/db/schema';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, lt } from 'drizzle-orm';
 import {
+  isSpiceConnectDeviceRemembered,
   isSpiceConnectRemoteDeviceVisible,
   isSpiceConnectDeviceStale,
   normalizeSpiceConnectDeviceInput,
   parseJson,
   projectSpiceConnectProgressMs,
   safeJsonStringify,
+  spiceConnectDeviceRememberedUntil,
+  SPICE_CONNECT_DEVICE_RETENTION_MS,
 } from '@/lib/spice-connect';
 import {
   authorizeSpiceConnectRequest,
@@ -55,11 +58,20 @@ export async function GET(request: Request) {
       current.push(authorization);
       authorizationsByDevice.set(authorization.deviceId, current);
     }
-    const visibleDevices = devices.filter((device) => isSpiceConnectRemoteDeviceVisible(
-      device.pairedAuthorizationHash,
-      authorizationsByDevice.get(device.deviceId) ?? [],
-      now,
+    const visibleDevices = devices.filter((device) => (
+      isSpiceConnectDeviceRemembered(device.updatedAt, now)
+      && isSpiceConnectRemoteDeviceVisible(
+        device.pairedAuthorizationHash,
+        authorizationsByDevice.get(device.deviceId) ?? [],
+        now,
+      )
     ));
+    if (devices.some((device) => !isSpiceConnectDeviceRemembered(device.updatedAt, now))) {
+      await db.delete(remoteDevices).where(and(
+        eq(remoteDevices.userId, principal.userId),
+        lt(remoteDevices.updatedAt, new Date(now.getTime() - SPICE_CONNECT_DEVICE_RETENTION_MS)),
+      ));
+    }
 
     return jsonResponse({
       serverTime: now.toISOString(),
@@ -69,6 +81,7 @@ export async function GET(request: Request) {
         currentTrack: parseJson(device.currentTrackJson, null),
         queue: parseJson(device.queueJson, []),
         queueIndex: device.queueIndex,
+        isOnline: !isSpiceConnectDeviceStale(device.updatedAt, now),
         isPlaying: device.isPlaying && !isSpiceConnectDeviceStale(device.updatedAt, now),
         shuffleEnabled: device.shuffleEnabled,
         repeatMode: device.repeatMode,
@@ -76,6 +89,7 @@ export async function GET(request: Request) {
         duration: device.durationMs / 1000,
         volume: device.volume,
         updatedAt: device.updatedAt.toISOString(),
+        rememberedUntil: spiceConnectDeviceRememberedUntil(device.updatedAt)?.toISOString() ?? null,
       })),
     }, { headers: { 'Cache-Control': 'no-store, max-age=0' } }, request);
   } catch (error) {
@@ -86,6 +100,57 @@ export async function GET(request: Request) {
       {
         error: 'remote_devices_failed',
         message: error instanceof Error ? error.message : 'Failed to load Spice Connect devices.',
+      },
+      { status: 500 },
+      request,
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const principal = await authorizeSpiceConnectRequest(request);
+    if (!process.env.DATABASE_URL) {
+      return jsonResponse(
+        { error: 'database_not_configured', message: 'Backend DATABASE_URL environment variable is not configured.' },
+        { status: 500 },
+        request,
+      );
+    }
+
+    const { searchParams } = new URL(request.url);
+    const sourceDeviceId = searchParams.get('sourceDeviceId')?.slice(0, 120) || '';
+    const deviceId = searchParams.get('deviceId')?.slice(0, 120) || '';
+    if (!sourceDeviceId || !deviceId || sourceDeviceId === deviceId) {
+      return jsonResponse(
+        { error: 'invalid_device', message: 'Distinct source and target device ids are required.' },
+        { status: 400 },
+        request,
+      );
+    }
+    requirePrincipalDevice(principal, sourceDeviceId);
+
+    const forgotten = await db
+      .delete(remoteDevices)
+      .where(and(
+        eq(remoteDevices.userId, principal.userId),
+        eq(remoteDevices.deviceId, deviceId),
+      ))
+      .returning({ deviceId: remoteDevices.deviceId });
+
+    return jsonResponse(
+      { success: true, forgotten: forgotten.length > 0, deviceId },
+      { headers: { 'Cache-Control': 'no-store, max-age=0' } },
+      request,
+    );
+  } catch (error) {
+    if (error instanceof SpiceConnectAuthorizationError) {
+      return jsonResponse({ error: error.code, message: error.message }, { status: error.status }, request);
+    }
+    return jsonResponse(
+      {
+        error: 'remote_device_forget_failed',
+        message: error instanceof Error ? error.message : 'Failed to forget Spice Connect device.',
       },
       { status: 500 },
       request,

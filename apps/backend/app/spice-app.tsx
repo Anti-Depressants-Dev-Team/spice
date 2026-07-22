@@ -26,6 +26,7 @@ import {
   computePlaylistWindow,
   PLAYLIST_ROW_HEIGHT_PX,
 } from './playlist-performance';
+import { mergePlaylistOccurrences } from './playlist-merge';
 import CommandPalette, { type CommandPaletteCommand } from './command-palette';
 import { isCommandPaletteShortcut } from './command-palette-core';
 import ThemeEditor from './theme-editor';
@@ -803,6 +804,23 @@ interface SpiceDesktopUpdaterBridge {
   onUpdateStatus: (callback: (status: NativeShellUpdateStatus) => void) => () => void;
 }
 
+interface DesktopOfflineLibraryEntry {
+  fileName: string;
+  bytes: number;
+  updatedAt: string;
+  url: string;
+  track: Track;
+}
+
+interface SpiceDesktopOfflineLibraryBridge {
+  getSettings: () => Promise<{ directory: string }>;
+  chooseDirectory: () => Promise<{ canceled: boolean; directory: string }>;
+  list: () => Promise<{ directory: string; tracks: DesktopOfflineLibraryEntry[] }>;
+  save: (fileName: string, blob: Blob, track: Track) => Promise<{ success: boolean; directory: string; fileName: string }>;
+  remove: (fileName: string) => Promise<{ success: boolean }>;
+  show: (fileName?: string) => Promise<{ success: boolean }>;
+}
+
 interface DesktopStartOnBootPreference {
   supported: boolean;
   enabled: boolean;
@@ -845,6 +863,13 @@ const getSpiceDesktopUpdaterBridge = () => {
   return updaterWindow.spiceDesktopUpdater ?? updaterWindow.spiceNativeShell ?? null;
 };
 
+const getSpiceDesktopOfflineLibraryBridge = () => {
+  if (typeof window === 'undefined') return null;
+  return (window as Window & {
+    spiceDesktopOfflineLibrary?: SpiceDesktopOfflineLibraryBridge;
+  }).spiceDesktopOfflineLibrary ?? null;
+};
+
 const nativeUpdateStatusMessage = (status: NativeShellUpdateStatus | null) => {
   if (!status) return 'Ready to check for updates.';
   switch (status.status) {
@@ -864,7 +889,7 @@ interface SongShareDialog {
 }
 
 const SEARCH_PROVIDER_LABELS: Record<SearchProvider, string> = {
-  hybrid: 'Hybrid',
+  hybrid: 'YouTube + SoundCloud',
   youtube_music: 'YouTube Music',
   youtube_videos: 'YouTube Videos',
   soundcloud: 'SoundCloud',
@@ -1131,6 +1156,8 @@ interface RemoteDevice {
   duration: number;
   volume: number;
   updatedAt: string;
+  rememberedUntil?: string | null;
+  isOnline?: boolean;
   lastSeenSeconds?: number;
   syncedAtMs?: number;
 }
@@ -1248,6 +1275,9 @@ const formatTime = (seconds: number) => {
 const isSoundCloudTrack = (track: Track) =>
   track.sourceId === 'soundcloud' || track.id.startsWith('soundcloud:');
 
+const isOfflineTrack = (track: Track) =>
+  track.sourceId === 'offline' && Boolean(track.permalinkUrl?.startsWith('spice-offline://'));
+
 const isYouTubeTrack = (track: Track) =>
   track.sourceId === 'youtube_music'
   || track.sourceId === 'youtube_video'
@@ -1257,7 +1287,9 @@ const soundCloudTrackId = (track: Track) =>
   track.id.startsWith('soundcloud:') ? track.id.slice('soundcloud:'.length) : track.id;
 
 const trackSourceLabel = (track: Track) =>
-  isSoundCloudTrack(track)
+  isOfflineTrack(track)
+    ? 'Offline Library'
+    : isSoundCloudTrack(track)
     ? 'SoundCloud'
     : track.sourceId === 'youtube_video'
       ? 'YouTube Video'
@@ -1816,6 +1848,15 @@ export default function SpiceApp() {
   const [spiceNotices, setSpiceNotices] = useState<SpiceNotice[]>([]);
   const [spiceConfirm, setSpiceConfirm] = useState<SpiceConfirmDialog | null>(null);
   const [songShareDialog, setSongShareDialog] = useState<SongShareDialog | null>(null);
+  const [offlineLibraryEntries, setOfflineLibraryEntries] = useState<DesktopOfflineLibraryEntry[]>([]);
+  const [offlineLibraryDirectory, setOfflineLibraryDirectory] = useState('');
+  const [offlineDownloadTrackId, setOfflineDownloadTrackId] = useState<string | null>(null);
+  const [playlistDownloadProgress, setPlaylistDownloadProgress] = useState<{
+    playlistId: string;
+    completed: number;
+    total: number;
+  } | null>(null);
+  const playlistDownloadCancelledRef = useRef(false);
   const activeNoticeTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const activePlaybackProfileRef = useRef(activePlaybackProfile);
 
@@ -1979,90 +2020,110 @@ export default function SpiceApp() {
     showSpiceNotice('Could not copy the song link from this browser.', 'warning');
   }, [copyTextToClipboard, showSpiceNotice, songShareDialog]);
 
-  const downloadSharedSong = useCallback(async () => {
-    if (!songShareDialog) return;
-    const track = songShareDialog.track;
-    const downloadUrl = directAudioDownloadUrl(track);
+  const refreshOfflineLibrary = useCallback(async () => {
+    const bridge = getSpiceDesktopOfflineLibraryBridge();
+    if (!bridge) return;
+    const snapshot = await bridge.list();
+    setOfflineLibraryDirectory(snapshot.directory);
+    setOfflineLibraryEntries(Array.isArray(snapshot.tracks) ? snapshot.tracks : []);
+  }, []);
 
-    if (downloadUrl && extensionFromAudioUrl(downloadUrl) === 'mp3') {
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = `${sanitizeDownloadName(track)}.mp3`;
-      link.rel = 'noopener noreferrer';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      showSpiceNotice(`Downloading "${track.title}" as MP3.`, 'success');
-      setSongShareDialog(null);
+  useEffect(() => {
+    void refreshOfflineLibrary().catch((error) => {
+      logDebug('error', `Offline library could not be loaded: ${error instanceof Error ? error.message : error}`);
+    });
+  }, [logDebug, refreshOfflineLibrary]);
+
+  const fetchTrackDownloadBlob = useCallback(async (track: Track) => {
+    if (isOfflineTrack(track)) throw new Error('This song is already in the offline library.');
+    const directUrl = directAudioDownloadUrl(track);
+    if (directUrl && extensionFromAudioUrl(directUrl) === 'mp3') {
+      try {
+        const directResponse = await fetch(directUrl);
+        if (directResponse.ok) return directResponse.blob();
+      } catch {
+        // Fall through to the same-origin resolver when a provider blocks CORS.
+      }
+    }
+
+    const trackEndpoint = isSoundCloudTrack(track)
+      ? spiceApiUrl('local', `/sc/track/${encodeURIComponent(soundCloudTrackId(track))}`, { quality: audioQuality })
+      : spiceApiUrl('local', `/yt/track/${encodeURIComponent(track.id)}`);
+    const response = await fetch(trackEndpoint);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload?.message || 'Failed to resolve the audio download.');
+    }
+    const data = await response.json();
+    const stream = data.streamUrl || data.streams?.find((entry: { url?: string }) => entry.url)?.url;
+    if (!stream) throw new Error('No downloadable audio stream is available.');
+
+    const finalUrl = new URL(
+      spiceApiResponseUrl('local', stream),
+      typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
+    );
+    finalUrl.searchParams.set('download', 'true');
+    finalUrl.searchParams.set('format', 'mp3');
+    finalUrl.searchParams.set('title', sanitizeDownloadName(track));
+    const downloadResponse = await fetch(finalUrl.toString());
+    if (!downloadResponse.ok) {
+      const payload = await downloadResponse.json().catch(() => ({}));
+      throw new Error(payload?.message || 'The audio could not be converted to MP3.');
+    }
+    return downloadResponse.blob();
+  }, [audioQuality]);
+
+  const saveTrackDownload = useCallback(async (track: Track) => {
+    const blob = await fetchTrackDownloadBlob(track);
+    const fileName = `${sanitizeDownloadName(track)}.mp3`;
+    const bridge = getSpiceDesktopOfflineLibraryBridge();
+    if (bridge) {
+      await bridge.save(fileName, blob, track);
+      await refreshOfflineLibrary();
       return;
     }
 
-    showSpiceNotice(`Converting "${track.title}" to MP3...`, 'info');
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = fileName;
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+  }, [fetchTrackDownloadBlob, refreshOfflineLibrary]);
 
-    const isSoundCloud = isSoundCloudTrack(track);
-
+  const downloadTrackToOfflineLibrary = useCallback(async (track: Track, quiet = false) => {
+    if (offlineDownloadTrackId) throw new Error('Another song is already downloading.');
+    setOfflineDownloadTrackId(track.id);
+    if (!quiet) showSpiceNotice(`Preparing "${track.title}" for offline listening...`, 'info');
     try {
-      const trackEndpoint = isSoundCloud
-        ? spiceApiUrl('local', `/sc/track/${encodeURIComponent(soundCloudTrackId(track))}`, { quality: audioQuality })
-        : spiceApiUrl('local', `/yt/track/${encodeURIComponent(track.id)}`);
-
-      const res = await fetch(trackEndpoint);
-      if (!res.ok) {
-        let errMsg = 'Failed to fetch track info';
-        try {
-          const errData = await res.json();
-          if (errData?.message) errMsg = errData.message;
-        } catch { /* ignore JSON parse error */ }
-        throw new Error(errMsg);
+      await saveTrackDownload(track);
+      if (!quiet) {
+        showSpiceNotice(
+          getSpiceDesktopOfflineLibraryBridge()
+            ? `Saved "${track.title}" to your Spice offline library.`
+            : `Downloaded "${track.title}" as MP3.`,
+          'success',
+        );
       }
-      const data = await res.json();
-
-      const streams = data.streams ?? [];
-      const streamObj = streams.find((s: any) => s.url);
-      const streamUrl = data.streamUrl || (streamObj ? streamObj.url : null);
-
-      if (streamUrl) {
-        const downloadTitle = sanitizeDownloadName(track);
-
-        // Convert relative URL to absolute URL to parse/append params
-        const finalUrl = new URL(spiceApiResponseUrl('local', streamUrl), typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
-        finalUrl.searchParams.set('download', 'true');
-        finalUrl.searchParams.set('format', 'mp3');
-        finalUrl.searchParams.set('title', downloadTitle);
-
-        const downloadResponse = await fetch(finalUrl.toString());
-        if (!downloadResponse.ok) {
-          let message = 'The audio could not be converted to MP3.';
-          try {
-            const payload = await downloadResponse.json();
-            if (typeof payload?.message === 'string') message = payload.message;
-          } catch {
-            // Keep the stable fallback for non-JSON proxy errors.
-          }
-          throw new Error(message);
-        }
-
-        const downloadBlob = await downloadResponse.blob();
-        const objectUrl = URL.createObjectURL(downloadBlob);
-        const link = document.createElement('a');
-        link.href = objectUrl;
-        link.download = `${downloadTitle}.mp3`;
-        link.rel = 'noopener noreferrer';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
-
-        showSpiceNotice(`Downloaded "${track.title}" as MP3.`, 'success');
-        setSongShareDialog(null);
-      } else {
-        throw new Error('Stream not available for download.');
-      }
-    } catch (err: any) {
-      logDebug('error', `Download stream failed: ${err}`);
-      showSpiceNotice(`Failed to download audio: ${err?.message || 'Unknown error'}`, 'danger');
+    } finally {
+      setOfflineDownloadTrackId(null);
     }
-  }, [showSpiceNotice, songShareDialog, audioQuality, logDebug]);
+  }, [offlineDownloadTrackId, saveTrackDownload, showSpiceNotice]);
+
+  const downloadSharedSong = useCallback(async () => {
+    if (!songShareDialog) return;
+    try {
+      await downloadTrackToOfflineLibrary(songShareDialog.track);
+      setSongShareDialog(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      logDebug('error', `Download stream failed: ${message}`);
+      showSpiceNotice(`Failed to download audio: ${message}`, 'danger');
+    }
+  }, [downloadTrackToOfflineLibrary, logDebug, showSpiceNotice, songShareDialog]);
 
   const openSongSource = useCallback(() => {
     if (!songShareDialog) return;
@@ -2212,7 +2273,7 @@ export default function SpiceApp() {
   }), [history, likedTrackDetails, customPlaylists]);
 
   const [libraryView, setLibraryView] = useState<'list' | 'grid'>('list');
-  const [libraryFilter, setLibraryFilter] = useState<'playlists' | 'shared' | 'liked' | 'history'>('playlists');
+  const [libraryFilter, setLibraryFilter] = useState<'playlists' | 'shared' | 'liked' | 'history' | 'downloads'>('playlists');
 
   // Sync profile details when changing profile
   const [editName, setEditName] = useState(activeProfile.displayName);
@@ -2375,9 +2436,9 @@ export default function SpiceApp() {
   const [isLocalDbFallback, setIsLocalDbFallback] = useState<boolean>(false);
   const [remoteControlEnabled, setRemoteControlEnabled] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('spice_remote_control_enabled') === 'true';
+      return localStorage.getItem('spice_remote_control_enabled') !== 'false';
     }
-    return false;
+    return true;
   });
   const [remoteDeviceId] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -2400,9 +2461,9 @@ export default function SpiceApp() {
     return 'Spice Connect Device';
   });
   const [remoteDevices, setRemoteDevices] = useState<RemoteDevice[]>([]);
-  // Receiver targeting is a live-session choice. Restoring it on startup can
-  // make an old remote snapshot look like the track currently playing here.
-  const [selectedRemoteDeviceId, setSelectedRemoteDeviceId] = useState('');
+  const [selectedRemoteDeviceId, setSelectedRemoteDeviceId] = useState(() => (
+    typeof window === 'undefined' ? '' : localStorage.getItem('spice_connect_receiver_id') || ''
+  ));
   const [remoteStatus, setRemoteStatus] = useState<string | null>(null);
   const [receiverMenuOpen, setReceiverMenuOpen] = useState<ReceiverSelectVariant | null>(null);
   const [playerPlacement, setPlayerPlacement] = useState<'bottom' | 'top'>('bottom');
@@ -2416,10 +2477,6 @@ export default function SpiceApp() {
   const [isShuffle, setIsShuffle] = useState<boolean>(false);
   const [repeatMode, setRepeatMode] = useState<'none' | 'all' | 'one'>('all');
   const [expandedTab, setExpandedTab] = useState<'controls' | 'queue' | 'lyrics'>('controls');
-
-  useEffect(() => {
-    localStorage.removeItem('spice_connect_receiver_id');
-  }, []);
 
   // Dynamic Lyrics & Karaoke states
   const [lyricsData, setLyricsData] = useState<{
@@ -3461,6 +3518,8 @@ export default function SpiceApp() {
       ...(desktopUpdaterAvailable ? ['desktop-updates'] : []),
       ...(nativeShellAvailable ? ['native-shell'] : []),
       ...(nativeShellAvailable ? ['discord-activity'] : []),
+      'offline-library',
+      'search-sources',
       'audio-streaming',
       'profile-sync',
       'player-layout',
@@ -4029,6 +4088,7 @@ export default function SpiceApp() {
   };
 
   const resolveCrossfadeStreamUrl = async (track: Track) => {
+    if (isOfflineTrack(track) && track.permalinkUrl) return track.permalinkUrl;
     const endpoint = isSoundCloudTrack(track)
       ? spiceApiUrl('local', `/sc/track/${encodeURIComponent(soundCloudTrackId(track))}`, { quality: audioQuality })
       : spiceApiUrl('local', `/yt/track/${encodeURIComponent(track.id)}`);
@@ -4590,17 +4650,14 @@ export default function SpiceApp() {
           mergedPlaylists.push(incoming);
         } else {
           const existing = mergedPlaylists[existingIndex];
-          const mergedTracks = [...existing.tracks];
-          incoming.tracks.forEach((track) => {
-            const trackIndex = mergedTracks.findIndex((existingTrack) => (
-              `${existingTrack.sourceId ?? 'youtube_music'}:${existingTrack.id}` === `${track.sourceId ?? 'youtube_music'}:${track.id}`
-            ));
-            if (trackIndex === -1) {
-              mergedTracks.push(track);
-            } else {
-              mergedTracks[trackIndex] = enrichTrackSnapshot(mergeTrackSnapshots(mergedTracks[trackIndex], track));
-            }
-          });
+          const mergedTracks = mergePlaylistOccurrences(
+            incoming.tracks,
+            existing.tracks,
+            (track) => `${track.sourceId ?? 'youtube_music'}:${track.id}`,
+            (existingTrack, incomingTrack) => enrichTrackSnapshot(
+              mergeTrackSnapshots(existingTrack, incomingTrack),
+            ),
+          );
           mergedPlaylists[existingIndex] = {
             ...existing,
             ...incoming,
@@ -4970,6 +5027,7 @@ export default function SpiceApp() {
     setPairedRemoteCredential(null);
     setRemoteDevices([]);
     setSelectedRemoteDeviceId('');
+    localStorage.removeItem('spice_connect_receiver_id');
     optimisticRemoteDeviceStateRef.current = null;
     cloudTokenRef.current = null;
     cloudUserRef.current = null;
@@ -6034,6 +6092,24 @@ export default function SpiceApp() {
       const activeStreamProtocol = streamProtocolRef.current;
       logDebug('player', `Initiating ${trackSourceLabel(track)} format resolution for track "${track.title}" (ID: ${track.id})`);
 
+      if (isOfflineTrack(track) && track.permalinkUrl) {
+        const shouldStartNow = shouldAutoPlayRef.current;
+        const offlineUrl = track.permalinkUrl;
+        streamProtocolRef.current = 'proxy';
+        setStreamProtocol('proxy');
+        setShowVideoPlayer(false);
+        setStreamUrl(offlineUrl);
+        streamUrlRef.current = offlineUrl;
+        const directAudio = audioSlotRefs.current[activeAudioSlotRef.current];
+        if (directAudio) {
+          directAudio.dataset.spiceTrackKey = trackKey;
+          directAudio.src = offlineUrl;
+          directAudio.load();
+        }
+        setPlaybackPlaying(shouldStartNow);
+        return;
+      }
+
       if ((activeStreamProtocol === 'embed' || showVideoPlayer) && isYouTube) {
         cancelPreparedCrossfade();
         logDebug('stream', `YouTube Embedded Player active. Loading iframe player for track ID: ${track.id}`);
@@ -6605,8 +6681,9 @@ export default function SpiceApp() {
           shuffleEnabled: device.shuffleEnabled === true,
           repeatMode: isRepeatMode(device.repeatMode) ? device.repeatMode : 'none',
           lastSeenSeconds: remoteSnapshotAgeSeconds(device.updatedAt, data.serverTime),
+          isOnline: device.isOnline !== false,
           syncedAtMs: currentTimestampMs(),
-        })).filter((device: any) => device.lastSeenSeconds <= 7200)
+        }))
         : [];
       const optimisticState = optimisticRemoteDeviceStateRef.current;
       if (optimisticState && optimisticState.expiresAt <= currentTimestampMs()) {
@@ -6641,6 +6718,12 @@ export default function SpiceApp() {
           ? current
           : ''
       ));
+      if (
+        selectedRemoteDeviceId
+        && !devices.some((device: RemoteDevice) => device.deviceId === selectedRemoteDeviceId)
+      ) {
+        localStorage.removeItem('spice_connect_receiver_id');
+      }
 
       if (showStatus) {
         setRemoteStatus(`Found ${Math.max(devices.length - 1, 0)} Spice Connect device(s).`);
@@ -7176,10 +7259,14 @@ export default function SpiceApp() {
 
     const timerInterval = setInterval(() => {
       setRemoteDevices((currentDevices) =>
-        currentDevices.map((device) => ({
-          ...device,
-          lastSeenSeconds: (device.lastSeenSeconds ?? 0) + 1,
-        }))
+        currentDevices.map((device) => {
+          const lastSeenSeconds = (device.lastSeenSeconds ?? 0) + 1;
+          return {
+            ...device,
+            lastSeenSeconds,
+            isOnline: device.isOnline !== false && lastSeenSeconds < SPICE_CONNECT_STALE_DEVICE_SECONDS,
+          };
+        })
       );
     }, 1000);
 
@@ -9164,6 +9251,8 @@ export default function SpiceApp() {
   const canControlSelectedRemoteReceiver = (command: RemoteCommandType) => {
     if (!selectedRemoteDevice) return false;
     if (
+      selectedRemoteDevice.isOnline === false
+      ||
       selectedRemoteDevice.lastSeenSeconds !== undefined
       && selectedRemoteDevice.lastSeenSeconds > SPICE_CONNECT_STALE_DEVICE_SECONDS
     ) {
@@ -9212,6 +9301,7 @@ export default function SpiceApp() {
           ...updates,
           updatedAt: new Date().toISOString(),
           lastSeenSeconds: 0,
+          isOnline: true,
           syncedAtMs: currentTimestampMs(),
         }
         : device
@@ -9437,10 +9527,36 @@ export default function SpiceApp() {
 
   const receiverStatusLabel = (device: RemoteDevice | null) => {
     if (!device) return 'Local playback';
+    if (device.isOnline === false) {
+      const hours = Math.floor((device.lastSeenSeconds ?? 0) / 3600);
+      const days = Math.floor(hours / 24);
+      return days > 0 ? `Offline · last seen ${days}d ago` : `Offline · last seen ${Math.max(1, hours)}h ago`;
+    }
     if (device.lastSeenSeconds === undefined) return 'Remote ready';
     if (device.lastSeenSeconds <= 5) return device.isPlaying ? 'Live now' : 'Online now';
     const minutes = Math.floor(device.lastSeenSeconds / 60);
     return `Last seen ${minutes === 0 ? '<1' : minutes}m ago`;
+  };
+
+  const forgetSpiceConnectDevice = async (deviceId: string) => {
+    if (!remoteAuthToken || !deviceId || deviceId === remoteDeviceId) return;
+    try {
+      const response = await spiceFetch(
+        'cloud',
+        `/remote/devices?sourceDeviceId=${encodeURIComponent(remoteDeviceId)}&deviceId=${encodeURIComponent(deviceId)}`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${remoteAuthToken}` },
+        },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'The remembered device could not be forgotten.');
+      setRemoteDevices((devices) => devices.filter((device) => device.deviceId !== deviceId));
+      if (selectedRemoteDeviceId === deviceId) selectSpiceConnectReceiver('');
+      setRemoteStatus('Forgot the remembered Spice Connect device. It can appear again if it reconnects.');
+    } catch (error) {
+      setRemoteStatus(error instanceof Error ? error.message : 'The remembered device could not be forgotten.');
+    }
   };
 
   const renderSpiceConnectReceiverOption = (
@@ -9449,25 +9565,43 @@ export default function SpiceApp() {
     detail: string,
     selected: boolean,
   ) => (
-    <button
-      key={value || 'local-device'}
-      type="button"
-      role="option"
-      aria-selected={selected}
-      className={`spice-connect-receiver__option ${selected ? 'is-selected' : ''}`}
-      onMouseDown={(event) => event.preventDefault()}
-      onClick={() => {
-        selectSpiceConnectReceiver(value);
-        setReceiverMenuOpen(null);
-      }}
-    >
-      <span className="spice-connect-receiver__option-icon">{Icons.monitor}</span>
-      <span className="spice-connect-receiver__option-copy">
-        <strong>{label}</strong>
-        <small>{detail}</small>
-      </span>
-      <span className="spice-connect-receiver__option-marker" aria-hidden="true" />
-    </button>
+    <div key={value || 'local-device'} style={{ display: 'flex', alignItems: 'stretch' }}>
+      <button
+        type="button"
+        role="option"
+        aria-selected={selected}
+        className={`spice-connect-receiver__option ${selected ? 'is-selected' : ''}`}
+        style={{ flex: 1 }}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => {
+          selectSpiceConnectReceiver(value);
+          setReceiverMenuOpen(null);
+        }}
+      >
+        <span className="spice-connect-receiver__option-icon">{Icons.monitor}</span>
+        <span className="spice-connect-receiver__option-copy">
+          <strong>{label}</strong>
+          <small>{detail}</small>
+        </span>
+        <span className="spice-connect-receiver__option-marker" aria-hidden="true" />
+      </button>
+      {value && (
+        <button
+          type="button"
+          className="spice-connect-receiver__option"
+          style={{ width: 42, flex: '0 0 42px', justifyContent: 'center', padding: 0 }}
+          title={`Forget ${label}`}
+          aria-label={`Forget ${label}`}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            event.stopPropagation();
+            void forgetSpiceConnectDevice(value);
+          }}
+        >
+          {Icons.close}
+        </button>
+      )}
+    </div>
   );
 
   const renderSpiceConnectReceiverSelect = (variant: ReceiverSelectVariant) => {
@@ -9532,7 +9666,7 @@ export default function SpiceApp() {
                 selectedRemoteDeviceId === device.deviceId,
               ))
             ) : (
-              <p className="spice-connect-receiver__empty">No other devices online.</p>
+              <p className="spice-connect-receiver__empty">No other remembered devices.</p>
             )}
           </div>
         )}
@@ -9570,6 +9704,46 @@ export default function SpiceApp() {
     applyLocalShuffleMode(true);
     const shuffled = [...tracks].sort(() => getSecureRandom() - 0.5);
     startTrackOnActiveReceiver(shuffled[0], shuffled, playlist.id);
+  };
+
+  const downloadPlaylistToOfflineLibrary = async (playlist: Playlist) => {
+    if (playlistDownloadProgress || offlineDownloadTrackId) {
+      showSpiceNotice('A download is already in progress.', 'info');
+      return;
+    }
+    if (playlist.tracks.length === 0) return;
+
+    playlistDownloadCancelledRef.current = false;
+    setPlaylistDownloadProgress({ playlistId: playlist.id, completed: 0, total: playlist.tracks.length });
+    let completed = 0;
+    let failed = 0;
+    for (const track of playlist.tracks) {
+      if (playlistDownloadCancelledRef.current) break;
+      setOfflineDownloadTrackId(track.id);
+      try {
+        await saveTrackDownload(track);
+      } catch (error) {
+        failed += 1;
+        logDebug('error', `Playlist download failed for ${track.title}: ${error instanceof Error ? error.message : error}`);
+      } finally {
+        completed += 1;
+        setPlaylistDownloadProgress({ playlistId: playlist.id, completed, total: playlist.tracks.length });
+      }
+    }
+    setOfflineDownloadTrackId(null);
+    setPlaylistDownloadProgress(null);
+    const saved = completed - failed;
+    if (playlistDownloadCancelledRef.current) {
+      showSpiceNotice(`Playlist download stopped after ${saved} saved track${saved === 1 ? '' : 's'}.`, 'info');
+    } else if (failed > 0) {
+      showSpiceNotice(`Saved ${saved} of ${playlist.tracks.length} playlist tracks; ${failed} could not be downloaded.`, 'warning');
+    } else {
+      showSpiceNotice(`Saved all ${saved} playlist tracks for offline listening, including duplicates.`, 'success');
+    }
+  };
+
+  const cancelPlaylistDownload = () => {
+    playlistDownloadCancelledRef.current = true;
   };
 
   // Profile switching, locking and passcode validations
@@ -10523,6 +10697,7 @@ const getMaskedEmail = (email: string) => {
       label: 'Desktop',
       items: [
         ...(desktopUpdaterAvailable ? [{ id: 'desktop-updates', label: 'Desktop App', icon: Icons.monitor }] : []),
+        ...(getSpiceDesktopOfflineLibraryBridge() ? [{ id: 'offline-library', label: 'Offline Music', icon: Icons.download }] : []),
         ...(nativeShellAvailable ? [
           { id: 'native-shell', label: 'Native Desktop', icon: Icons.monitor },
           { id: 'discord-activity', label: 'Discord Activity', icon: Icons.account },
@@ -10532,6 +10707,7 @@ const getMaskedEmail = (email: string) => {
     {
       label: 'Playback',
       items: [
+        { id: 'search-sources', label: 'Search Sources', icon: Icons.search },
         { id: 'audio-streaming', label: 'Audio & Quality', icon: Icons.volume },
         { id: 'profile-sync', label: 'Listening Sync', icon: Icons.database },
         { id: 'player-layout', label: 'Player Settings', icon: Icons.play },
@@ -10723,9 +10899,10 @@ const getMaskedEmail = (email: string) => {
                 type="button"
                 className="spice-share-dialog__button"
                 onClick={downloadSharedSong}
+                disabled={offlineDownloadTrackId !== null}
                 title="Download audio file"
               >
-                {Icons.download} Download
+                {Icons.download} {offlineDownloadTrackId ? 'Downloading…' : 'Download'}
               </button>
               <button type="button" className="spice-share-dialog__button" onClick={openSongSource}>
                 {Icons.globe} Source
@@ -11810,6 +11987,27 @@ const getMaskedEmail = (email: string) => {
                       {Icons.shuffle} Shuffle Play
                     </button>
                   )}
+                  {selectedPlaylist.tracks.length > 0 && (
+                    <button
+                      className="btn btn--ghost playlist-hero__action-btn"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      onClick={() => {
+                        if (playlistDownloadProgress?.playlistId === selectedPlaylist.id) {
+                          cancelPlaylistDownload();
+                        } else {
+                          void downloadPlaylistToOfflineLibrary(selectedPlaylist);
+                        }
+                      }}
+                      disabled={Boolean(
+                        playlistDownloadProgress
+                        && playlistDownloadProgress.playlistId !== selectedPlaylist.id
+                      )}
+                    >
+                      {playlistDownloadProgress?.playlistId === selectedPlaylist.id
+                        ? <>{Icons.close} Stop {playlistDownloadProgress.completed}/{playlistDownloadProgress.total}</>
+                        : <>{Icons.download} Download playlist</>}
+                    </button>
+                  )}
                   {(!selectedPlaylist.shared || isPlaylistOwner) && (
                     <button
                       className="btn btn--ghost playlist-hero__action-btn"
@@ -12836,6 +13034,12 @@ const getMaskedEmail = (email: string) => {
                     <button className={`chip ${libraryFilter === 'history' ? 'active' : ''}`} onClick={() => setLibraryFilter('history')}>
                       History
                     </button>
+                    <button className={`chip ${libraryFilter === 'downloads' ? 'active' : ''}`} onClick={() => {
+                      setLibraryFilter('downloads');
+                      void refreshOfflineLibrary();
+                    }}>
+                      Downloads
+                    </button>
                   </div>
 
                   {/* Playlists view */}
@@ -13015,6 +13219,88 @@ const getMaskedEmail = (email: string) => {
                             </div>
                           );
                         })
+                      )}
+                    </div>
+                  )}
+
+                  {/* Desktop offline library */}
+                  {libraryFilter === 'downloads' && (
+                    <div className="library-list animate-in">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <strong style={{ color: 'var(--text-primary)' }}>Offline Music</strong>
+                          <div className="truncate" style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', marginTop: '4px' }}>
+                            {offlineLibraryDirectory || 'Open the Spice desktop app to use its offline library.'}
+                          </div>
+                        </div>
+                        {getSpiceDesktopOfflineLibraryBridge() && (
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button className="btn btn--ghost" onClick={() => void refreshOfflineLibrary()}>
+                              {Icons.refresh} Refresh
+                            </button>
+                            <button className="btn btn--secondary" onClick={() => void getSpiceDesktopOfflineLibraryBridge()?.show()}>
+                              {Icons.folder} Open folder
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {offlineLibraryEntries.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '64px 0', color: 'var(--text-secondary)' }}>
+                          <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'center', transform: 'scale(1.8)' }}>{Icons.download}</div>
+                          <p style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '8px', color: 'var(--text-primary)' }}>No offline songs yet</p>
+                          <p>Download a song or playlist, or copy supported audio files into the folder above.</p>
+                        </div>
+                      ) : (
+                        offlineLibraryEntries.map((entry) => (
+                          <div
+                            key={entry.fileName}
+                            className="library-item animate-in"
+                            onClick={() => startTrackOnActiveReceiver(
+                              entry.track,
+                              offlineLibraryEntries.map((item) => item.track),
+                            )}
+                          >
+                            <img className="library-item__art" src={entry.track.artworkUrl || '/icon.svg'} alt={entry.track.title} />
+                            <div className="library-item__info">
+                              <span className="library-item__title">{entry.track.title}</span>
+                              <span className="library-item__subtitle">
+                                {entry.track.artists.map((artist) => artist.name).join(', ')} · {(entry.bytes / 1024 / 1024).toFixed(1)} MB
+                              </span>
+                            </div>
+                            <button
+                              className="library-item__action"
+                              style={{ opacity: 1 }}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void getSpiceDesktopOfflineLibraryBridge()?.show(entry.fileName);
+                              }}
+                              title="Show audio file in folder"
+                            >
+                              {Icons.folder}
+                            </button>
+                            <button
+                              className="library-item__action"
+                              style={{ opacity: 1 }}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                requestSpiceConfirm({
+                                  title: 'Remove Offline Song?',
+                                  message: `This deletes ${entry.fileName} from your chosen offline music folder.`,
+                                  confirmLabel: 'Delete File',
+                                  kind: 'danger',
+                                  onConfirm: () => {
+                                    void getSpiceDesktopOfflineLibraryBridge()?.remove(entry.fileName)
+                                      .then(() => refreshOfflineLibrary());
+                                  },
+                                });
+                              }}
+                              title="Delete offline audio file"
+                            >
+                              {Icons.trash}
+                            </button>
+                          </div>
+                        ))
                       )}
                     </div>
                   )}
@@ -14184,6 +14470,59 @@ const getMaskedEmail = (email: string) => {
                     </div>
                   )}
 
+                  {getSpiceDesktopOfflineLibraryBridge() && (
+                    <div id="offline-library" style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
+                      <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {Icons.download} Offline Music Folder
+                      </h3>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 16px 0', lineHeight: 1.4 }}>
+                        Downloads are ordinary MP3 files in this folder. Copy files in or out whenever you like; supported audio files you add are available in Library → Downloads.
+                      </p>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                        <code className="truncate" style={{ flex: '1 1 320px', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-secondary)', background: 'var(--body-bg)' }}>
+                          {offlineLibraryDirectory || 'Loading offline folder…'}
+                        </code>
+                        <button
+                          className="btn btn--secondary"
+                          onClick={() => void getSpiceDesktopOfflineLibraryBridge()?.chooseDirectory().then((result) => {
+                            setOfflineLibraryDirectory(result.directory);
+                            return refreshOfflineLibrary();
+                          })}
+                        >
+                          Choose folder
+                        </button>
+                        <button className="btn btn--ghost" onClick={() => void getSpiceDesktopOfflineLibraryBridge()?.show()}>
+                          {Icons.folder} Open folder
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div id="search-sources" style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
+                    <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {Icons.search} Search Sources
+                    </h3>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 16px 0', lineHeight: 1.4 }}>
+                      Choose whether searches combine YouTube and SoundCloud or stay on one provider. This also updates the selector on the Search page.
+                    </p>
+                    <label style={{ display: 'block', maxWidth: '420px' }}>
+                      <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Default music provider</span>
+                      <select
+                        value={searchProvider}
+                        onChange={(event) => {
+                          if (!isSearchProvider(event.target.value)) return;
+                          setSearchProvider(event.target.value);
+                          localStorage.setItem('spice_search_provider', event.target.value);
+                        }}
+                        style={{ width: '100%', padding: '10px 14px', background: 'var(--body-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+                      >
+                        {(Object.entries(SEARCH_PROVIDER_LABELS) as [SearchProvider, string][]).map(([id, label]) => (
+                          <option key={id} value={id}>{label}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
                   {/* Audio Settings */}
                   <div id="audio-streaming" style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
                     <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: '#fff', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>{Icons.headphones} Audio & Streaming Preferences</h3>
@@ -14492,7 +14831,7 @@ const getMaskedEmail = (email: string) => {
                   <div id="spice-connect" style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '24px' }}>
                     <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', fontWeight: 700, color: '#fff', fontFamily: 'Outfit, sans-serif', display: 'flex', alignItems: 'center', gap: '8px' }}>{Icons.monitor} Spice Connect Setup</h3>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '0 0 20px 0', lineHeight: 1.4 }}>
-                      Name this device and enable cross-device control only on devices you want to receive Spice Connect commands. Use the receiver selector in the player to decide whether the normal controls target this device or another signed-in device.
+                      This desktop registers on demand as soon as you sign in or pair it—no mobile song needs to be playing. Devices stay remembered for 30 days, while their live online state is shown separately.
                     </p>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 0.85fr) minmax(0, 1.15fr)', gap: '20px', alignItems: 'start' }}>
@@ -14508,7 +14847,7 @@ const getMaskedEmail = (email: string) => {
                             }}
                             style={{ accentColor: 'var(--accent-pink)' }}
                           />
-                          Enable Spice Connect on this device
+                          Keep this device available for Spice Connect
                         </label>
 
                         <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>This Spice Connect Device</label>
@@ -14560,10 +14899,27 @@ const getMaskedEmail = (email: string) => {
                           <option value="">This device (current browser)</option>
                           {remoteTargetDevices.map((device) => (
                             <option key={device.deviceId} value={device.deviceId}>
-                              {device.displayName} - {device.isPlaying ? 'Playing' : 'Idle'}
+                              {device.displayName} - {device.isOnline === false ? 'Offline' : device.isPlaying ? 'Playing' : 'Online'}
                             </option>
                           ))}
                         </select>
+
+                        {remoteTargetDevices.length > 0 && (
+                          <div style={{ display: 'grid', gap: '8px', marginBottom: '14px' }}>
+                            {remoteTargetDevices.map((device) => (
+                              <div key={`remembered-${device.deviceId}`} style={{ display: 'flex', alignItems: 'center', gap: '10px', border: '1px solid var(--border-color)', background: 'var(--body-bg)', borderRadius: '10px', padding: '9px 10px' }}>
+                                <span style={{ color: device.isOnline === false ? 'var(--text-muted)' : 'var(--accent-pink)', display: 'inline-flex' }}>{Icons.monitor}</span>
+                                <span style={{ minWidth: 0, flex: 1 }}>
+                                  <strong className="truncate" style={{ display: 'block', color: 'var(--text-primary)', fontSize: '0.8rem' }}>{device.displayName}</strong>
+                                  <small style={{ color: 'var(--text-secondary)' }}>{receiverStatusLabel(device)}</small>
+                                </span>
+                                <button className="btn btn--ghost" style={{ padding: '6px 9px' }} onClick={() => void forgetSpiceConnectDevice(device.deviceId)} title={`Forget ${device.displayName}`} aria-label={`Forget ${device.displayName}`}>
+                                  {Icons.close}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
 
                         {selectedRemoteDevice && (
                           <div style={{ display: 'grid', gap: '14px' }}>
@@ -14571,7 +14927,7 @@ const getMaskedEmail = (email: string) => {
                               type="button"
                               className="btn btn--primary"
                               onClick={() => void handoffPlaybackToSelectedDevice()}
-                              disabled={currentTrack.id === 'placeholder'}
+                              disabled={currentTrack.id === 'placeholder' || selectedRemoteDevice.isOnline === false}
                               title="Transfer the current track, queue, position, volume, shuffle, and repeat state"
                             >
                               Move this playback to {selectedRemoteDevice.displayName}
@@ -14610,20 +14966,18 @@ const getMaskedEmail = (email: string) => {
                               <input
                                 type="range"
                                 min="0"
-                                max={volumeBoosterAccepted ? 1000 : 200}
-                                defaultValue={selectedRemoteDevice.volume}
-                                onMouseUp={(e) => sendRemoteCommand('volume', { volume: Number((e.target as HTMLInputElement).value) })}
-                                onTouchEnd={(e) => sendRemoteCommand('volume', { volume: Number((e.target as HTMLInputElement).value) })}
+                                max="100"
+                                value={selectedRemoteDevice.volume}
+                                onChange={(event) => setReceiverVolume(Number(event.target.value))}
                                 onWheel={(event) => {
                                   const input = event.currentTarget;
                                   const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
                                   if (!delta) return;
                                   event.preventDefault();
-                                  const maxAllowed = volumeBoosterAccepted ? 1000 : 200;
+                                  const maxAllowed = 100;
                                   const step = event.shiftKey ? 25 : 5;
                                   const nextVolume = Math.max(0, Math.min(maxAllowed, Number(input.value) + (delta < 0 ? step : -step)));
-                                  input.value = String(nextVolume);
-                                  void sendRemoteCommand('volume', { volume: nextVolume });
+                                  setReceiverVolume(nextVolume);
                                 }}
                                 style={{ flex: 1, accentColor: 'var(--accent-pink)' }}
                               />

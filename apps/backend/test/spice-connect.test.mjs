@@ -6,6 +6,7 @@ import {
   isSpiceConnectCommandDeliverable,
   isSpiceConnectCommandFresh,
   isSpiceConnectDeviceStale,
+  isSpiceConnectDeviceRemembered,
   isSpiceConnectRemoteDeviceVisible,
   normalizeSpiceConnectCommandInput,
   normalizeSpiceConnectDeviceInput,
@@ -18,6 +19,7 @@ import {
   SPICE_CONNECT_COMMAND_IDLE_POLL_INTERVAL_MS,
   SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS,
   SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS,
+  SPICE_CONNECT_DEVICE_RETENTION_MS,
   SPICE_CONNECT_COMMAND_TTL_MS,
   SPICE_CONNECT_MAX_COMMAND_DELIVERY_ATTEMPTS,
   SPICE_CONNECT_COMMAND_REDELIVERY_MS,
@@ -248,17 +250,31 @@ test('Spice Connect progress stays monotonic at the stale-device cutoff', () => 
   const atCutoff = new Date(updatedAt.getTime() + SPICE_CONNECT_STALE_DEVICE_SECONDS * 1000);
   const afterCutoff = new Date(atCutoff.getTime() + 30_000);
 
-  assert.equal(projectSpiceConnectProgressMs(state, atCutoff), 100_000);
-  assert.equal(projectSpiceConnectProgressMs(state, afterCutoff), 100_000);
+  const expectedCutoffProgress = 10_000 + SPICE_CONNECT_STALE_DEVICE_SECONDS * 1000;
+  assert.equal(projectSpiceConnectProgressMs(state, atCutoff), expectedCutoffProgress);
+  assert.equal(projectSpiceConnectProgressMs(state, afterCutoff), expectedCutoffProgress);
   assert.equal(isSpiceConnectDeviceStale(updatedAt, new Date(atCutoff.getTime() - 1)), false);
   assert.equal(isSpiceConnectDeviceStale(updatedAt, atCutoff), true);
 });
 
+test('Spice Connect remembers offline devices for one month', () => {
+  const now = new Date('2026-07-22T12:00:00.000Z');
+  assert.equal(isSpiceConnectDeviceRemembered(
+    new Date(now.getTime() - SPICE_CONNECT_DEVICE_RETENTION_MS + 1),
+    now,
+  ), true);
+  assert.equal(isSpiceConnectDeviceRemembered(
+    new Date(now.getTime() - SPICE_CONNECT_DEVICE_RETENTION_MS),
+    now,
+  ), false);
+  assert.equal(isSpiceConnectDeviceRemembered('not-a-date', now), false);
+});
+
 test('Spice Connect keeps active and background receivers responsive', () => {
-  assert.ok(SPICE_CONNECT_COMMAND_ACTIVE_POLL_INTERVAL_MS <= 2_000);
-  assert.ok(SPICE_CONNECT_COMMAND_IDLE_POLL_INTERVAL_MS <= 3_000);
-  assert.ok(SPICE_CONNECT_COMMAND_HIDDEN_POLL_INTERVAL_MS <= 5_000);
-  assert.ok(SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS <= 2_000);
+  assert.ok(SPICE_CONNECT_COMMAND_ACTIVE_POLL_INTERVAL_MS <= 500);
+  assert.ok(SPICE_CONNECT_COMMAND_IDLE_POLL_INTERVAL_MS <= 1_500);
+  assert.ok(SPICE_CONNECT_COMMAND_HIDDEN_POLL_INTERVAL_MS <= 3_000);
+  assert.ok(SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS <= 750);
   assert.ok(SPICE_CONNECT_OPTIMISTIC_STATE_WINDOW_MS > SPICE_CONNECT_COMMAND_HIDDEN_POLL_INTERVAL_MS);
   assert.ok(SPICE_CONNECT_STALE_DEVICE_SECONDS * 1000 >= SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS * 2);
 

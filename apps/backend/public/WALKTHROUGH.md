@@ -1,5 +1,13 @@
 # SPICE Walkthrough
 
+## v1.0.147
+
+- [Spice.Connect main] Keep paired desktop receivers available on demand, remember offline devices for one month with explicit Forget controls, synchronize Android hardware and in-app volume controls, and shorten adaptive command polling for more responsive remote playback.
+- [All players main] Add provider-specific search settings for YouTube, SoundCloud, or both, with matching results on desktop and Android.
+- [Spice.Downloads main] Fix Android song downloads, publish mobile music in the device's `Music/Spice` folder, add a user-selectable desktop offline-music folder, and play downloaded or manually copied songs inside SPICE without a network connection.
+- [Spice.Playlists main] Add duplicate-preserving whole-playlist downloads and keep the exact imported track count and order when syncing playlists to Android.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.147`.
+
 ## v1.0.146
 
 - [Spice.Music main] Make the custom theme palette explicitly opt-in so fresh profiles use the selected built-in accent until the listener enables or applies a custom palette.

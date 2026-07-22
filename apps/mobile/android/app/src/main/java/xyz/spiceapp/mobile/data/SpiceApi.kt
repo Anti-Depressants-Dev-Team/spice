@@ -27,6 +27,7 @@ import xyz.spiceapp.mobile.model.ProfileSummary
 import xyz.spiceapp.mobile.model.RemoteCommand
 import xyz.spiceapp.mobile.model.RemoteDevice
 import xyz.spiceapp.mobile.model.RepeatMode
+import xyz.spiceapp.mobile.model.SearchProvider
 import xyz.spiceapp.mobile.model.ResolvedStream
 import xyz.spiceapp.mobile.model.SharedPlaylistTrack
 import xyz.spiceapp.mobile.model.SharedPlaylistTracks
@@ -396,6 +397,15 @@ class SpiceApi(
         parseRemoteDevices(getJson("/api/remote/devices", token))
     }
 
+    suspend fun forgetRemoteDevice(token: String, sourceDeviceId: String, deviceId: String) = withContext(Dispatchers.IO) {
+        deleteJson(
+            "/api/remote/devices?sourceDeviceId=" + encodeQuery(sourceDeviceId) + "&deviceId=" + encodeQuery(deviceId),
+            JSONObject(),
+            token,
+        )
+        Unit
+    }
+
     suspend fun updateRemoteDevice(
         token: String,
         deviceId: String,
@@ -530,15 +540,24 @@ class SpiceApi(
         Unit
     }
 
-    suspend fun search(query: String, limit: Int = 12): List<Track> = coroutineScope {
+    suspend fun search(
+        query: String,
+        limit: Int = 12,
+        provider: SearchProvider = SearchProvider.All,
+    ): List<Track> = coroutineScope {
         val encoded = URLEncoder.encode(query.trim(), StandardCharsets.UTF_8.name())
         val safeLimit = limit.coerceIn(1, 30)
-        val results = listOf(
-            async(Dispatchers.IO) { runCatching { searchSoundCloudCandidates(query.trim(), safeLimit) } },
-            async(Dispatchers.IO) {
-                runCatching { searchYouTubeCandidates(query.trim(), encoded, safeLimit) }
-            },
-        ).awaitAll()
+        val searches = buildList {
+            if (provider != SearchProvider.YouTube) {
+                add(async(Dispatchers.IO) { runCatching { searchSoundCloudCandidates(query.trim(), safeLimit) } })
+            }
+            if (provider != SearchProvider.SoundCloud) {
+                add(async(Dispatchers.IO) {
+                    runCatching { searchYouTubeCandidates(query.trim(), encoded, safeLimit) }
+                })
+            }
+        }
+        val results = searches.awaitAll()
         val successful = results.mapNotNull { it.getOrNull() }
 
         if (successful.isEmpty()) {
@@ -549,6 +568,13 @@ class SpiceApi(
     }
 
     suspend fun resolvePlayable(track: Track, quality: StreamQuality): ResolvedPlayback {
+        if (track.localUri.isNotBlank()) {
+            return ResolvedPlayback(
+                track,
+                ResolvedStream(track.localUri, container = "local", protocol = "offline", contentType = "audio/*"),
+                usedFallback = false,
+            )
+        }
         val directFailure = try {
             return ResolvedPlayback(track, resolve(track, quality), usedFallback = false)
         } catch (error: Exception) {
@@ -1136,6 +1162,8 @@ internal fun parseRemoteDevices(payload: JSONObject): List<RemoteDevice> {
                     durationMs = (item.optDouble("duration", 0.0) * 1000).toLong().coerceAtLeast(0),
                     volume = item.optInt("volume", 70).coerceIn(0, 100),
                     updatedAt = item.optString("updatedAt").trim(),
+                    rememberedUntil = item.optString("rememberedUntil").trim(),
+                    isOnline = item.optBoolean("isOnline", true),
                 ),
             )
         }
@@ -1537,11 +1565,31 @@ internal fun mergeSyncPlaylists(remote: List<Playlist>, local: List<Playlist>): 
                 shared = existing.shared || incoming.shared,
                 shareRole = incoming.shareRole.ifBlank { existing.shareRole },
                 isPublic = incoming.isPublic,
-                tracks = mergeSyncTracks(existing.tracks, incoming.tracks),
+                tracks = mergeSyncPlaylistTracks(existing.tracks, incoming.tracks),
             )
         }
     }
     return merged.values.toList()
+}
+
+internal fun mergeSyncPlaylistTracks(preferred: List<Track>, incoming: List<Track>): List<Track> {
+    val merged = preferred.toMutableList()
+    val preferredIndexes = mutableMapOf<String, MutableList<Int>>()
+    merged.forEachIndexed { index, track ->
+        preferredIndexes.getOrPut(track.id) { mutableListOf() }.add(index)
+    }
+    val incomingOccurrences = mutableMapOf<String, Int>()
+    incoming.forEach { track ->
+        val occurrence = incomingOccurrences.getOrDefault(track.id, 0)
+        incomingOccurrences[track.id] = occurrence + 1
+        val preferredIndex = preferredIndexes[track.id]?.getOrNull(occurrence)
+        if (preferredIndex == null) {
+            merged += track
+        } else {
+            merged[preferredIndex] = mergeTrackSnapshots(merged[preferredIndex], track)
+        }
+    }
+    return merged
 }
 
 private fun mergeTrackSnapshots(base: Track, incoming: Track): Track =
@@ -1553,6 +1601,7 @@ private fun mergeTrackSnapshots(base: Track, incoming: Track): Track =
         durationMs = incoming.durationMs.takeIf { it > 0 } ?: base.durationMs,
         artworkUrl = incoming.artworkUrl.ifEmpty { base.artworkUrl },
         sourceId = incoming.sourceId.ifEmpty { base.sourceId },
+        localUri = incoming.localUri.ifEmpty { base.localUri },
     )
 
 internal fun mergeProviderTracks(providers: List<List<Track>>, limit: Int): List<Track> {

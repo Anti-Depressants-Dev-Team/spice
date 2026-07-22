@@ -94,7 +94,8 @@ internal fun encodeMobilePlaybackServiceContext(context: MobilePlaybackServiceCo
                         .put("album", track.album)
                         .put("durationMs", track.durationMs)
                         .put("artworkUrl", track.artworkUrl)
-                        .put("sourceId", track.sourceId),
+                        .put("sourceId", track.sourceId)
+                        .put("localUri", track.localUri),
                 )
             }
         },
@@ -119,6 +120,7 @@ internal fun decodeMobilePlaybackServiceContext(payload: String): MobilePlayback
                     durationMs = item.optLong("durationMs").coerceAtLeast(0L),
                     artworkUrl = item.optString("artworkUrl"),
                     sourceId = item.optString("sourceId").ifBlank { "youtube_music" },
+                    localUri = item.optString("localUri"),
                 ),
             )
         }

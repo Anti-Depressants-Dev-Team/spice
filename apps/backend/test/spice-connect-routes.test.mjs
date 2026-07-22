@@ -20,10 +20,15 @@ const [commandsRoute, devicesRoute, authorizationsRoute, revokeRoute] = await Pr
 
 test('Spice Connect state and command routes require a live credential', async () => {
   const devices = await devicesRoute.GET(new Request('https://music.spice-app.xyz/api/remote/devices'));
+  const forget = await devicesRoute.DELETE(new Request(
+    'https://music.spice-app.xyz/api/remote/devices?sourceDeviceId=phone&deviceId=desktop',
+    { method: 'DELETE' },
+  ));
   const commands = await commandsRoute.GET(new Request(
     'https://music.spice-app.xyz/api/remote/commands?deviceId=desktop',
   ));
   assert.equal(devices.status, 401);
+  assert.equal(forget.status, 401);
   assert.equal(commands.status, 401);
 });
 
@@ -66,4 +71,14 @@ test('remote command polling deletes terminal commands after their delivery TTL'
   assert.match(source, /WITH stale_commands AS \(\s*DELETE FROM/s);
   assert.match(source, /createdAt\} < \$\{staleCutoff\}/);
   assert.doesNotMatch(source, /WITH stale_commands AS \(\s*UPDATE/s);
+});
+
+test('remote device discovery prunes snapshots after the one-month retention window', async () => {
+  const source = await readFile(
+    new URL('../app/api/remote/devices/route.ts', import.meta.url),
+    'utf8',
+  );
+  assert.match(source, /delete\(remoteDevices\)/);
+  assert.match(source, /SPICE_CONNECT_DEVICE_RETENTION_MS/);
+  assert.match(source, /lt\(remoteDevices\.updatedAt/);
 });

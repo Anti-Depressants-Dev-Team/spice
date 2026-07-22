@@ -61,6 +61,7 @@ import xyz.spiceapp.mobile.model.ProfileSummary
 import xyz.spiceapp.mobile.model.RemoteCommand
 import xyz.spiceapp.mobile.model.RemoteDevice
 import xyz.spiceapp.mobile.model.RepeatMode
+import xyz.spiceapp.mobile.model.SearchProvider
 import xyz.spiceapp.mobile.model.SharedPlaylistTrack
 import xyz.spiceapp.mobile.model.SharedPlaylistTracks
 import xyz.spiceapp.mobile.model.SpiceProfile
@@ -93,6 +94,7 @@ data class SpiceUiState(
     val downloads: List<DownloadedTrack> = emptyList(),
     val libraryTab: LibraryTab = LibraryTab.Playlists,
     val quality: StreamQuality = StreamQuality.Standard,
+    val searchProvider: SearchProvider = SearchProvider.All,
     val crossfadeDurationMs: Long = 0L,
     val smartQueueEnabled: Boolean = true,
     val accentTheme: AccentTheme = AccentTheme.MidnightVelvet,
@@ -132,6 +134,9 @@ data class SpiceUiState(
     val memberInviteUsername: String = "",
     val downloadTrackId: String? = null,
     val downloadProgress: String? = null,
+    val downloadPlaylistId: String? = null,
+    val downloadPlaylistCompleted: Int = 0,
+    val downloadPlaylistTotal: Int = 0,
     val lyricsTrackId: String? = null,
     val lyricsPayload: LyricsPayload? = null,
     val lyricsLoading: Boolean = false,
@@ -168,6 +173,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         }
     private var playJob: Job? = null
     private var downloadJob: Job? = null
+    private var remoteVolumeJob: Job? = null
     private var connectJob: Job? = null
     private var connectRefreshJob: Job? = null
     private var updateCheckJob: Job? = null
@@ -197,6 +203,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(
         SpiceUiState(
             quality = libraryRepository.quality(),
+            searchProvider = libraryRepository.searchProvider(),
             crossfadeDurationMs = libraryRepository.crossfadeDurationMs(),
             smartQueueEnabled = libraryRepository.smartQueueEnabled(),
             accentTheme = libraryRepository.accentTheme(),
@@ -421,12 +428,17 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(searchQuery = query)
     }
 
+    fun setSearchProvider(provider: SearchProvider) {
+        libraryRepository.setSearchProvider(provider)
+        _uiState.value = _uiState.value.copy(searchProvider = provider)
+    }
+
     fun search(query: String = _uiState.value.searchQuery) {
         val normalized = query.trim()
         if (normalized.isEmpty()) return
         _uiState.value = _uiState.value.copy(searchQuery = normalized, searchLoading = true, message = null)
         viewModelScope.launch {
-            runCatching { api.search(normalized, 20) }
+            runCatching { api.search(normalized, 20, _uiState.value.searchProvider) }
                 .onSuccess { tracks ->
                     _uiState.value = _uiState.value.copy(
                         screen = AppScreen.Search,
@@ -707,6 +719,27 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         playerConnection.seekBy(deltaMs)
     }
 
+    fun setRemoteVolume(volume: Int) {
+        val target = selectedRemoteDevice() ?: return
+        if (!target.isOnline) {
+            unavailableRemoteTarget()
+            return
+        }
+        val safeVolume = volume.coerceIn(0, 100)
+        patchRemoteDevice(target.deviceId) { it.copy(volume = safeVolume) }
+        remoteVolumeJob?.cancel()
+        remoteVolumeJob = viewModelScope.launch {
+            delay(75L)
+            sendRemoteCommand(target.deviceId, "volume", JSONObject().put("volume", safeVolume))
+        }
+    }
+
+    fun adjustRemoteVolume(delta: Int) {
+        selectedRemoteDevice()?.let { setRemoteVolume(it.volume + delta) }
+    }
+
+    fun isControllingRemoteDevice(): Boolean = selectedRemoteDevice()?.isOnline == true
+
     fun toggleShuffle() {
         val targetDeviceId = activeRemoteTargetId()
         if (targetDeviceId == null) {
@@ -787,13 +820,11 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun downloadTrack(track: Track) {
-        if (_uiState.value.downloadTrackId != null) {
+        if (downloadJob?.isActive == true) {
             _uiState.value = _uiState.value.copy(message = "A download is already running.")
             return
         }
 
-        val processId = MediaDownloadClient.newProcessId()
-        activeDownloadProcessId = processId
         _uiState.value = _uiState.value.copy(
             downloadTrackId = track.id,
             downloadProgress = "Preparing download...",
@@ -801,48 +832,13 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         )
         downloadJob = viewModelScope.launch {
             try {
-                val source = downloadSource(track)
-                val result = withContext(Dispatchers.IO) {
-                    val progressHandler: (xyz.spiceapp.mobile.data.download.DownloadProgress) -> Unit = { progress ->
-                        val label = if (progress.progress.isFinite() && progress.progress >= 0f) {
-                            "Downloading ${progress.progress.toInt().coerceIn(0, 100)}%"
-                        } else {
-                            progress.line.ifBlank { "Downloading..." }.take(80)
-                        }
-                        _uiState.value = _uiState.value.copy(downloadProgress = label)
-                    }
-                    downloadClient.downloadAudio(track, source.url, processId, progress = progressHandler)
-                }
-                _uiState.value = if (result.exitCode == 0) {
-                    val file = result.outputFilePath
-                        .takeIf { it.isNotBlank() }
-                        ?.let(::File)
-                    if (file == null || !file.exists()) {
-                        _uiState.value.copy(
-                            downloadTrackId = null,
-                            downloadProgress = null,
-                            message = "Download finished, but the saved audio file was not found.",
-                        )
-                    } else {
-                        val download = libraryRepository.addDownload(
-                            track = track,
-                            file = file,
-                            mimeType = mimeTypeForAudioFile(file),
-                        )
-                        _uiState.value.copy(
-                            downloadTrackId = null,
-                            downloadProgress = null,
-                            libraryTab = LibraryTab.Downloads,
-                            message = "Downloaded ${track.title} to ${download.fileName}.",
-                        )
-                    }
-                } else {
-                    _uiState.value.copy(
-                        downloadTrackId = null,
-                        downloadProgress = null,
-                        message = "Download failed: ${result.errorOutput.ifBlank { result.output }.take(160)}",
-                    )
-                }
+                val download = downloadOneTrack(track)
+                _uiState.value = _uiState.value.copy(
+                    downloadTrackId = null,
+                    downloadProgress = null,
+                    libraryTab = LibraryTab.Downloads,
+                    message = "Saved ${track.title} to Music/Spice as ${download.fileName}.",
+                )
             } catch (cancelled: CancellationException) {
                 _uiState.value = _uiState.value.copy(downloadTrackId = null, downloadProgress = null)
                 throw cancelled
@@ -852,6 +848,70 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
                     downloadProgress = null,
                     message = error.message ?: "Download failed.",
                 )
+            } finally {
+                activeDownloadProcessId = null
+            }
+        }
+    }
+
+    fun downloadPlaylist(playlist: Playlist) {
+        if (downloadJob?.isActive == true) {
+            _uiState.value = _uiState.value.copy(message = "A download is already running.")
+            return
+        }
+        if (playlist.tracks.isEmpty()) return
+
+        _uiState.value = _uiState.value.copy(
+            downloadPlaylistId = playlist.id,
+            downloadPlaylistCompleted = 0,
+            downloadPlaylistTotal = playlist.tracks.size,
+            downloadProgress = "Preparing playlist download...",
+            message = null,
+        )
+        downloadJob = viewModelScope.launch {
+            var completed = 0
+            var failed = 0
+            try {
+                playlist.tracks.forEach { track ->
+                    _uiState.value = _uiState.value.copy(
+                        downloadTrackId = track.id,
+                        downloadProgress = "${completed + 1}/${playlist.tracks.size}: Preparing ${track.title}",
+                    )
+                    try {
+                        downloadOneTrack(track, "${completed + 1}/${playlist.tracks.size}")
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        failed += 1
+                        Log.w("SpiceDownload", "Playlist track download failed: ${error.message}")
+                    }
+                    completed += 1
+                    _uiState.value = _uiState.value.copy(downloadPlaylistCompleted = completed)
+                }
+                val saved = completed - failed
+                _uiState.value = _uiState.value.copy(
+                    downloadTrackId = null,
+                    downloadProgress = null,
+                    downloadPlaylistId = null,
+                    downloadPlaylistCompleted = 0,
+                    downloadPlaylistTotal = 0,
+                    libraryTab = LibraryTab.Downloads,
+                    message = if (failed == 0) {
+                        "Saved all $saved playlist tracks to Music/Spice, including duplicates."
+                    } else {
+                        "Saved $saved of ${playlist.tracks.size} playlist tracks."
+                    },
+                )
+            } catch (cancelled: CancellationException) {
+                _uiState.value = _uiState.value.copy(
+                    downloadTrackId = null,
+                    downloadProgress = null,
+                    downloadPlaylistId = null,
+                    downloadPlaylistCompleted = 0,
+                    downloadPlaylistTotal = 0,
+                    message = "Playlist download cancelled after $completed tracks.",
+                )
+                throw cancelled
             } finally {
                 activeDownloadProcessId = null
             }
@@ -871,6 +931,9 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(
             downloadTrackId = null,
             downloadProgress = null,
+            downloadPlaylistId = null,
+            downloadPlaylistCompleted = 0,
+            downloadPlaylistTotal = 0,
             message = "Download cancelled.",
         )
     }
@@ -880,17 +943,11 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun shareDownload(download: DownloadedTrack) {
-        val file = File(download.filePath)
-        if (!file.exists()) {
+        val uri = downloadUri(download)
+        if (uri == null) {
             _uiState.value = _uiState.value.copy(message = "That downloaded file is missing.")
             return
         }
-
-        val uri = FileProvider.getUriForFile(
-            getApplication(),
-            "${getApplication<Application>().packageName}.fileprovider",
-            file,
-        )
         val shareIntent = Intent(Intent.ACTION_SEND)
             .setType(download.mimeType)
             .putExtra(Intent.EXTRA_STREAM, uri)
@@ -2219,11 +2276,28 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    fun forgetSpiceConnectDevice(deviceId: String) {
+        if (deviceId.isBlank() || deviceId == remoteDeviceId) return
+        viewModelScope.launch {
+            runCatching {
+                withRemoteAccess { token -> api.forgetRemoteDevice(token, remoteDeviceId, deviceId) }
+            }.onSuccess {
+                if (_uiState.value.selectedPlaybackDeviceId == deviceId) selectPlaybackDevice(null)
+                _uiState.value = _uiState.value.copy(
+                    remoteDevices = _uiState.value.remoteDevices.filterNot { it.deviceId == deviceId },
+                    connectStatus = "Forgot the remembered device. It can appear again if it reconnects.",
+                )
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(message = error.message ?: "Could not forget that device.")
+            }
+        }
+    }
+
     fun handoffPlaybackToSelectedDevice() {
         val state = _uiState.value
         val target = selectedRemoteDevice()
         val track = state.currentTrack
-        if (target == null || track == null) {
+        if (target == null || !target.isOnline || track == null) {
             _uiState.value = state.copy(message = "Play something on this phone, then choose another online device.")
             return
         }
@@ -2306,6 +2380,11 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(connectStatus = "Choose another Spice Connect device.")
             return
         }
+        val target = _uiState.value.remoteDevices.firstOrNull { it.deviceId == deviceId }
+        if (target?.isOnline == false) {
+            _uiState.value = _uiState.value.copy(message = "${target.displayName} is offline.")
+            return
+        }
         viewModelScope.launch {
             runCatching {
                 withRemoteAccess { token ->
@@ -2348,7 +2427,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun playOnRemoteDevice(targetDeviceId: String, track: Track, queue: List<Track>) {
         val target = _uiState.value.remoteDevices.firstOrNull { it.deviceId == targetDeviceId }
-        if (target == null) {
+        if (target == null || !target.isOnline) {
             unavailableRemoteTarget()
             return
         }
@@ -3051,6 +3130,40 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
             DownloadSource(api.resolvePlayable(track, _uiState.value.quality).stream.url)
         }
 
+    private suspend fun downloadOneTrack(track: Track, progressPrefix: String = ""): DownloadedTrack {
+        val processId = MediaDownloadClient.newProcessId()
+        activeDownloadProcessId = processId
+        val source = downloadSource(track)
+        val result = withContext(Dispatchers.IO) {
+            val progressHandler: (xyz.spiceapp.mobile.data.download.DownloadProgress) -> Unit = { progress ->
+                val status = if (progress.progress.isFinite() && progress.progress >= 0f) {
+                    "Downloading ${progress.progress.toInt().coerceIn(0, 100)}%"
+                } else {
+                    progress.line.ifBlank { "Downloading..." }.take(80)
+                }
+                _uiState.value = _uiState.value.copy(
+                    downloadProgress = listOf(progressPrefix, status).filter(String::isNotBlank).joinToString(": "),
+                )
+            }
+            downloadClient.downloadAudio(track, source.url, processId, progress = progressHandler)
+        }
+        if (result.exitCode != 0) {
+            throw IllegalStateException(
+                "Download failed: ${result.errorOutput.ifBlank { result.output }.take(160)}",
+            )
+        }
+        if (result.outputFilePath.isBlank() || result.outputFileName.isBlank()) {
+            throw IllegalStateException("Download finished, but Android did not return the saved audio file.")
+        }
+        return libraryRepository.addDownload(
+            track = track,
+            savedLocation = result.outputFilePath,
+            fileName = result.outputFileName,
+            bytes = result.outputBytes,
+            mimeType = "audio/mpeg",
+        )
+    }
+
     private fun loadRemoteDeviceId(): String {
         connectPreferences.getString(KEY_REMOTE_DEVICE_ID, null)?.let { return it }
         val id = "spice-android-${UUID.randomUUID()}"
@@ -3085,17 +3198,11 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun startDownloadIntent(download: DownloadedTrack, action: String) {
-        val file = File(download.filePath)
-        if (!file.exists()) {
+        val uri = downloadUri(download)
+        if (uri == null) {
             _uiState.value = _uiState.value.copy(message = "That downloaded file is missing.")
             return
         }
-
-        val uri = FileProvider.getUriForFile(
-            getApplication(),
-            "${getApplication<Application>().packageName}.fileprovider",
-            file,
-        )
         val intent = Intent(action)
             .setDataAndType(uri, download.mimeType)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -3105,6 +3212,23 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         }.onFailure { error ->
             _uiState.value = _uiState.value.copy(message = error.message ?: "No app can open this download.")
         }
+    }
+
+    private fun downloadUri(download: DownloadedTrack): Uri? {
+        if (download.filePath.startsWith("content://")) {
+            val uri = Uri.parse(download.filePath)
+            val exists = runCatching {
+                getApplication<Application>().contentResolver.openAssetFileDescriptor(uri, "r")?.use { true } ?: false
+            }.getOrDefault(false)
+            return uri.takeIf { exists }
+        }
+        val file = File(download.filePath)
+        if (!file.exists()) return null
+        return FileProvider.getUriForFile(
+            getApplication(),
+            "${getApplication<Application>().packageName}.fileprovider",
+            file,
+        )
     }
 
     private fun mimeTypeForAudioFile(file: File): String =
@@ -3121,7 +3245,6 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         val normalized = queue
             .ifEmpty { listOf(selected) }
             .filter { it.id.isNotBlank() }
-            .distinctBy { it.queueKey() }
         return if (normalized.any { it.queueKey() == selected.queueKey() }) {
             normalized
         } else {

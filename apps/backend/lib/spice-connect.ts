@@ -16,16 +16,17 @@ export type SpiceConnectRepeatMode = 'none' | 'all' | 'one';
 export const SPICE_CONNECT_COMMAND_TTL_MS = 240000;
 export const SPICE_CONNECT_COMMAND_REDELIVERY_MS = 10_000;
 export const SPICE_CONNECT_MAX_COMMAND_DELIVERY_ATTEMPTS = 3;
-export const SPICE_CONNECT_COMMAND_ACTIVE_POLL_INTERVAL_MS = 1500;
-export const SPICE_CONNECT_COMMAND_IDLE_POLL_INTERVAL_MS = 3000;
-export const SPICE_CONNECT_COMMAND_HIDDEN_POLL_INTERVAL_MS = 5000;
+export const SPICE_CONNECT_COMMAND_ACTIVE_POLL_INTERVAL_MS = 500;
+export const SPICE_CONNECT_COMMAND_IDLE_POLL_INTERVAL_MS = 1500;
+export const SPICE_CONNECT_COMMAND_HIDDEN_POLL_INTERVAL_MS = 3000;
 export const SPICE_CONNECT_COMMAND_IDLE_BACKOFF_POLLS = 3;
-export const SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS = 2000;
-export const SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS = 30000;
-export const SPICE_CONNECT_POST_COMMAND_SYNC_DELAY_MS = 300;
-export const SPICE_CONNECT_STATE_REPORT_DEBOUNCE_MS = 250;
+export const SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS = 750;
+export const SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS = 20000;
+export const SPICE_CONNECT_POST_COMMAND_SYNC_DELAY_MS = 150;
+export const SPICE_CONNECT_STATE_REPORT_DEBOUNCE_MS = 80;
 export const SPICE_CONNECT_OPTIMISTIC_STATE_WINDOW_MS = 6000;
-export const SPICE_CONNECT_STALE_DEVICE_SECONDS = 90;
+export const SPICE_CONNECT_STALE_DEVICE_SECONDS = 60;
+export const SPICE_CONNECT_DEVICE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 type RemoteAuthorizationState = {
   tokenHash: string;
@@ -101,6 +102,22 @@ export function isSpiceConnectDeviceStale(
   const nowTime = now instanceof Date ? now.getTime() : now;
   const ageMs = nowTime - dateTime(updatedAt);
   return !Number.isFinite(ageMs) || ageMs >= SPICE_CONNECT_STALE_DEVICE_SECONDS * 1000;
+}
+
+export function isSpiceConnectDeviceRemembered(
+  updatedAt: Date | string,
+  now: Date | number = Date.now(),
+) {
+  const nowTime = now instanceof Date ? now.getTime() : now;
+  const ageMs = nowTime - dateTime(updatedAt);
+  return Number.isFinite(ageMs) && ageMs >= 0 && ageMs < SPICE_CONNECT_DEVICE_RETENTION_MS;
+}
+
+export function spiceConnectDeviceRememberedUntil(updatedAt: Date | string) {
+  const updatedTime = dateTime(updatedAt);
+  return Number.isFinite(updatedTime)
+    ? new Date(updatedTime + SPICE_CONNECT_DEVICE_RETENTION_MS)
+    : null;
 }
 
 export function isSpiceConnectCommandDeliverable(

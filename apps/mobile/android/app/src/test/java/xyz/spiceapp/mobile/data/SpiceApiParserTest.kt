@@ -2,10 +2,12 @@ package xyz.spiceapp.mobile.data
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import xyz.spiceapp.mobile.model.RepeatMode
 import xyz.spiceapp.mobile.model.StreamQuality
+import xyz.spiceapp.mobile.model.Track
 
 class SpiceApiParserTest {
     @Test
@@ -492,6 +494,21 @@ class SpiceApiParserTest {
     }
 
     @Test
+    fun playlistMergeKeepsDuplicateOccurrencesFromCloud() {
+        val remoteTracks = listOf(
+            Track("a", "A", "Artist"),
+            Track("b", "B", "Artist"),
+            Track("a", "A duplicate", "Artist"),
+        )
+        val localTracks = remoteTracks.take(2)
+
+        val merged = mergeSyncPlaylistTracks(remoteTracks, localTracks)
+
+        assertEquals(listOf("a", "b", "a"), merged.map { it.id })
+        assertEquals(3, merged.size)
+    }
+
+    @Test
     fun parsesSpiceConnectDeviceQueueAndPlaybackState() {
         val device = parseRemoteDevices(
             JSONObject(
@@ -511,6 +528,8 @@ class SpiceApiParserTest {
                     "repeatMode": "one",
                     "progress": 12.5,
                     "duration": 180
+                    ,"isOnline": false,
+                    "rememberedUntil": "2026-08-21T00:00:00.000Z"
                   }]
                 }
                 """.trimIndent(),
@@ -524,6 +543,8 @@ class SpiceApiParserTest {
         assertTrue(device.isPlaying)
         assertTrue(device.shuffleEnabled)
         assertEquals(RepeatMode.One, device.repeatMode)
+        assertFalse(device.isOnline)
+        assertEquals("2026-08-21T00:00:00.000Z", device.rememberedUntil)
     }
 
     @Test

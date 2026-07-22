@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -15,6 +16,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -71,6 +76,27 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         viewModel.openPlaylistInviteFromUri(intent.data)
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        val delta = when (keyCode) {
+            KeyEvent.KEYCODE_VOLUME_UP -> 5
+            KeyEvent.KEYCODE_VOLUME_DOWN -> -5
+            else -> 0
+        }
+        if (delta != 0 && viewModel.isControllingRemoteDevice()) {
+            viewModel.adjustRemoteVolume(delta)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (
+            viewModel.isControllingRemoteDevice() &&
+            (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)
+        ) return true
+        return super.onKeyUp(keyCode, event)
     }
 
     private fun requestAppUpdateInstall(apkPath: String, expectedReleaseVersion: String) {
@@ -136,6 +162,13 @@ private fun SpiceRoot(
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {}
+    var pendingLegacyDownload by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val legacyStoragePermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) {
+        pendingLegacyDownload?.invoke()
+        pendingLegacyDownload = null
+    }
     val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
     val playerState = viewModel.playerState.collectAsStateWithLifecycle().value
     LaunchedEffect(uiState.accentTheme) {
@@ -148,6 +181,18 @@ private fun SpiceRoot(
             PackageManager.PERMISSION_GRANTED
         ) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+    val withLegacyDownloadPermission: ((() -> Unit) -> Unit) = { action ->
+        if (
+            Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingLegacyDownload = action
+            legacyStoragePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            action()
         }
     }
 
@@ -172,6 +217,7 @@ private fun SpiceRoot(
             onToggleLike = viewModel::toggleLike,
             onAccentSelected = viewModel::setAccentTheme,
             onQualitySelected = viewModel::setQuality,
+            onSearchProviderSelected = viewModel::setSearchProvider,
             onCrossfadeDurationSelected = viewModel::setCrossfadeDurationMs,
             onSmartQueueEnabled = viewModel::setSmartQueueEnabled,
             onLibraryTabSelected = viewModel::setLibraryTab,
@@ -216,12 +262,15 @@ private fun SpiceRoot(
             onSyncNow = viewModel::syncNow,
             onRefreshSpiceConnect = viewModel::refreshSpiceConnect,
             onPlaybackDeviceSelected = viewModel::selectPlaybackDevice,
+            onForgetPlaybackDevice = viewModel::forgetSpiceConnectDevice,
+            onRemoteVolumeChanged = viewModel::setRemoteVolume,
             onHandoffPlayback = viewModel::handoffPlaybackToSelectedDevice,
             onTestEngine = {
                 ensureNotificationPermission()
                 viewModel.playEngineTest()
             },
-            onDownloadTrack = viewModel::downloadTrack,
+            onDownloadTrack = { track -> withLegacyDownloadPermission { viewModel.downloadTrack(track) } },
+            onDownloadPlaylist = { playlist -> withLegacyDownloadPermission { viewModel.downloadPlaylist(playlist) } },
             onCancelDownload = viewModel::cancelDownload,
             onLoadLyrics = viewModel::loadCurrentLyrics,
             onDismissLyrics = viewModel::dismissLyrics,

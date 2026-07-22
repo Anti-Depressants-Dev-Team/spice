@@ -32,6 +32,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.BookmarkBorder
@@ -150,6 +151,7 @@ import xyz.spiceapp.mobile.model.PlaylistMember
 import xyz.spiceapp.mobile.model.PlaylistMembersSummary
 import xyz.spiceapp.mobile.model.RemoteDevice
 import xyz.spiceapp.mobile.model.RepeatMode
+import xyz.spiceapp.mobile.model.SearchProvider
 import xyz.spiceapp.mobile.model.SharedPlaylistTrack
 import xyz.spiceapp.mobile.model.SharedPlaylistTracks
 import xyz.spiceapp.mobile.model.StreamQuality
@@ -175,6 +177,7 @@ fun SpiceApp(
     onToggleLike: (Track) -> Unit,
     onAccentSelected: (AccentTheme) -> Unit,
     onQualitySelected: (StreamQuality) -> Unit,
+    onSearchProviderSelected: (SearchProvider) -> Unit,
     onCrossfadeDurationSelected: (Long) -> Unit,
     onSmartQueueEnabled: (Boolean) -> Unit,
     onLibraryTabSelected: (LibraryTab) -> Unit,
@@ -219,9 +222,12 @@ fun SpiceApp(
     onSyncNow: () -> Unit,
     onRefreshSpiceConnect: () -> Unit,
     onPlaybackDeviceSelected: (String?) -> Unit,
+    onForgetPlaybackDevice: (String) -> Unit,
+    onRemoteVolumeChanged: (Int) -> Unit,
     onHandoffPlayback: () -> Unit,
     onTestEngine: () -> Unit,
     onDownloadTrack: (Track) -> Unit,
+    onDownloadPlaylist: (Playlist) -> Unit,
     onCancelDownload: () -> Unit,
     onLoadLyrics: () -> Unit,
     onDismissLyrics: () -> Unit,
@@ -295,6 +301,7 @@ fun SpiceApp(
                         onRepeat = onCycleRepeat,
                         onRefreshDevices = onRefreshSpiceConnect,
                         onDeviceSelected = onPlaybackDeviceSelected,
+                        onForgetDevice = onForgetPlaybackDevice,
                     )
                 }
                 SpiceNavigation(uiState.screen, onScreenSelected)
@@ -323,6 +330,7 @@ fun SpiceApp(
                 onShareDownload = onShareDownload,
                 onRemoveDownload = onRemoveDownload,
                 onTrackSelected = onTrackSelected,
+                onDownloadPlaylist = onDownloadPlaylist,
             )
             AppScreen.Settings -> SettingsScreen(
                 uiState = uiState,
@@ -342,6 +350,7 @@ fun SpiceApp(
                 onSignOut = onSignOut,
                 onAccentSelected = onAccentSelected,
                 onQualitySelected = onQualitySelected,
+                onSearchProviderSelected = onSearchProviderSelected,
                 onCrossfadeDurationSelected = onCrossfadeDurationSelected,
                 onSmartQueueEnabled = onSmartQueueEnabled,
                 onOpenProfileEditor = onOpenProfileEditor,
@@ -380,6 +389,8 @@ fun SpiceApp(
             onCancelDownload = onCancelDownload,
             onRefreshDevices = onRefreshSpiceConnect,
             onDeviceSelected = onPlaybackDeviceSelected,
+            onForgetDevice = onForgetPlaybackDevice,
+            onRemoteVolumeChanged = onRemoteVolumeChanged,
             onHandoffPlayback = onHandoffPlayback,
             onAddTrackToPlaylist = onAddTrackToPlaylist,
         )
@@ -1168,6 +1179,7 @@ private fun LibraryScreen(
     onShareDownload: (DownloadedTrack) -> Unit,
     onRemoveDownload: (DownloadedTrack) -> Unit,
     onTrackSelected: (Track, List<Track>) -> Unit,
+    onDownloadPlaylist: (Playlist) -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().padding(top = contentPadding.calculateTopPadding()),
@@ -1199,6 +1211,11 @@ private fun LibraryScreen(
                 onOpenPlaylistMembers = onOpenPlaylistMembers,
                 onTrackSelected = onTrackSelected,
                 sharingPlaylistId = uiState.sharingPlaylistId,
+                downloadPlaylistId = uiState.downloadPlaylistId,
+                downloadPlaylistCompleted = uiState.downloadPlaylistCompleted,
+                downloadPlaylistTotal = uiState.downloadPlaylistTotal,
+                onDownloadPlaylist = onDownloadPlaylist,
+                onCancelDownload = onCancelDownload,
             )
             LibraryTab.Liked -> TrackList(uiState.likedTracks, contentPadding.calculateBottomPadding(), onTrackSelected, "No liked tracks")
             LibraryTab.History -> TrackList(uiState.historyTracks, contentPadding.calculateBottomPadding(), onTrackSelected, "No listening history")
@@ -1211,6 +1228,7 @@ private fun LibraryScreen(
                 onOpenDownload = onOpenDownload,
                 onShareDownload = onShareDownload,
                 onRemoveDownload = onRemoveDownload,
+                onTrackSelected = onTrackSelected,
             )
         }
     }
@@ -1227,6 +1245,11 @@ private fun PlaylistList(
     onOpenPlaylistMembers: (Playlist) -> Unit,
     onTrackSelected: (Track, List<Track>) -> Unit,
     sharingPlaylistId: String?,
+    downloadPlaylistId: String?,
+    downloadPlaylistCompleted: Int,
+    downloadPlaylistTotal: Int,
+    onDownloadPlaylist: (Playlist) -> Unit,
+    onCancelDownload: () -> Unit,
 ) {
     if (playlists.isEmpty()) {
         EmptyState(
@@ -1251,6 +1274,11 @@ private fun PlaylistList(
                 onOpenPlaylistMembers = onOpenPlaylistMembers,
                 onTrackSelected = onTrackSelected,
                 sharing = sharingPlaylistId == playlist.id,
+                downloading = downloadPlaylistId == playlist.id,
+                downloadCompleted = downloadPlaylistCompleted,
+                downloadTotal = downloadPlaylistTotal,
+                onDownloadPlaylist = onDownloadPlaylist,
+                onCancelDownload = onCancelDownload,
             )
         }
     }
@@ -1265,6 +1293,11 @@ private fun PlaylistCard(
     onOpenPlaylistMembers: (Playlist) -> Unit,
     onTrackSelected: (Track, List<Track>) -> Unit,
     sharing: Boolean,
+    downloading: Boolean,
+    downloadCompleted: Int,
+    downloadTotal: Int,
+    onDownloadPlaylist: (Playlist) -> Unit,
+    onCancelDownload: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onOpenPlaylistMembers(playlist) },
@@ -1284,6 +1317,18 @@ private fun PlaylistCard(
             }
             val canInvite = !playlist.shared || playlist.shareRole == "owner"
             val canEditTracks = !playlist.shared || playlist.shareRole in setOf("owner", "editor")
+            if (playlist.tracks.isNotEmpty()) {
+                OutlinedButton(
+                    onClick = { if (downloading) onCancelDownload() else onDownloadPlaylist(playlist) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(if (downloading) Icons.Rounded.Close else Icons.Rounded.Download, null)
+                    Text(
+                        if (downloading) "Stop $downloadCompleted/$downloadTotal" else "Download all ${playlist.tracks.size}",
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
+            }
             if ((currentTrack != null && canEditTracks) || canInvite || playlist.shared) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1375,11 +1420,12 @@ private fun DownloadList(
     onOpenDownload: (DownloadedTrack) -> Unit,
     onShareDownload: (DownloadedTrack) -> Unit,
     onRemoveDownload: (DownloadedTrack) -> Unit,
+    onTrackSelected: (Track, List<Track>) -> Unit,
 ) {
     if (downloads.isEmpty() && activeTrackId == null) {
         EmptyState(
             title = "No downloads yet",
-            body = "Use the full player download button to save audio on this phone.",
+            body = "Use the full player or playlist download button. Files are saved in Music/Spice and play here without a connection.",
             onAction = null,
         )
         return
@@ -1403,6 +1449,7 @@ private fun DownloadList(
                 onOpenDownload = onOpenDownload,
                 onShareDownload = onShareDownload,
                 onRemoveDownload = onRemoveDownload,
+                onPlay = { onTrackSelected(download.track, downloads.map { it.track }) },
             )
         }
     }
@@ -1442,9 +1489,10 @@ private fun DownloadCard(
     onOpenDownload: (DownloadedTrack) -> Unit,
     onShareDownload: (DownloadedTrack) -> Unit,
     onRemoveDownload: (DownloadedTrack) -> Unit,
+    onPlay: () -> Unit,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onPlay),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = SpiceSurfaceHigh),
     ) {
@@ -1514,6 +1562,7 @@ private fun SettingsScreen(
     onSignOut: () -> Unit,
     onAccentSelected: (AccentTheme) -> Unit,
     onQualitySelected: (StreamQuality) -> Unit,
+    onSearchProviderSelected: (SearchProvider) -> Unit,
     onCrossfadeDurationSelected: (Long) -> Unit,
     onSmartQueueEnabled: (Boolean) -> Unit,
     onOpenProfileEditor: () -> Unit,
@@ -1555,6 +1604,13 @@ private fun SettingsScreen(
                     AccentSection(
                         selected = uiState.accentTheme,
                         onSelected = onAccentSelected,
+                    )
+                }
+                item { HorizontalDivider() }
+                item {
+                    SearchProviderSection(
+                        selected = uiState.searchProvider,
+                        onSelected = onSearchProviderSelected,
                     )
                 }
                 item { HorizontalDivider() }
@@ -1612,6 +1668,33 @@ private fun SettingsScreen(
             }
             SettingsTab.Terms -> item { TermsSection() }
             SettingsTab.Licenses -> item { LicenseSection() }
+        }
+    }
+}
+
+@Composable
+private fun SearchProviderSection(
+    selected: SearchProvider,
+    onSelected: (SearchProvider) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Rounded.Search, null)
+            Text("Search sources", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        }
+        Text(
+            "Choose whether music searches combine providers or stay on YouTube or SoundCloud.",
+            color = SpiceTextMuted,
+            fontSize = 13.sp,
+        )
+        SearchProvider.entries.forEach { provider ->
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { onSelected(provider) },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(selected = selected == provider, onClick = { onSelected(provider) })
+                Text(provider.label, fontWeight = FontWeight.SemiBold)
+            }
         }
     }
 }
@@ -2473,6 +2556,7 @@ private fun SpiceConnectReceiverMenu(
     selectedRemoteDevice: RemoteDevice?,
     onRefresh: () -> Unit,
     onSelected: (String?) -> Unit,
+    onForget: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -2540,7 +2624,9 @@ private fun SpiceConnectReceiverMenu(
                             Column {
                                 Text(device.displayName, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    device.currentTrack?.let {
+                                    if (!device.isOnline) {
+                                        "Offline · remembered for 30 days"
+                                    } else device.currentTrack?.let {
                                         "${if (device.isPlaying) "Playing" else "Paused"} - ${it.title}"
                                     } ?: "Idle",
                                     color = SpiceTextMuted,
@@ -2556,8 +2642,16 @@ private fun SpiceConnectReceiverMenu(
                         },
                         leadingIcon = { Icon(Icons.Rounded.Devices, null) },
                         trailingIcon = {
-                            if (uiState.selectedPlaybackDeviceId == device.deviceId) {
-                                Icon(Icons.Rounded.Check, "Selected", tint = MaterialTheme.colorScheme.primary)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (uiState.selectedPlaybackDeviceId == device.deviceId) {
+                                    Icon(Icons.Rounded.Check, "Selected", tint = MaterialTheme.colorScheme.primary)
+                                }
+                                IconButton(
+                                    onClick = { onForget(device.deviceId) },
+                                    modifier = Modifier.size(34.dp),
+                                ) {
+                                    Icon(Icons.Rounded.Close, "Forget ${device.displayName}")
+                                }
                             }
                         },
                     )
@@ -2624,6 +2718,7 @@ private fun MiniPlayer(
     onRepeat: () -> Unit,
     onRefreshDevices: () -> Unit,
     onDeviceSelected: (String?) -> Unit,
+    onForgetDevice: (String) -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(enabled = track != null, onClick = onOpen),
@@ -2671,6 +2766,7 @@ private fun MiniPlayer(
                     selectedRemoteDevice = selectedRemoteDevice,
                     onRefresh = onRefreshDevices,
                     onSelected = onDeviceSelected,
+                    onForget = onForgetDevice,
                     modifier = Modifier.size(34.dp),
                 )
                 IconButton(onClick = onShuffle, modifier = Modifier.size(34.dp)) {
@@ -2758,6 +2854,8 @@ private fun FullPlayer(
     onCancelDownload: () -> Unit,
     onRefreshDevices: () -> Unit,
     onDeviceSelected: (String?) -> Unit,
+    onForgetDevice: (String) -> Unit,
+    onRemoteVolumeChanged: (Int) -> Unit,
     onHandoffPlayback: () -> Unit,
     onAddTrackToPlaylist: (String, Track) -> Unit,
 ) {
@@ -2806,6 +2904,7 @@ private fun FullPlayer(
                     selectedRemoteDevice = selectedRemoteDevice,
                     onRefresh = onRefreshDevices,
                     onSelected = onDeviceSelected,
+                    onForget = onForgetDevice,
                     modifier = Modifier.size(40.dp),
                 )
                 IconButton(
@@ -2854,6 +2953,23 @@ private fun FullPlayer(
                     IconButton(onClick = onCancelDownload, modifier = Modifier.size(36.dp)) {
                         Icon(Icons.Rounded.Close, "Cancel download")
                     }
+                }
+            }
+            if (remotePlayback) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(Icons.AutoMirrored.Rounded.VolumeUp, "Connected device volume")
+                    Slider(
+                        value = player.volume.coerceIn(0, 100).toFloat(),
+                        onValueChange = { onRemoteVolumeChanged(it.toInt()) },
+                        valueRange = 0f..100f,
+                        enabled = selectedRemoteDevice?.isOnline != false,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text("${player.volume.coerceIn(0, 100)}%", color = SpiceTextMuted, fontSize = 12.sp)
                 }
             }
             Slider(

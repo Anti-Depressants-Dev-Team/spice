@@ -403,6 +403,32 @@ function installSpiceDesktopUpdaterBridge() {
 
 installSpiceDesktopUpdaterBridge();
 
+function installSpiceDesktopOfflineLibraryBridge() {
+    if (!IS_SPICE_MUSIC || window.spiceDesktopOfflineLibrary) return;
+
+    const bridge = {
+        getSettings: () => ipcRenderer.invoke('spice-offline-library-settings'),
+        chooseDirectory: () => ipcRenderer.invoke('spice-offline-library-choose-directory'),
+        list: () => ipcRenderer.invoke('spice-offline-library-list'),
+        save: async (fileName, blob, track) => {
+            if (!(blob instanceof Blob)) throw new TypeError('A downloaded audio Blob is required.');
+            const bytes = await blob.arrayBuffer();
+            return ipcRenderer.invoke('spice-offline-library-save', { fileName, bytes, track });
+        },
+        remove: (fileName) => ipcRenderer.invoke('spice-offline-library-remove', fileName),
+        show: (fileName) => ipcRenderer.invoke('spice-offline-library-show', fileName),
+    };
+
+    Object.defineProperty(window, 'spiceDesktopOfflineLibrary', {
+        configurable: false,
+        enumerable: false,
+        writable: false,
+        value: Object.freeze(bridge),
+    });
+}
+
+installSpiceDesktopOfflineLibraryBridge();
+
 function installSpiceDesktopUiBridge() {
     if (!IS_SPICE_MUSIC) return;
 
