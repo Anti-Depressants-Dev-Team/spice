@@ -117,6 +117,12 @@ import {
   SPICE_CONNECT_STATE_REPORT_DEBOUNCE_MS,
   SPICE_CONNECT_STALE_DEVICE_SECONDS,
 } from '@/lib/spice-connect';
+import {
+  initialSpiceConnectSseParserState,
+  parseSpiceConnectSseChunk,
+  SPICE_CONNECT_REALTIME_RECONNECT_MAX_MS,
+  SPICE_CONNECT_REALTIME_RECONNECT_MIN_MS,
+} from '@/lib/spice-connect-realtime';
 import { SPICE_MEDIA_CORE_VERSION, RELEASE_NOTIFICATION_STORAGE_KEY, type ReleaseNotification } from '@/lib/release-notifications';
 import {
   accountBoundProfiles,
@@ -7339,6 +7345,95 @@ export default function SpiceApp() {
       cancelled = true;
       clearScheduledPoll();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isMounted, remoteAuthToken, remoteControlEnabled, remoteDeviceId]);
+
+  useEffect(() => {
+    if (!isMounted || !remoteAuthToken || !remoteControlEnabled) return;
+
+    let cancelled = false;
+    let reconnectTimer: number | null = null;
+    let resolveReconnectWait: (() => void) | null = null;
+    let reconnectDelayMs = SPICE_CONNECT_REALTIME_RECONNECT_MIN_MS;
+    let fallbackLogged = false;
+    let abortController: AbortController | null = null;
+    const requestGeneration = remoteRequestGenerationRef.current;
+    const requestToken = remoteAuthToken;
+
+    const waitToReconnect = (delayMs: number) => new Promise<void>((resolve) => {
+      resolveReconnectWait = resolve;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        resolveReconnectWait = null;
+        resolve();
+      }, delayMs);
+    });
+
+    const listenForCommands = async () => {
+      while (!cancelled && requestGeneration === remoteRequestGenerationRef.current) {
+        abortController = new AbortController();
+        try {
+          const response = await spiceFetch('cloud', '/remote/events', {
+            headers: {
+              Accept: 'text/event-stream',
+              Authorization: `Bearer ${requestToken}`,
+            },
+            cache: 'no-store',
+            signal: abortController.signal,
+          }, { deviceId: remoteDeviceId });
+          if (cancelled || requestGeneration !== remoteRequestGenerationRef.current) return;
+          handleRemoteAuthorizationResponse(response, requestGeneration);
+          if (!response.ok || !response.body) {
+            throw new Error(`Spice Connect realtime stream returned ${response.status}.`);
+          }
+
+          fallbackLogged = false;
+          reconnectDelayMs = SPICE_CONNECT_REALTIME_RECONNECT_MIN_MS;
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let parserState = initialSpiceConnectSseParserState();
+          while (!cancelled && requestGeneration === remoteRequestGenerationRef.current) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const parsed = parseSpiceConnectSseChunk(
+              parserState,
+              decoder.decode(value, { stream: true }),
+            );
+            parserState = parsed.state;
+            if (parsed.events.some((eventName) => eventName === 'ready' || eventName === 'command')) {
+              emptyRemoteCommandPollsRef.current = 0;
+              void pollRemoteCommands();
+            }
+          }
+        } catch (error) {
+          if (
+            cancelled
+            || requestGeneration !== remoteRequestGenerationRef.current
+            || (error instanceof DOMException && error.name === 'AbortError')
+          ) return;
+          if (!fallbackLogged) {
+            fallbackLogged = true;
+            logDebug('remote', 'Realtime Spice Connect wakeups unavailable; using command polling fallback.');
+          }
+        } finally {
+          abortController = null;
+        }
+
+        if (cancelled || requestGeneration !== remoteRequestGenerationRef.current) return;
+        await waitToReconnect(reconnectDelayMs);
+        reconnectDelayMs = Math.min(
+          SPICE_CONNECT_REALTIME_RECONNECT_MAX_MS,
+          reconnectDelayMs * 2,
+        );
+      }
+    };
+
+    void listenForCommands();
+    return () => {
+      cancelled = true;
+      abortController?.abort();
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      resolveReconnectWait?.();
     };
   }, [isMounted, remoteAuthToken, remoteControlEnabled, remoteDeviceId]);
 

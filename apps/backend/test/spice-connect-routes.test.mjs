@@ -11,8 +11,9 @@ const importRoute = (path) => tsImport(path, {
   tsconfig,
 });
 
-const [commandsRoute, devicesRoute, authorizationsRoute, revokeRoute] = await Promise.all([
+const [commandsRoute, eventsRoute, devicesRoute, authorizationsRoute, revokeRoute] = await Promise.all([
   importRoute('../app/api/remote/commands/route.ts'),
+  importRoute('../app/api/remote/events/route.ts'),
   importRoute('../app/api/remote/devices/route.ts'),
   importRoute('../app/api/remote/pairing/authorizations/route.ts'),
   importRoute('../app/api/remote/pairing/authorizations/[authorizationId]/route.ts'),
@@ -27,9 +28,13 @@ test('Spice Connect state and command routes require a live credential', async (
   const commands = await commandsRoute.GET(new Request(
     'https://music.spice-app.xyz/api/remote/commands?deviceId=desktop',
   ));
+  const events = await eventsRoute.GET(new Request(
+    'https://music.spice-app.xyz/api/remote/events?deviceId=desktop',
+  ));
   assert.equal(devices.status, 401);
   assert.equal(forget.status, 401);
   assert.equal(commands.status, 401);
+  assert.equal(events.status, 401);
 });
 
 test('Spice Connect authorization list and revoke routes require an account credential', async () => {
@@ -49,8 +54,10 @@ test('Spice Connect preflights reflect allowed cross-origin clients', () => {
   });
   const devices = devicesRoute.OPTIONS(request);
   const commands = commandsRoute.OPTIONS(request);
+  const events = eventsRoute.OPTIONS(request);
   assert.equal(devices.headers.get('Access-Control-Allow-Origin'), 'http://localhost:3939');
   assert.equal(commands.headers.get('Access-Control-Allow-Origin'), 'http://localhost:3939');
+  assert.equal(events.headers.get('Access-Control-Allow-Origin'), 'http://localhost:3939');
 });
 
 test('idempotent revoke targets only the credential generation it revoked', async () => {
@@ -71,6 +78,18 @@ test('remote command polling deletes terminal commands after their delivery TTL'
   assert.match(source, /WITH stale_commands AS \(\s*DELETE FROM/s);
   assert.match(source, /createdAt\} < \$\{staleCutoff\}/);
   assert.doesNotMatch(source, /WITH stale_commands AS \(\s*UPDATE/s);
+});
+
+test('remote commands emit best-effort wakeups while the event route keeps polling as fallback', async () => {
+  const [commandsSource, eventsSource] = await Promise.all([
+    readFile(new URL('../app/api/remote/commands/route.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../app/api/remote/events/route.ts', import.meta.url), 'utf8'),
+  ]);
+  assert.match(commandsSource, /SELECT pg_notify/);
+  assert.match(commandsSource, /polling remains authoritative/);
+  assert.match(eventsSource, /text\/event-stream/);
+  assert.match(eventsSource, /SPICE_CONNECT_REALTIME_STREAM_LIFETIME_MS/);
+  assert.match(eventsSource, /status: 503/);
 });
 
 test('remote device discovery prunes snapshots after the one-month retention window', async () => {

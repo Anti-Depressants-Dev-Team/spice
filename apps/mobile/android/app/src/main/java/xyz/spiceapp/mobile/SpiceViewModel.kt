@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.coroutineScope
@@ -24,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import xyz.spiceapp.mobile.data.LibraryRepository
@@ -175,6 +177,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
     private var downloadJob: Job? = null
     private var remoteVolumeJob: Job? = null
     private var connectJob: Job? = null
+    private var connectRealtimeJob: Job? = null
     private var connectRefreshJob: Job? = null
     private var updateCheckJob: Job? = null
     private var updateDownloadJob: Job? = null
@@ -199,6 +202,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         capacity = MAX_APPLIED_REMOTE_COMMAND_IDS,
         initialIds = loadAppliedRemoteCommandIds(),
     )
+    private val connectRealtimeWakeups = Channel<Unit>(Channel.CONFLATED)
     private var activeDownloadProcessId: String? = null
     private val _uiState = MutableStateFlow(
         SpiceUiState(
@@ -1448,6 +1452,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         autoHistorySyncJob?.cancel()
         autoTasteSyncJob?.cancel()
         connectJob?.cancel()
+        connectRealtimeJob?.cancel()
         connectRefreshJob?.cancel()
         clearOptimisticRemoteState()
         connectPreferences.edit().remove(KEY_SELECTED_PLAYBACK_DEVICE_ID).apply()
@@ -2677,6 +2682,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         val accountFallback = state.accountSession != null
         if (!accountFallback) {
             connectJob?.cancel()
+            connectRealtimeJob?.cancel()
             connectRefreshJob?.cancel()
             connectPreferences.edit().remove(KEY_SELECTED_PLAYBACK_DEVICE_ID).apply()
         }
@@ -2711,7 +2717,11 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun startSpiceConnect() {
         connectJob?.cancel()
+        connectRealtimeJob?.cancel()
         connectRefreshJob?.cancel()
+        while (connectRealtimeWakeups.tryReceive().isSuccess) {
+            // Drop wakeups from a credential or receiver generation that ended.
+        }
         connectJob = viewModelScope.launch {
             var nextDeviceSnapshotAtMs = 0L
             var nextDeviceHeartbeatAtMs = 0L
@@ -2790,7 +2800,43 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
                         connectStatus = error.message ?: _uiState.value.connectStatus,
                     )
                 }
-                delay(SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS)
+                withTimeoutOrNull(SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS) {
+                    connectRealtimeWakeups.receive()
+                }
+            }
+        }
+        startSpiceConnectRealtime()
+    }
+
+    private fun startSpiceConnectRealtime() {
+        connectRealtimeJob?.cancel()
+        connectRealtimeJob = viewModelScope.launch {
+            var reconnectDelayMs = SPICE_CONNECT_REALTIME_RECONNECT_MIN_MS
+            while (hasRemoteAccess()) {
+                try {
+                    val receivedCommandSignal = withRemoteAccess { token ->
+                        api.awaitRemoteCommandSignal(token, remoteDeviceId) {
+                            // Poll once after LISTEN is established so a command
+                            // queued during connection setup cannot wait for the
+                            // periodic fallback tick.
+                            connectRealtimeWakeups.trySend(Unit)
+                        }
+                    }
+                    reconnectDelayMs = SPICE_CONNECT_REALTIME_RECONNECT_MIN_MS
+                    if (receivedCommandSignal) {
+                        connectRealtimeWakeups.trySend(Unit)
+                        continue
+                    }
+                    delay(SPICE_CONNECT_REALTIME_RECONNECT_MIN_MS)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    // The durable command poll remains active while the stream
+                    // reconnects or when the deployment cannot provide it.
+                    delay(reconnectDelayMs)
+                    reconnectDelayMs = (reconnectDelayMs * 2)
+                        .coerceAtMost(SPICE_CONNECT_REALTIME_RECONNECT_MAX_MS)
+                }
             }
         }
     }
@@ -3308,6 +3354,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         playJob?.cancel()
         downloadJob?.cancel()
         connectJob?.cancel()
+        connectRealtimeJob?.cancel()
         connectRefreshJob?.cancel()
         updateCheckJob?.cancel()
         updateDownloadJob?.cancel()

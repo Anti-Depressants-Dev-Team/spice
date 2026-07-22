@@ -1,6 +1,7 @@
 package xyz.spiceapp.mobile.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -40,6 +41,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Locale
+import kotlin.coroutines.coroutineContext
 
 class SpiceApi(
     cloudBaseUrl: String = BuildConfig.SPICE_CLOUD_BASE_URL,
@@ -462,6 +464,60 @@ class SpiceApi(
         parseRemoteCommands(
             getJson("/api/remote/commands?deviceId=" + encodeQuery(deviceId), token),
         )
+    }
+
+    suspend fun awaitRemoteCommandSignal(
+        token: String,
+        deviceId: String,
+        onReady: () -> Unit = {},
+    ): Boolean = withContext(Dispatchers.IO) {
+        val connection = (URL(
+            cloudBaseUrl + "/api/remote/events?deviceId=" + encodeQuery(deviceId),
+        ).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 8_000
+            readTimeout = 65_000
+            instanceFollowRedirects = true
+            setRequestProperty("Accept", "text/event-stream")
+            setRequestProperty("Cache-Control", "no-cache")
+            setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("User-Agent", "Spice-Native-Android/1.0")
+        }
+        val cancellationHandle = coroutineContext[Job]?.invokeOnCompletion {
+            connection.disconnect()
+        }
+        try {
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                val body = connection.errorStream
+                    ?.bufferedReader()
+                    ?.use { it.readText() }
+                    .orEmpty()
+                val json = runCatching { JSONObject(body) }.getOrElse { JSONObject() }
+                val message = json.optString("message")
+                    .ifEmpty { json.optString("error") }
+                    .ifEmpty { "Spice Connect realtime stream returned HTTP $status." }
+                throw SpiceApiException(message, status)
+            }
+
+            val parser = SpiceConnectRealtimeEventParser()
+            connection.inputStream.bufferedReader().use { reader ->
+                var receivedCommand = false
+                var line = reader.readLine()
+                while (line != null && !receivedCommand) {
+                    when (parser.consumeLine(line)) {
+                        SpiceConnectRealtimeEvent.Ready -> onReady()
+                        SpiceConnectRealtimeEvent.Command -> receivedCommand = true
+                        null -> Unit
+                    }
+                    if (!receivedCommand) line = reader.readLine()
+                }
+                receivedCommand
+            }
+        } finally {
+            cancellationHandle?.dispose()
+            connection.disconnect()
+        }
     }
 
     suspend fun fetchLyrics(track: Track): LyricsPayload = withContext(Dispatchers.IO) {

@@ -16,6 +16,10 @@ import {
   requirePrincipalDevice,
   SpiceConnectAuthorizationError,
 } from '@/lib/spice-connect-authorization';
+import {
+  createSpiceConnectCommandSignal,
+  SPICE_CONNECT_REALTIME_CHANNEL,
+} from '@/lib/spice-connect-realtime';
 
 export const runtime = 'nodejs';
 
@@ -210,6 +214,21 @@ export async function POST(request: Request) {
         payloadJson: input.payloadJson,
       })
       .returning();
+
+    try {
+      await db.execute(sql`SELECT pg_notify(
+        ${SPICE_CONNECT_REALTIME_CHANNEL},
+        ${createSpiceConnectCommandSignal(principal.userId, input.targetDeviceId)}
+      )`);
+    } catch (notificationError) {
+      // The command row is durable and polling remains authoritative. A wake
+      // notification must never turn a successfully queued command into an
+      // apparent failure for the controller.
+      console.warn(
+        `[Spice Connect] realtime wake notification failed for ${input.targetDeviceId}:`,
+        notificationError instanceof Error ? notificationError.message : 'unknown notification error',
+      );
+    }
 
     return jsonResponse({
       success: true,

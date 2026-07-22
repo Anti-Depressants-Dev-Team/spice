@@ -1,5 +1,12 @@
 # SPICE Walkthrough
 
+## v1.0.148
+
+- [Spice.Connect main] Deliver remote-control wakeups through an authenticated Server-Sent Events stream backed by PostgreSQL `LISTEN`/`NOTIFY`, while preserving the durable command queue as the source of truth and reconnecting automatically.
+- [Spice.Connect main] Add the realtime receiver path to both desktop and Android, including bounded stream lifetimes, heartbeats, cancellation-safe cleanup, tenant/device filtering, and automatic polling fallback.
+- [Spice.Connect main] Reduce desktop fallback polling to 350 ms during active control and at most 750 ms while idle or minimized, instead of allowing hidden receivers to wait up to three seconds.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.148`.
+
 ## v1.0.147
 
 - [Spice.Connect main] Keep paired desktop receivers available on demand, remember offline devices for one month with explicit Forget controls, synchronize Android hardware and in-app volume controls, and shorten adaptive command polling for more responsive remote playback.

@@ -9,6 +9,8 @@ class SpiceConnectPollingTest {
     @Test
     fun keepsCommandPollingResponsiveWhileDeviceSyncUsesLongerCadence() {
         assertEquals(500L, SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS)
+        assertEquals(250L, SPICE_CONNECT_REALTIME_RECONNECT_MIN_MS)
+        assertEquals(5_000L, SPICE_CONNECT_REALTIME_RECONNECT_MAX_MS)
         assertEquals(250L, SPICE_CONNECT_COMMAND_STATE_SETTLE_MS)
         assertEquals(20_000L, SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS)
         assertEquals(750L, SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS)

@@ -49,6 +49,8 @@ Set `SPICE_LOCAL_WINDOWS_DOWNLOAD_URL` to the ZIP URL. Leave `SPICE_LOCAL_WINDOW
 
 Use a pooled Neon connection for Vercel/serverless workloads. The pooled host contains `-pooler`.
 
+Spice Connect continues to use that pooled URL for durable command reads and writes. Its authenticated realtime wake route derives the matching direct Neon hostname only for the request-scoped PostgreSQL `LISTEN` session, because transaction-pooled connections do not preserve `LISTEN` state. If a direct listener cannot be established, desktop and Android automatically continue with bounded command polling.
+
 ## Feedback Migration In Neon SQL Editor
 
 Apply this migration to the cloud database before relying on feedback persistence:
