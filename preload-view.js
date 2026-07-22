@@ -403,6 +403,23 @@ function installSpiceDesktopUpdaterBridge() {
 
 installSpiceDesktopUpdaterBridge();
 
+function installSpiceDesktopRuntimeBridge() {
+    if (!IS_SPICE_MUSIC || window.spiceDesktopRuntime) return;
+
+    const bridge = {
+        prepare: () => ipcRenderer.invoke('spice-runtime-prepare'),
+    };
+
+    Object.defineProperty(window, 'spiceDesktopRuntime', {
+        configurable: false,
+        enumerable: false,
+        writable: false,
+        value: Object.freeze(bridge),
+    });
+}
+
+installSpiceDesktopRuntimeBridge();
+
 function installSpiceDesktopOfflineLibraryBridge() {
     if (!IS_SPICE_MUSIC || window.spiceDesktopOfflineLibrary) return;
 

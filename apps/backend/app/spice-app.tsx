@@ -828,6 +828,16 @@ interface SpiceDesktopOfflineLibraryBridge {
   show: (fileName?: string) => Promise<{ success: boolean }>;
 }
 
+interface SpiceDesktopRuntimeStatus {
+  supported: boolean;
+  installed: boolean;
+  running: boolean;
+}
+
+interface SpiceDesktopRuntimeBridge {
+  prepare: () => Promise<SpiceDesktopRuntimeStatus>;
+}
+
 interface DesktopStartOnBootPreference {
   supported: boolean;
   enabled: boolean;
@@ -875,6 +885,13 @@ const getSpiceDesktopOfflineLibraryBridge = () => {
   return (window as Window & {
     spiceDesktopOfflineLibrary?: SpiceDesktopOfflineLibraryBridge;
   }).spiceDesktopOfflineLibrary ?? null;
+};
+
+const getSpiceDesktopRuntimeBridge = () => {
+  if (typeof window === 'undefined') return null;
+  return (window as Window & {
+    spiceDesktopRuntime?: SpiceDesktopRuntimeBridge;
+  }).spiceDesktopRuntime ?? null;
 };
 
 const nativeUpdateStatusMessage = (status: NativeShellUpdateStatus | null) => {
@@ -1895,6 +1912,7 @@ export default function SpiceApp() {
     total: number;
   } | null>(null);
   const playlistDownloadCancelledRef = useRef(false);
+  const desktopMediaRuntimeReadyRef = useRef(false);
   const activeNoticeTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const activePlaybackProfileRef = useRef(activePlaybackProfile);
 
@@ -2084,10 +2102,34 @@ export default function SpiceApp() {
       }
     }
 
+    const runtimeBridge = getSpiceDesktopRuntimeBridge();
+    if (SPICE_RUNTIME_TARGET === 'vercel' && runtimeBridge && !desktopMediaRuntimeReadyRef.current) {
+      try {
+        const runtime = await runtimeBridge.prepare();
+        if (!runtime?.running) {
+          throw new Error('The SPICE local media runtime could not be started.');
+        }
+        desktopMediaRuntimeReadyRef.current = true;
+      } catch (error) {
+        desktopMediaRuntimeReadyRef.current = false;
+        throw error;
+      }
+    }
+
     const trackEndpoint = isSoundCloudTrack(track)
       ? spiceApiUrl('local', `/sc/track/${encodeURIComponent(soundCloudTrackId(track))}`, { quality: audioQuality })
       : spiceApiUrl('local', `/yt/track/${encodeURIComponent(track.id)}`);
-    const response = await fetch(trackEndpoint);
+    let response: Response;
+    try {
+      response = await fetch(trackEndpoint);
+    } catch {
+      desktopMediaRuntimeReadyRef.current = false;
+      throw new Error(
+        runtimeBridge
+          ? 'The SPICE local media runtime is not reachable. Retry the download to start it again.'
+          : 'The SPICE local media runtime is not running. Open this song in SPICE Desktop and retry.',
+      );
+    }
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
       throw new Error(payload?.message || 'Failed to resolve the audio download.');
@@ -2103,12 +2145,23 @@ export default function SpiceApp() {
     finalUrl.searchParams.set('download', 'true');
     finalUrl.searchParams.set('format', 'mp3');
     finalUrl.searchParams.set('title', sanitizeDownloadName(track));
-    const downloadResponse = await fetch(finalUrl.toString());
+    let downloadResponse: Response;
+    try {
+      downloadResponse = await fetch(finalUrl.toString());
+    } catch {
+      desktopMediaRuntimeReadyRef.current = false;
+      throw new Error('The local MP3 converter could not be reached. Retry the download.');
+    }
     if (!downloadResponse.ok) {
       const payload = await downloadResponse.json().catch(() => ({}));
       throw new Error(payload?.message || 'The audio could not be converted to MP3.');
     }
-    return downloadResponse.blob();
+    try {
+      return await downloadResponse.blob();
+    } catch {
+      desktopMediaRuntimeReadyRef.current = false;
+      throw new Error('The MP3 conversion stopped before the download finished. Retry the download.');
+    }
   }, [audioQuality]);
 
   const saveTrackDownload = useCallback(async (track: Track) => {
