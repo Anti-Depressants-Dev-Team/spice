@@ -1,5 +1,12 @@
 # SPICE Walkthrough
 
+## v1.0.151
+
+- [Spice.Downloads main] Prepare and start the managed local media runtime automatically when a listener downloads from the regular desktop app, while reusing it across whole-playlist downloads.
+- [Spice.Downloads main] Replace opaque browser `Failed to fetch` errors with clear runtime, converter, and interrupted-transfer recovery messages.
+- [Spice.Desktop main] Keep the automatic managed-runtime path on Windows and Linux; classic macOS remains limited to hosted playback because its local runtime package is not currently supported.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.151`.
+
 ## v1.0.150
 
 - [Spice.Connect main] Make remembered-device Forget actions update immediately, reject stale receiver refreshes that could restore a removed device, and roll back cleanly when the server rejects removal.

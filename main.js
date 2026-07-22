@@ -316,7 +316,7 @@ function clearNativeAccount() {
   store.delete("nativeAccount");
 }
 
-async function ensureNativeRuntimeReady() {
+async function ensureLocalRuntimeReady() {
   if (!spiceRuntimeManager) {
     throw new Error("SPICE local runtime manager is not ready yet.");
   }
@@ -344,7 +344,7 @@ async function nativeCloudAuth(payload) {
     throw new Error("Missing sign-in payload.");
   }
 
-  await ensureNativeRuntimeReady();
+  await ensureLocalRuntimeReady();
 
   const requestedMode = String(payload.mode || "signin");
   const mode = requestedMode === "register"
@@ -434,7 +434,7 @@ async function resolveServiceUrl(serviceKey) {
 
   if (APP_NATIVE_MODE && spiceRuntimeManager) {
     try {
-      await ensureNativeRuntimeReady();
+      await ensureLocalRuntimeReady();
       return SPICE_LOCAL_RUNTIME_URL;
     } catch (error) {
       console.warn("Native runtime prepare failed before loading SPICE Music:", error && error.message);
@@ -3677,6 +3677,10 @@ app.whenReady().then(async () => {
     return spiceRuntimeManager.getStatus();
   });
 
+  ipcMain.handle("spice-runtime-prepare", async () => {
+    return ensureLocalRuntimeReady();
+  });
+
   ipcMain.handle("spice-runtime-install", async () => {
     if (!spiceRuntimeManager) return null;
     return spiceRuntimeManager.installOrUpdate();
@@ -3705,7 +3709,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle("native-runtime-prepare", async () => {
     if (!spiceRuntimeManager) return null;
-    await ensureNativeRuntimeReady();
+    await ensureLocalRuntimeReady();
     return spiceRuntimeManager.getStatus();
   });
 
@@ -3718,7 +3722,7 @@ app.whenReady().then(async () => {
       store.set("nativeOnboarded", true);
       store.set("nativeAutoOpen", true);
     }
-    await ensureNativeRuntimeReady();
+    await ensureLocalRuntimeReady();
     return {
       account: null,
       runtime: spiceRuntimeManager ? await spiceRuntimeManager.getStatus() : null,
