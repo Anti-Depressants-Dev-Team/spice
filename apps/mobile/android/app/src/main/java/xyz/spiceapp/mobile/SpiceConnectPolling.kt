@@ -3,22 +3,27 @@ package xyz.spiceapp.mobile
 import java.text.Normalizer
 import java.util.Locale
 
-internal const val SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS = 500L
+// Realtime Redis events wake the receiver instantly. These values are only
+// fallbacks for a stream that is reconnecting or an older server deployment.
+internal const val SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS = 5_000L
+internal const val SPICE_CONNECT_REALTIME_FALLBACK_POLL_INTERVAL_MS = 30_000L
 internal const val SPICE_CONNECT_REALTIME_RECONNECT_MIN_MS = 250L
 internal const val SPICE_CONNECT_REALTIME_RECONNECT_MAX_MS = 5_000L
-internal const val SPICE_CONNECT_COMMAND_STATE_SETTLE_MS = 250L
-internal const val SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS = 20_000L
-internal const val SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS = 750L
+internal const val SPICE_CONNECT_COMMAND_STATE_SETTLE_MS = 500L
+internal const val SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS = 60_000L
+internal const val SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS = 30_000L
 internal const val SPICE_CONNECT_OPTIMISTIC_STATE_WINDOW_MS = 6_000L
-internal const val SPICE_CONNECT_PROGRESS_REPORT_BUCKET_MS = 1_000L
+internal const val SPICE_CONNECT_PROGRESS_REPORT_BUCKET_MS = 60_000L
 private const val SPICE_CONNECT_PAIRING_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 
 internal fun shouldSyncSpiceConnectDevices(
     nowElapsedRealtimeMs: Long,
     nextDeviceSyncAtMs: Long,
     receivedCommands: Boolean,
+    receivedStateUpdate: Boolean = false,
     isControllingRemoteDevice: Boolean,
 ): Boolean = receivedCommands ||
+    receivedStateUpdate ||
     nowElapsedRealtimeMs >= nextDeviceSyncAtMs ||
     (isControllingRemoteDevice && nowElapsedRealtimeMs + SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS < nextDeviceSyncAtMs)
 

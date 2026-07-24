@@ -33,6 +33,7 @@ import xyz.spiceapp.mobile.data.PairedCredentialStore
 import xyz.spiceapp.mobile.data.SessionStore
 import xyz.spiceapp.mobile.data.SpiceApi
 import xyz.spiceapp.mobile.data.SpiceApiException
+import xyz.spiceapp.mobile.data.SpiceConnectRealtimeEvent
 import xyz.spiceapp.mobile.data.ResolvedPlayback
 import xyz.spiceapp.mobile.data.toRemoteTrackJson
 import xyz.spiceapp.mobile.data.download.MediaDownloadClient
@@ -75,9 +76,15 @@ import xyz.spiceapp.mobile.playback.MobilePlaybackServiceContext
 import xyz.spiceapp.mobile.playback.normalizeMobilePlaybackHistoryForQueue
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 
 private const val SPICE_CONNECT_LOG_TAG = "SpiceConnect"
+
+private enum class SpiceConnectRealtimeWakeup {
+    Command,
+    State,
+}
 
 data class SpiceUiState(
     val screen: AppScreen = AppScreen.Home,
@@ -202,7 +209,8 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         capacity = MAX_APPLIED_REMOTE_COMMAND_IDS,
         initialIds = loadAppliedRemoteCommandIds(),
     )
-    private val connectRealtimeWakeups = Channel<Unit>(Channel.CONFLATED)
+    private val connectRealtimeWakeups = Channel<SpiceConnectRealtimeWakeup>(Channel.BUFFERED)
+    private val connectRealtimeAvailable = AtomicBoolean(false)
     private var activeDownloadProcessId: String? = null
     private val _uiState = MutableStateFlow(
         SpiceUiState(
@@ -2719,6 +2727,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
         connectJob?.cancel()
         connectRealtimeJob?.cancel()
         connectRefreshJob?.cancel()
+        connectRealtimeAvailable.set(false)
         while (connectRealtimeWakeups.tryReceive().isSuccess) {
             // Drop wakeups from a credential or receiver generation that ended.
         }
@@ -2727,8 +2736,11 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
             var nextDeviceHeartbeatAtMs = 0L
             var lastPublishedFingerprint: String? = null
             var publishedAccessIdentity: String? = null
+            var pendingWakeup: SpiceConnectRealtimeWakeup? = null
             while (true) {
                 if (!hasRemoteAccess()) return@launch
+                val receivedStateUpdate = pendingWakeup == SpiceConnectRealtimeWakeup.State
+                pendingWakeup = null
                 runCatching {
                     withRemoteAccess { token ->
                         val activeAccessIdentity = spiceConnectAccessIdentity(token)
@@ -2783,6 +2795,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
                             nowElapsedRealtimeMs = nowElapsedRealtimeMs,
                             nextDeviceSyncAtMs = nextDeviceSnapshotAtMs,
                             receivedCommands = commands.isNotEmpty(),
+                            receivedStateUpdate = receivedStateUpdate,
                             isControllingRemoteDevice = isControllingRemoteDevice,
                         )
                         if (shouldSyncDevices) {
@@ -2800,7 +2813,12 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
                         connectStatus = error.message ?: _uiState.value.connectStatus,
                     )
                 }
-                withTimeoutOrNull(SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS) {
+                val fallbackDelayMs = if (connectRealtimeAvailable.get()) {
+                    SPICE_CONNECT_REALTIME_FALLBACK_POLL_INTERVAL_MS
+                } else {
+                    SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS
+                }
+                pendingWakeup = withTimeoutOrNull(fallbackDelayMs) {
                     connectRealtimeWakeups.receive()
                 }
             }
@@ -2814,23 +2832,35 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
             var reconnectDelayMs = SPICE_CONNECT_REALTIME_RECONNECT_MIN_MS
             while (hasRemoteAccess()) {
                 try {
-                    val receivedCommandSignal = withRemoteAccess { token ->
-                        api.awaitRemoteCommandSignal(token, remoteDeviceId) {
+                    val receivedEvent = withRemoteAccess { token ->
+                        api.awaitRemoteEvent(token, remoteDeviceId) {
+                            connectRealtimeAvailable.set(true)
                             // Poll once after LISTEN is established so a command
                             // queued during connection setup cannot wait for the
                             // periodic fallback tick.
-                            connectRealtimeWakeups.trySend(Unit)
+                            connectRealtimeWakeups.trySend(SpiceConnectRealtimeWakeup.Command)
                         }
                     }
                     reconnectDelayMs = SPICE_CONNECT_REALTIME_RECONNECT_MIN_MS
-                    if (receivedCommandSignal) {
-                        connectRealtimeWakeups.trySend(Unit)
-                        continue
+                    when (receivedEvent) {
+                        SpiceConnectRealtimeEvent.Command -> {
+                            connectRealtimeWakeups.trySend(SpiceConnectRealtimeWakeup.Command)
+                            continue
+                        }
+                        SpiceConnectRealtimeEvent.State -> {
+                            connectRealtimeWakeups.trySend(SpiceConnectRealtimeWakeup.State)
+                            continue
+                        }
+                        SpiceConnectRealtimeEvent.Ready -> Unit
+                        null -> {
+                            connectRealtimeAvailable.set(false)
+                            delay(SPICE_CONNECT_REALTIME_RECONNECT_MIN_MS)
+                        }
                     }
-                    delay(SPICE_CONNECT_REALTIME_RECONNECT_MIN_MS)
                 } catch (error: CancellationException) {
                     throw error
                 } catch (_: Exception) {
+                    connectRealtimeAvailable.set(false)
                     // The durable command poll remains active while the stream
                     // reconnects or when the deployment cannot provide it.
                     delay(reconnectDelayMs)
@@ -2838,6 +2868,7 @@ class SpiceViewModel(application: Application) : AndroidViewModel(application) {
                         .coerceAtMost(SPICE_CONNECT_REALTIME_RECONNECT_MAX_MS)
                 }
             }
+            connectRealtimeAvailable.set(false)
         }
     }
 

@@ -466,11 +466,11 @@ class SpiceApi(
         )
     }
 
-    suspend fun awaitRemoteCommandSignal(
+    internal suspend fun awaitRemoteEvent(
         token: String,
         deviceId: String,
         onReady: () -> Unit = {},
-    ): Boolean = withContext(Dispatchers.IO) {
+    ): SpiceConnectRealtimeEvent? = withContext(Dispatchers.IO) {
         val connection = (URL(
             cloudBaseUrl + "/api/remote/events?deviceId=" + encodeQuery(deviceId),
         ).openConnection() as HttpURLConnection).apply {
@@ -502,17 +502,20 @@ class SpiceApi(
 
             val parser = SpiceConnectRealtimeEventParser()
             connection.inputStream.bufferedReader().use { reader ->
-                var receivedCommand = false
+                var receivedEvent: SpiceConnectRealtimeEvent? = null
                 var line = reader.readLine()
-                while (line != null && !receivedCommand) {
-                    when (parser.consumeLine(line)) {
+                while (line != null && receivedEvent == null) {
+                    val event = parser.consumeLine(line)
+                    when (event) {
                         SpiceConnectRealtimeEvent.Ready -> onReady()
-                        SpiceConnectRealtimeEvent.Command -> receivedCommand = true
+                        SpiceConnectRealtimeEvent.Command,
+                        SpiceConnectRealtimeEvent.State
+                        -> receivedEvent = event
                         null -> Unit
                     }
-                    if (!receivedCommand) line = reader.readLine()
+                    if (receivedEvent == null) line = reader.readLine()
                 }
-                receivedCommand
+                receivedEvent
             }
         } finally {
             cancellationHandle?.dispose()

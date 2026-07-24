@@ -24,6 +24,10 @@ import {
   PAIRING_CODE_ATTEMPTS_PER_WINDOW,
   PAIRING_IP_ATTEMPTS_PER_WINDOW,
 } from '@/lib/rate-limit-policy';
+import {
+  cacheSpiceConnectPairedAuthorization,
+  deleteSpiceConnectDeviceState,
+} from '@/lib/spice-connect-redis';
 
 export const runtime = 'nodejs';
 
@@ -178,6 +182,20 @@ export async function POST(request: Request) {
       request,
     );
   }
+
+  // Rotate the cached credential generation before the newly paired client
+  // begins its heartbeat. That immediately invalidates any older Redis auth
+  // cache for this user/device pair.
+  void Promise.all([
+    cacheSpiceConnectPairedAuthorization({
+      authorizationId: authorization.authorizationId,
+      userId: authorization.userId,
+      deviceId: device.deviceId,
+      authorizationHash: tokenHash,
+      expiresAt: expiresAt.toISOString(),
+    }),
+    deleteSpiceConnectDeviceState(authorization.userId, device.deviceId),
+  ]);
 
   return jsonResponse({
     authorizationId: authorization.authorizationId,

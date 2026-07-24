@@ -7,13 +7,14 @@ import org.junit.Test
 
 class SpiceConnectPollingTest {
     @Test
-    fun keepsCommandPollingResponsiveWhileDeviceSyncUsesLongerCadence() {
-        assertEquals(500L, SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS)
+    fun usesRealtimeWakeupsWithAConservativePollingFallback() {
+        assertEquals(5_000L, SPICE_CONNECT_COMMAND_POLL_INTERVAL_MS)
+        assertEquals(30_000L, SPICE_CONNECT_REALTIME_FALLBACK_POLL_INTERVAL_MS)
         assertEquals(250L, SPICE_CONNECT_REALTIME_RECONNECT_MIN_MS)
         assertEquals(5_000L, SPICE_CONNECT_REALTIME_RECONNECT_MAX_MS)
-        assertEquals(250L, SPICE_CONNECT_COMMAND_STATE_SETTLE_MS)
-        assertEquals(20_000L, SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS)
-        assertEquals(750L, SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS)
+        assertEquals(500L, SPICE_CONNECT_COMMAND_STATE_SETTLE_MS)
+        assertEquals(60_000L, SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS)
+        assertEquals(30_000L, SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS)
         assertEquals(6_000L, SPICE_CONNECT_OPTIMISTIC_STATE_WINDOW_MS)
     }
 
@@ -21,8 +22,8 @@ class SpiceConnectPollingTest {
     fun waitsUntilDeviceSyncDeadlineWhenNoCommandsArrive() {
         assertFalse(
             shouldSyncSpiceConnectDevices(
-                nowElapsedRealtimeMs = 29_999L,
-                nextDeviceSyncAtMs = 30_000L,
+                nowElapsedRealtimeMs = 59_999L,
+                nextDeviceSyncAtMs = 60_000L,
                 receivedCommands = false,
                 isControllingRemoteDevice = false,
             ),
@@ -33,8 +34,8 @@ class SpiceConnectPollingTest {
     fun syncsExactlyAtDeviceSyncDeadline() {
         assertTrue(
             shouldSyncSpiceConnectDevices(
-                nowElapsedRealtimeMs = 30_000L,
-                nextDeviceSyncAtMs = 30_000L,
+                nowElapsedRealtimeMs = 60_000L,
+                nextDeviceSyncAtMs = 60_000L,
                 receivedCommands = false,
                 isControllingRemoteDevice = false,
             ),
@@ -46,13 +47,13 @@ class SpiceConnectPollingTest {
         assertTrue(
             shouldSyncSpiceConnectDevices(
                 nowElapsedRealtimeMs = 1_500L,
-                nextDeviceSyncAtMs = 30_000L,
+                nextDeviceSyncAtMs = 60_000L,
                 receivedCommands = true,
                 isControllingRemoteDevice = false,
             ),
         )
         assertEquals(
-            2_000L,
+            6_500L,
             nextSpiceConnectDeviceSyncAt(
                 nowElapsedRealtimeMs = 1_500L,
                 receivedCommands = true,
@@ -60,7 +61,7 @@ class SpiceConnectPollingTest {
             ),
         )
         assertEquals(
-            21_500L,
+            61_500L,
             nextSpiceConnectDeviceSyncAt(
                 nowElapsedRealtimeMs = 1_500L,
                 receivedCommands = false,
@@ -74,17 +75,30 @@ class SpiceConnectPollingTest {
         assertTrue(
             shouldSyncSpiceConnectDevices(
                 nowElapsedRealtimeMs = 2_000L,
-                nextDeviceSyncAtMs = 30_000L,
+                nextDeviceSyncAtMs = 60_000L,
                 receivedCommands = false,
                 isControllingRemoteDevice = true,
             ),
         )
         assertEquals(
-            2_750L,
+            32_000L,
             nextSpiceConnectDeviceSyncAt(
                 nowElapsedRealtimeMs = 2_000L,
                 receivedCommands = false,
                 isControllingRemoteDevice = true,
+            ),
+        )
+    }
+
+    @Test
+    fun realtimeStateEventsRefreshDeviceSnapshotsWithoutWaitingForFallback() {
+        assertTrue(
+            shouldSyncSpiceConnectDevices(
+                nowElapsedRealtimeMs = 1_500L,
+                nextDeviceSyncAtMs = 60_000L,
+                receivedCommands = false,
+                receivedStateUpdate = true,
+                isControllingRemoteDevice = false,
             ),
         )
     }

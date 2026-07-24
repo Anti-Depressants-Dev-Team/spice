@@ -35,4 +35,13 @@ class SpiceConnectRealtimeTest {
         assertEquals(SpiceConnectRealtimeEvent.Command, parser.consumeLine(""))
         assertNull(parser.consumeLine(""))
     }
+
+    @Test
+    fun stateEventsRefreshControllersAfterACompleteSseRecord() {
+        val parser = SpiceConnectRealtimeEventParser()
+
+        assertNull(parser.consumeLine("event: state"))
+        assertNull(parser.consumeLine("data: {}"))
+        assertEquals(SpiceConnectRealtimeEvent.State, parser.consumeLine(""))
+    }
 }

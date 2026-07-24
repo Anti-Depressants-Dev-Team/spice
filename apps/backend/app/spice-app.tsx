@@ -110,8 +110,10 @@ import {
   isSpiceConnectCommandFresh,
   spiceConnectCommandPollDelay,
   SPICE_CONNECT_COMMAND_IDLE_BACKOFF_POLLS,
+  SPICE_CONNECT_COMMAND_REALTIME_FALLBACK_POLL_INTERVAL_MS,
   SPICE_CONNECT_COMMAND_TTL_MS,
   SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS,
+  SPICE_CONNECT_CONTROLLER_REALTIME_FALLBACK_REFRESH_INTERVAL_MS,
   SPICE_CONNECT_DEVICE_SYNC_INTERVAL_MS,
   SPICE_CONNECT_OPTIMISTIC_STATE_WINDOW_MS,
   SPICE_CONNECT_POST_COMMAND_SYNC_DELAY_MS,
@@ -2531,6 +2533,7 @@ export default function SpiceApp() {
     }
     return true;
   });
+  const [remoteRealtimeConnected, setRemoteRealtimeConnected] = useState(false);
   const [remoteDeviceId] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('spice_remote_device_id');
@@ -7332,7 +7335,7 @@ export default function SpiceApp() {
     repeatMode,
     Math.round(volume),
     Math.round(Math.max(0, duration) * 10),
-    Math.floor(Math.max(0, progress) / 5),
+    Math.floor(Math.max(0, progress) / 60),
   ].join('|');
 
   useEffect(() => {
@@ -7351,7 +7354,9 @@ export default function SpiceApp() {
     const controllerRefreshInterval = selectedRemoteDeviceId
       ? setInterval(() => {
         void loadRemoteDevices();
-      }, SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS)
+      }, remoteRealtimeConnected
+        ? SPICE_CONNECT_CONTROLLER_REALTIME_FALLBACK_REFRESH_INTERVAL_MS
+        : SPICE_CONNECT_CONTROLLER_REFRESH_INTERVAL_MS)
       : null;
 
     const timerInterval = setInterval(() => {
@@ -7376,7 +7381,15 @@ export default function SpiceApp() {
       }
       clearInterval(timerInterval);
     };
-  }, [isMounted, remoteAuthToken, remoteControlEnabled, remoteDeviceId, remoteDeviceName, selectedRemoteDeviceId]);
+  }, [
+    isMounted,
+    remoteAuthToken,
+    remoteControlEnabled,
+    remoteDeviceId,
+    remoteDeviceName,
+    remoteRealtimeConnected,
+    selectedRemoteDeviceId,
+  ]);
 
   useEffect(() => {
     if (!isMounted || !remoteAuthToken || !remoteControlEnabled) return;
@@ -7419,7 +7432,9 @@ export default function SpiceApp() {
       if (cancelled) return;
       await pollRemoteCommands();
       if (!cancelled) {
-        schedulePoll(remoteCommandPollDelayMs());
+        schedulePoll(remoteRealtimeConnected
+          ? SPICE_CONNECT_COMMAND_REALTIME_FALLBACK_POLL_INTERVAL_MS
+          : remoteCommandPollDelayMs());
       }
     };
 
@@ -7437,7 +7452,7 @@ export default function SpiceApp() {
       clearScheduledPoll();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isMounted, remoteAuthToken, remoteControlEnabled, remoteDeviceId]);
+  }, [isMounted, remoteAuthToken, remoteControlEnabled, remoteDeviceId, remoteRealtimeConnected]);
 
   useEffect(() => {
     if (!isMounted || !remoteAuthToken || !remoteControlEnabled) return;
@@ -7448,6 +7463,7 @@ export default function SpiceApp() {
     let reconnectDelayMs = SPICE_CONNECT_REALTIME_RECONNECT_MIN_MS;
     let fallbackLogged = false;
     let abortController: AbortController | null = null;
+    let streamWasReady = false;
     const requestGeneration = remoteRequestGenerationRef.current;
     const requestToken = remoteAuthToken;
 
@@ -7461,6 +7477,7 @@ export default function SpiceApp() {
     });
 
     const listenForCommands = async () => {
+      setRemoteRealtimeConnected(false);
       while (!cancelled && requestGeneration === remoteRequestGenerationRef.current) {
         abortController = new AbortController();
         try {
@@ -7491,9 +7508,16 @@ export default function SpiceApp() {
               decoder.decode(value, { stream: true }),
             );
             parserState = parsed.state;
+            if (parsed.events.includes('ready')) {
+              streamWasReady = true;
+              setRemoteRealtimeConnected(true);
+            }
             if (parsed.events.some((eventName) => eventName === 'ready' || eventName === 'command')) {
               emptyRemoteCommandPollsRef.current = 0;
               void pollRemoteCommands();
+            }
+            if (parsed.events.includes('state')) {
+              void loadRemoteDevices();
             }
           }
         } catch (error) {
@@ -7508,6 +7532,10 @@ export default function SpiceApp() {
           }
         } finally {
           abortController = null;
+          if (streamWasReady) {
+            streamWasReady = false;
+            setRemoteRealtimeConnected(false);
+          }
         }
 
         if (cancelled || requestGeneration !== remoteRequestGenerationRef.current) return;
@@ -7522,6 +7550,7 @@ export default function SpiceApp() {
     void listenForCommands();
     return () => {
       cancelled = true;
+      setRemoteRealtimeConnected(false);
       abortController?.abort();
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       resolveReconnectWait?.();

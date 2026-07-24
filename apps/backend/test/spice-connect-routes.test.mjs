@@ -80,16 +80,23 @@ test('remote command polling deletes terminal commands after their delivery TTL'
   assert.doesNotMatch(source, /WITH stale_commands AS \(\s*UPDATE/s);
 });
 
-test('remote commands emit best-effort wakeups while the event route keeps polling as fallback', async () => {
-  const [commandsSource, eventsSource] = await Promise.all([
+test('remote commands and device state use Redis wakeups with a durable fallback', async () => {
+  const [commandsSource, eventsSource, devicesSource] = await Promise.all([
     readFile(new URL('../app/api/remote/commands/route.ts', import.meta.url), 'utf8'),
     readFile(new URL('../app/api/remote/events/route.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../app/api/remote/devices/route.ts', import.meta.url), 'utf8'),
   ]);
+  assert.match(commandsSource, /enqueueSpiceConnectCommand/);
+  assert.match(commandsSource, /publishSpiceConnectRedisSignal/);
   assert.match(commandsSource, /SELECT pg_notify/);
   assert.match(commandsSource, /polling remains authoritative/);
+  assert.match(eventsSource, /subscribeSpiceConnectRedisSignals/);
+  assert.match(eventsSource, /X-Spice-Connect-Realtime': 'redis'/);
   assert.match(eventsSource, /text\/event-stream/);
   assert.match(eventsSource, /SPICE_CONNECT_REALTIME_STREAM_LIFETIME_MS/);
   assert.match(eventsSource, /status: 503/);
+  assert.match(devicesSource, /writeSpiceConnectDeviceState/);
+  assert.match(devicesSource, /reserveSpiceConnectDeviceCheckpoint/);
 });
 
 test('remote device discovery prunes snapshots after the one-month retention window', async () => {

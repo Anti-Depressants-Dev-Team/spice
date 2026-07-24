@@ -80,7 +80,7 @@ The returned `spice_pair_...` credential is restricted to this Android device an
 
 The pairing editor always displays a fixed `XXXX-XXXX` mask. It accepts pasted raw or dashed codes, keeps cursor edits stable, and submits the canonical ASCII-dashed form. A phone may be paired while its full Spice account is signed in; the scoped pairing credential remains separate.
 
-Spice Connect receivers poll commands every second. Applied command IDs are kept in a bounded persisted history so a bounded server redelivery cannot repeat actions such as toggle, next, or seek. While this phone controls another device, snapshots refresh every second and the UI projects playing progress between snapshots; track metadata and duration reconcile as soon as the receiver acknowledges a handoff.
+Spice Connect uses realtime Redis events to wake receivers and refresh remote playback state immediately. Slower polling remains as a safety fallback if realtime is reconnecting or unavailable. Applied command IDs are kept in a bounded persisted history so a bounded server redelivery cannot repeat actions such as toggle, next, or seek. The UI projects playing progress between authoritative snapshots; track metadata and duration reconcile as soon as the receiver acknowledges a handoff.
 
 ## Android self-updates
 

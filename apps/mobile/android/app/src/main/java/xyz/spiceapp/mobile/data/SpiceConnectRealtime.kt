@@ -3,6 +3,7 @@ package xyz.spiceapp.mobile.data
 internal enum class SpiceConnectRealtimeEvent {
     Ready,
     Command,
+    State,
 }
 
 internal class SpiceConnectRealtimeEventParser {
@@ -13,6 +14,7 @@ internal class SpiceConnectRealtimeEventParser {
             val event = when (eventName) {
                 "ready" -> SpiceConnectRealtimeEvent.Ready
                 "command" -> SpiceConnectRealtimeEvent.Command
+                "state" -> SpiceConnectRealtimeEvent.State
                 else -> null
             }
             eventName = ""

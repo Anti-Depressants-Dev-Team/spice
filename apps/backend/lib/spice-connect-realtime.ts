@@ -11,12 +11,18 @@ type SpiceConnectCommandSignal = {
   deviceId: string;
 };
 
+type SpiceConnectDeviceStateSignal = {
+  kind: 'state';
+  userId: string;
+  deviceId: string;
+};
+
 type SpiceConnectProbeSignal = {
   kind: 'probe';
   nonce: string;
 };
 
-export type SpiceConnectRealtimeSignal = SpiceConnectCommandSignal | SpiceConnectProbeSignal;
+export type SpiceConnectRealtimeSignal = SpiceConnectCommandSignal | SpiceConnectDeviceStateSignal | SpiceConnectProbeSignal;
 
 export type SpiceConnectSseParserState = {
   pending: string;
@@ -31,6 +37,14 @@ export function createSpiceConnectCommandSignal(userId: string, deviceId: string
   } satisfies SpiceConnectCommandSignal);
 }
 
+export function createSpiceConnectDeviceStateSignal(userId: string, deviceId: string) {
+  return JSON.stringify({
+    kind: 'state',
+    userId: userId.slice(0, 120),
+    deviceId: deviceId.slice(0, 120),
+  } satisfies SpiceConnectDeviceStateSignal);
+}
+
 export function createSpiceConnectProbeSignal(nonce: string) {
   return JSON.stringify({
     kind: 'probe',
@@ -38,10 +52,12 @@ export function createSpiceConnectProbeSignal(nonce: string) {
   } satisfies SpiceConnectProbeSignal);
 }
 
-export function parseSpiceConnectRealtimeSignal(payload: string | null | undefined): SpiceConnectRealtimeSignal | null {
+export function parseSpiceConnectRealtimeSignal(payload: unknown): SpiceConnectRealtimeSignal | null {
   if (!payload) return null;
   try {
-    const value = JSON.parse(payload) as Record<string, unknown>;
+    const value = typeof payload === 'string'
+      ? JSON.parse(payload) as Record<string, unknown>
+      : payload as Record<string, unknown>;
     if (
       value.kind === 'command'
       && typeof value.userId === 'string'
@@ -52,6 +68,17 @@ export function parseSpiceConnectRealtimeSignal(payload: string | null | undefin
       && value.deviceId.length <= 120
     ) {
       return { kind: 'command', userId: value.userId, deviceId: value.deviceId };
+    }
+    if (
+      value.kind === 'state'
+      && typeof value.userId === 'string'
+      && value.userId.length > 0
+      && value.userId.length <= 120
+      && typeof value.deviceId === 'string'
+      && value.deviceId.length > 0
+      && value.deviceId.length <= 120
+    ) {
+      return { kind: 'state', userId: value.userId, deviceId: value.deviceId };
     }
     if (
       value.kind === 'probe'
@@ -78,6 +105,13 @@ export function isSpiceConnectCommandSignalFor(
     && signal.deviceId === deviceId;
 }
 
+export function isSpiceConnectDeviceStateSignalFor(
+  signal: SpiceConnectRealtimeSignal | null,
+  userId: string,
+): signal is SpiceConnectDeviceStateSignal {
+  return signal?.kind === 'state' && signal.userId === userId;
+}
+
 export function spiceConnectRealtimeDatabaseUrl(databaseUrl: string) {
   try {
     const url = new URL(databaseUrl);
@@ -95,7 +129,7 @@ export function spiceConnectRealtimeDatabaseUrl(databaseUrl: string) {
   return databaseUrl;
 }
 
-export function encodeSpiceConnectSseEvent(eventName: 'ready' | 'command') {
+export function encodeSpiceConnectSseEvent(eventName: 'ready' | 'command' | 'state') {
   return `event: ${eventName}\ndata: {}\n\n`;
 }
 

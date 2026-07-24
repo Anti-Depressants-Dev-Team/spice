@@ -1,5 +1,12 @@
 # SPICE Walkthrough
 
+## v1.0.152
+
+- [Spice.Connect main] Move connected-device wakeups, presence snapshots, and short-lived paired-access lookups onto Upstash Redis so normal remote control avoids constant Neon polling.
+- [Spice.Connect main] Keep the durable PostgreSQL command queue and device checkpoint fallback for cold starts, Redis outages, and long-term recovery.
+- [Spice.Mobile main] Teach Android receivers and controllers to use realtime command and state wakeups with slower polling as a backup.
+- [Spice.Music main] Bump the visible diagnostics version to `Spice Media Core v1.0.152`.
+
 ## v1.0.151
 
 - [Spice.Downloads main] Prepare and start the managed local media runtime automatically when a listener downloads from the regular desktop app, while reusing it across whole-playlist downloads.

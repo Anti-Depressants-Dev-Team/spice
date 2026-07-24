@@ -8,6 +8,7 @@ import { isSpiceConnectRemoteDeviceVisible } from '@/lib/spice-connect';
 import {
   createSpiceConnectProbeSignal,
   encodeSpiceConnectSseEvent,
+  isSpiceConnectDeviceStateSignalFor,
   isSpiceConnectCommandSignalFor,
   parseSpiceConnectRealtimeSignal,
   spiceConnectRealtimeDatabaseUrl,
@@ -16,6 +17,12 @@ import {
   SPICE_CONNECT_REALTIME_PROBE_TIMEOUT_MS,
   SPICE_CONNECT_REALTIME_STREAM_LIFETIME_MS,
 } from '@/lib/spice-connect-realtime';
+import {
+  isSpiceConnectRedisConfigured,
+  readSpiceConnectDeviceStates,
+  readSpiceConnectPairedAuthorization,
+  subscribeSpiceConnectRedisSignals,
+} from '@/lib/spice-connect-redis';
 import {
   authorizeSpiceConnectRequest,
   requirePrincipalDevice,
@@ -45,6 +52,86 @@ export function OPTIONS(request: Request) {
   return optionsResponse(request);
 }
 
+function redisRealtimeResponse(request: Request, userId: string, deviceId: string) {
+  const subscriber = subscribeSpiceConnectRedisSignals<unknown>(userId);
+  if (!subscriber) return null;
+
+  const encoder = new TextEncoder();
+  let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  let lifetimeTimer: ReturnType<typeof setTimeout> | null = null;
+  let closed = false;
+  let pendingEvents: Array<'command' | 'state'> = [];
+
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    if (lifetimeTimer) clearTimeout(lifetimeTimer);
+    request.signal.removeEventListener('abort', close);
+    void subscriber.unsubscribe().catch(() => undefined);
+    if (controller) {
+      try {
+        controller.close();
+      } catch {
+        // The client can cancel an SSE stream while cleanup is running.
+      }
+      controller = null;
+    }
+  };
+  const send = (eventName: 'command' | 'state') => {
+    if (!controller) {
+      pendingEvents.push(eventName);
+      return;
+    }
+    try {
+      controller.enqueue(encoder.encode(encodeSpiceConnectSseEvent(eventName)));
+    } catch {
+      close();
+    }
+  };
+
+  subscriber.on('message', (event) => {
+    const signal = parseSpiceConnectRealtimeSignal(event.message);
+    if (isSpiceConnectCommandSignalFor(signal, userId, deviceId)) send('command');
+    else if (isSpiceConnectDeviceStateSignalFor(signal, userId)) send('state');
+  });
+  subscriber.on('error', () => close());
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(nextController) {
+      controller = nextController;
+      nextController.enqueue(encoder.encode(encodeSpiceConnectSseEvent('ready')));
+      for (const eventName of pendingEvents) {
+        nextController.enqueue(encoder.encode(encodeSpiceConnectSseEvent(eventName)));
+      }
+      pendingEvents = [];
+      heartbeatTimer = setInterval(() => {
+        try {
+          controller?.enqueue(encoder.encode(': keep-alive\n\n'));
+        } catch {
+          close();
+        }
+      }, SPICE_CONNECT_REALTIME_HEARTBEAT_MS);
+      lifetimeTimer = setTimeout(close, SPICE_CONNECT_REALTIME_STREAM_LIFETIME_MS);
+      request.signal.addEventListener('abort', close, { once: true });
+    },
+    cancel() {
+      close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...corsHeadersForRequest(request),
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-store, max-age=0, no-transform',
+      'X-Accel-Buffering': 'no',
+      'X-Spice-Connect-Realtime': 'redis',
+    },
+  });
+}
+
 async function loadAvailableRemoteDevice(userId: string, deviceId: string, now: Date) {
   const device = await db.query.remoteDevices.findFirst({
     where: and(
@@ -62,6 +149,21 @@ async function loadAvailableRemoteDevice(userId: string, deviceId: string, now: 
     ),
   });
   return isSpiceConnectRemoteDeviceVisible(device.pairedAuthorizationHash, authorizations, now) ? device : null;
+}
+
+async function hasCachedAvailableRemoteDevice(userId: string, deviceId: string) {
+  const states = await readSpiceConnectDeviceStates(userId);
+  if (states === null) return null;
+  const state = states.find((candidate) => candidate.deviceId === deviceId);
+  // A Redis snapshot is populated by live heartbeats. Let PostgreSQL decide
+  // about a device that has not yet written its first Redis state.
+  if (!state) return null;
+  if (!state.pairedAuthorizationHash) return true;
+  const authorization = await readSpiceConnectPairedAuthorization(state.pairedAuthorizationHash);
+  if (!authorization) return null;
+  return authorization.userId === userId
+    && authorization.deviceId === deviceId
+    && authorization.authorizationHash === state.pairedAuthorizationHash;
 }
 
 export async function GET(request: Request) {
@@ -88,13 +190,24 @@ export async function GET(request: Request) {
     }
     requirePrincipalDevice(principal, deviceId);
 
-    const receivingDevice = await loadAvailableRemoteDevice(principal.userId, deviceId, new Date());
+    const cachedAvailability = await hasCachedAvailableRemoteDevice(principal.userId, deviceId);
+    const receivingDevice = cachedAvailability === null
+      ? await loadAvailableRemoteDevice(principal.userId, deviceId, new Date())
+      : cachedAvailability;
     if (!receivingDevice) {
       return jsonResponse(
         { error: 'device_not_found', message: 'This Spice Connect receiver is not registered or authorized.' },
         { status: 404 },
         request,
       );
+    }
+
+    // Upstash replaces the long-lived direct PostgreSQL LISTEN connection on
+    // Vercel. Keep the original Neon transport as a compatibility fallback
+    // until Redis credentials are configured in every deployment environment.
+    if (isSpiceConnectRedisConfigured()) {
+      const redisResponse = redisRealtimeResponse(request, principal.userId, deviceId);
+      if (redisResponse) return redisResponse;
     }
 
     const { Client } = await import('@neondatabase/serverless');

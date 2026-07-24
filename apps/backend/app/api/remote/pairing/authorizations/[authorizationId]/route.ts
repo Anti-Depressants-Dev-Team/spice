@@ -9,6 +9,11 @@ import {
   authorizeSpiceConnectAccountRequest,
   SpiceConnectAuthorizationError,
 } from '@/lib/spice-connect-authorization';
+import {
+  deleteSpiceConnectDeviceState,
+  invalidateSpiceConnectPairedAuthorization,
+  removeSpiceConnectCommandsForDevice,
+} from '@/lib/spice-connect-redis';
 
 export const runtime = 'nodejs';
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -119,6 +124,12 @@ export async function DELETE(
       eq(remoteDevices.deviceId, revoked.deviceId),
       eq(remoteDevices.pairedAuthorizationHash, revoked.tokenHash),
     ));
+
+  void Promise.all([
+    invalidateSpiceConnectPairedAuthorization(principal.userId, revoked.deviceId, revoked.tokenHash),
+    deleteSpiceConnectDeviceState(principal.userId, revoked.deviceId),
+    removeSpiceConnectCommandsForDevice(principal.userId, revoked.deviceId),
+  ]);
 
   return jsonResponse({
     success: true,

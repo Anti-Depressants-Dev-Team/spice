@@ -9,6 +9,10 @@ import { jsonResponse, optionsResponse } from '@/lib/cors';
 import { verifySession } from '@/lib/auth';
 import { requireAdminAccount, getAccountSnapshotForUserId } from '@/lib/accounts';
 import { serializeAccount } from '@/lib/account';
+import {
+  invalidateSpiceConnectAccount,
+  invalidateSpiceConnectPairedAuthorization,
+} from '@/lib/spice-connect-redis';
 import { eq } from 'drizzle-orm';
 
 export const runtime = 'nodejs';
@@ -100,8 +104,15 @@ export async function POST(request: Request) {
       await db.update(users)
         .set({ accountRole })
         .where(eq(users.id, userId));
+      // Account authorization is cached briefly for high-frequency Connect
+      // requests. Drop it immediately whenever an admin changes the role.
+      await invalidateSpiceConnectAccount(userId);
       if (accountRole === 'banned') {
         const revokedAt = new Date();
+        const activeAuthorizations = await db.query.remoteDeviceAuthorizations.findMany({
+          columns: { deviceId: true, tokenHash: true },
+          where: eq(remoteDeviceAuthorizations.userId, userId),
+        });
         await Promise.all([
           db.update(remoteDeviceAuthorizations)
             .set({ revokedAt })
@@ -109,6 +120,9 @@ export async function POST(request: Request) {
           db.update(remotePairingCodes)
             .set({ revokedAt })
             .where(eq(remotePairingCodes.userId, userId)),
+          ...activeAuthorizations.map((authorization) => (
+            invalidateSpiceConnectPairedAuthorization(userId, authorization.deviceId, authorization.tokenHash)
+          )),
         ]);
       }
     }

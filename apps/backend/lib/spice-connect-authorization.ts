@@ -8,6 +8,12 @@ import {
   isSpiceConnectAccountRoleActive,
   isRemoteDeviceToken,
 } from '@/lib/spice-connect-pairing';
+import {
+  cacheSpiceConnectAccount,
+  cacheSpiceConnectPairedAuthorization,
+  readSpiceConnectAccount,
+  readSpiceConnectPairedAuthorization,
+} from '@/lib/spice-connect-redis';
 
 export type SpiceConnectPrincipal = {
   kind: 'account';
@@ -41,11 +47,21 @@ function bearerToken(request: Request) {
 }
 
 async function requireActiveSpiceConnectAccount(userId: string) {
+  const cached = await readSpiceConnectAccount(userId);
+  if (cached) {
+    if (!cached.active) {
+      throw new SpiceConnectAuthorizationError('unauthorized', 'Invalid or expired credential.', 401);
+    }
+    return;
+  }
+
   const account = await db.query.users.findFirst({
     columns: { id: true, accountRole: true },
     where: eq(users.id, userId),
   });
-  if (!account || !isSpiceConnectAccountRoleActive(account.accountRole)) {
+  const active = Boolean(account && isSpiceConnectAccountRoleActive(account.accountRole));
+  await cacheSpiceConnectAccount({ userId, active });
+  if (!active) {
     throw new SpiceConnectAuthorizationError('unauthorized', 'Invalid or expired credential.', 401);
   }
 }
@@ -80,12 +96,25 @@ export async function authorizeSpiceConnectRequest(request: Request): Promise<Sp
     throw new SpiceConnectAuthorizationError('unauthorized', 'Invalid or expired credential.', 401);
   }
 
+  const cached = await readSpiceConnectPairedAuthorization(tokenHash);
+  if (cached) {
+    return {
+      kind: 'paired_device',
+      userId: cached.userId,
+      deviceId: cached.deviceId,
+      authorizationId: cached.authorizationId,
+      authorizationHash: cached.authorizationHash,
+    };
+  }
+
   const now = new Date();
   const [authorization] = await db
     .select({
       id: remoteDeviceAuthorizations.id,
       userId: remoteDeviceAuthorizations.userId,
       deviceId: remoteDeviceAuthorizations.deviceId,
+      tokenHash: remoteDeviceAuthorizations.tokenHash,
+      expiresAt: remoteDeviceAuthorizations.expiresAt,
       lastUsedAt: remoteDeviceAuthorizations.lastUsedAt,
       accountRole: users.accountRole,
     })
@@ -101,6 +130,14 @@ export async function authorizeSpiceConnectRequest(request: Request): Promise<Sp
   if (!authorization || !isSpiceConnectAccountRoleActive(authorization.accountRole)) {
     throw new SpiceConnectAuthorizationError('unauthorized', 'Invalid or expired credential.', 401);
   }
+
+  await cacheSpiceConnectPairedAuthorization({
+    authorizationId: authorization.id,
+    userId: authorization.userId,
+    deviceId: authorization.deviceId,
+    authorizationHash: authorization.tokenHash,
+    expiresAt: authorization.expiresAt.toISOString(),
+  });
 
   const lastUsedCutoff = new Date(now.getTime() - 15 * 60 * 1000);
   if (!authorization.lastUsedAt || authorization.lastUsedAt < lastUsedCutoff) {

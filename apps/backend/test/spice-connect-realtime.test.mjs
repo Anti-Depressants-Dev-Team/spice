@@ -3,10 +3,12 @@ import test from 'node:test';
 
 import {
   createSpiceConnectCommandSignal,
+  createSpiceConnectDeviceStateSignal,
   createSpiceConnectProbeSignal,
   encodeSpiceConnectSseEvent,
   initialSpiceConnectSseParserState,
   isSpiceConnectCommandSignalFor,
+  isSpiceConnectDeviceStateSignalFor,
   parseSpiceConnectRealtimeSignal,
   parseSpiceConnectSseChunk,
   spiceConnectRealtimeDatabaseUrl,
@@ -36,6 +38,19 @@ test('Spice Connect readiness probes cannot be mistaken for commands', () => {
   assert.equal(isSpiceConnectCommandSignalFor(signal, 'probe-1', 'probe-1'), false);
 });
 
+test('Spice Connect state signals wake every controller for the same user', () => {
+  const signal = parseSpiceConnectRealtimeSignal(
+    createSpiceConnectDeviceStateSignal('user-1', 'desktop-1'),
+  );
+  assert.deepEqual(signal, {
+    kind: 'state',
+    userId: 'user-1',
+    deviceId: 'desktop-1',
+  });
+  assert.equal(isSpiceConnectDeviceStateSignalFor(signal, 'user-1'), true);
+  assert.equal(isSpiceConnectDeviceStateSignalFor(signal, 'user-2'), false);
+});
+
 test('realtime listener derives the direct Neon endpoint without changing other URLs', () => {
   assert.equal(
     spiceConnectRealtimeDatabaseUrl(
@@ -63,6 +78,7 @@ test('desktop SSE parser handles split records, comments, and CRLF framing', () 
   assert.deepEqual(second.events, ['ready', 'command']);
   assert.deepEqual(second.state, initialSpiceConnectSseParserState());
   assert.equal(encodeSpiceConnectSseEvent('command'), 'event: command\ndata: {}\n\n');
+  assert.equal(encodeSpiceConnectSseEvent('state'), 'event: state\ndata: {}\n\n');
 });
 
 test('realtime stream heartbeats precede the bounded reconnect window', () => {

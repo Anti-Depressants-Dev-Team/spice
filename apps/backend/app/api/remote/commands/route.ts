@@ -10,6 +10,7 @@ import {
   SPICE_CONNECT_COMMAND_TTL_MS,
   SPICE_CONNECT_MAX_COMMAND_DELIVERY_ATTEMPTS,
   SPICE_CONNECT_STALE_DEVICE_SECONDS,
+  type SpiceConnectCommandType,
 } from '@/lib/spice-connect';
 import {
   authorizeSpiceConnectRequest,
@@ -20,6 +21,14 @@ import {
   createSpiceConnectCommandSignal,
   SPICE_CONNECT_REALTIME_CHANNEL,
 } from '@/lib/spice-connect-realtime';
+import {
+  claimSpiceConnectCommands,
+  enqueueSpiceConnectCommand,
+  hydrateSpiceConnectCommandQueue,
+  publishSpiceConnectRedisSignal,
+  readSpiceConnectPairedAuthorization,
+  readSpiceConnectDeviceStates,
+} from '@/lib/spice-connect-redis';
 
 export const runtime = 'nodejs';
 
@@ -30,6 +39,8 @@ type ClaimedRemoteCommand = {
   command: string;
   payloadJson: string;
   createdAt: Date | string;
+  consumedAt: Date | string | null;
+  deliveryAttempts: number;
 };
 
 export function OPTIONS(request: Request) {
@@ -55,6 +66,27 @@ async function loadAvailableRemoteDevice(userId: string, deviceId: string, now: 
   return isSpiceConnectRemoteDeviceVisible(device.pairedAuthorizationHash, authorizations, now) ? device : null;
 }
 
+async function hasCachedAvailableRemoteDevice(
+  principal: Awaited<ReturnType<typeof authorizeSpiceConnectRequest>>,
+  deviceId: string,
+) {
+  const states = await readSpiceConnectDeviceStates(principal.userId);
+  if (states === null) return null;
+  const state = states.find((candidate) => candidate.deviceId === deviceId);
+  // A Redis snapshot can be populated incrementally as receivers check in.
+  // Its absence is not proof that an older durable device was removed.
+  if (!state) return null;
+  // Account-owned device states are always visible. Paired-device state is
+  // visible while its exact authorization generation remains active. A cache
+  // miss intentionally falls back to PostgreSQL rather than trusting it.
+  if (!state.pairedAuthorizationHash) return true;
+  const authorization = await readSpiceConnectPairedAuthorization(state.pairedAuthorizationHash);
+  if (!authorization) return null;
+  return authorization.userId === principal.userId
+    && authorization.deviceId === deviceId
+    && authorization.authorizationHash === state.pairedAuthorizationHash;
+}
+
 export async function GET(request: Request) {
   try {
     const principal = await authorizeSpiceConnectRequest(request);
@@ -78,6 +110,30 @@ export async function GET(request: Request) {
     requirePrincipalDevice(principal, deviceId);
 
     const now = new Date();
+    const cachedAvailability = await hasCachedAvailableRemoteDevice(principal, deviceId);
+    if (cachedAvailability === true) {
+      const redisCommands = await claimSpiceConnectCommands(principal.userId, deviceId, now);
+      if (redisCommands !== null) {
+        return jsonResponse({
+          commands: redisCommands.map((command) => ({
+            id: command.id,
+            sourceDeviceId: command.sourceDeviceId,
+            targetDeviceId: command.targetDeviceId,
+            command: command.command,
+            payload: parseRemotePayload(command.payloadJson),
+            createdAt: command.createdAt,
+          })),
+        }, { headers: { 'Cache-Control': 'no-store, max-age=0' } }, request);
+      }
+    }
+    if (cachedAvailability === false) {
+      return jsonResponse(
+        { error: 'device_not_found', message: 'This Spice Connect receiver is not registered or authorized.' },
+        { status: 404 },
+        request,
+      );
+    }
+
     const receivingDevice = await loadAvailableRemoteDevice(principal.userId, deviceId, now);
     if (!receivingDevice) {
       return jsonResponse(
@@ -125,21 +181,32 @@ export async function GET(request: Request) {
           ${remoteCommands.targetDeviceId} AS "targetDeviceId",
           ${remoteCommands.command} AS "command",
           ${remoteCommands.payloadJson} AS "payloadJson",
-          ${remoteCommands.createdAt} AS "createdAt"
+          ${remoteCommands.createdAt} AS "createdAt",
+          ${remoteCommands.consumedAt} AS "consumedAt",
+          ${remoteCommands.deliveryAttempts} AS "deliveryAttempts"
       )
       SELECT * FROM claimed_commands ORDER BY "createdAt"
     `);
 
-    return jsonResponse({
-      commands: claimedCommands.rows.map((command) => ({
+    const commands = claimedCommands.rows.map((command) => ({
         id: command.id,
         sourceDeviceId: command.sourceDeviceId,
         targetDeviceId: command.targetDeviceId,
         command: command.command,
         payload: parseRemotePayload(command.payloadJson),
         createdAt: new Date(command.createdAt).toISOString(),
-      })),
-    }, { headers: { 'Cache-Control': 'no-store, max-age=0' } }, request);
+      }));
+    void hydrateSpiceConnectCommandQueue(principal.userId, deviceId, claimedCommands.rows.map((command) => ({
+      id: command.id,
+      sourceDeviceId: command.sourceDeviceId,
+      targetDeviceId: command.targetDeviceId,
+      command: command.command as SpiceConnectCommandType,
+      payloadJson: command.payloadJson,
+      createdAt: new Date(command.createdAt).toISOString(),
+      consumedAt: command.consumedAt ? new Date(command.consumedAt).toISOString() : null,
+      deliveryAttempts: command.deliveryAttempts,
+    })));
+    return jsonResponse({ commands }, { headers: { 'Cache-Control': 'no-store, max-age=0' } }, request);
   } catch (error) {
     if (error instanceof SpiceConnectAuthorizationError) {
       return jsonResponse({ error: error.code, message: error.message }, { status: error.status }, request);
@@ -175,11 +242,19 @@ export async function POST(request: Request) {
     requirePrincipalDevice(principal, input.sourceDeviceId);
 
     const now = new Date();
-    const [source, target] = await Promise.all([
+    const [cachedSource, cachedTarget] = await Promise.all([
       principal.kind === 'paired_device'
-        ? loadAvailableRemoteDevice(principal.userId, input.sourceDeviceId, now)
+        ? hasCachedAvailableRemoteDevice(principal, input.sourceDeviceId)
         : Promise.resolve(true),
-      loadAvailableRemoteDevice(principal.userId, input.targetDeviceId, now),
+      hasCachedAvailableRemoteDevice(principal, input.targetDeviceId),
+    ]);
+    const [source, target] = await Promise.all([
+      cachedSource === null
+        ? loadAvailableRemoteDevice(principal.userId, input.sourceDeviceId, now)
+        : Promise.resolve(cachedSource),
+      cachedTarget === null
+        ? loadAvailableRemoteDevice(principal.userId, input.targetDeviceId, now)
+        : Promise.resolve(cachedTarget),
     ]);
     if (!source) {
       return jsonResponse(
@@ -195,8 +270,15 @@ export async function POST(request: Request) {
         request,
       );
     }
+    const cachedTargetState = (await readSpiceConnectDeviceStates(principal.userId))
+      ?.find((state) => state.deviceId === input.targetDeviceId) ?? null;
+    const targetUpdatedAt = cachedTargetState
+      ? new Date(cachedTargetState.updatedAt)
+      : target === true
+        ? new Date(0)
+        : target.updatedAt;
     const staleTargetCutoff = now.getTime() - SPICE_CONNECT_STALE_DEVICE_SECONDS * 1000;
-    if (target.updatedAt.getTime() < staleTargetCutoff) {
+    if (!Number.isFinite(targetUpdatedAt.getTime()) || targetUpdatedAt.getTime() < staleTargetCutoff) {
       return jsonResponse(
         { error: 'target_offline', message: 'The target Spice Connect device is offline or has stopped syncing.' },
         { status: 409 },
@@ -215,19 +297,38 @@ export async function POST(request: Request) {
       })
       .returning();
 
-    try {
-      await db.execute(sql`SELECT pg_notify(
-        ${SPICE_CONNECT_REALTIME_CHANNEL},
-        ${createSpiceConnectCommandSignal(principal.userId, input.targetDeviceId)}
-      )`);
-    } catch (notificationError) {
-      // The command row is durable and polling remains authoritative. A wake
-      // notification must never turn a successfully queued command into an
-      // apparent failure for the controller.
-      console.warn(
-        `[Spice Connect] realtime wake notification failed for ${input.targetDeviceId}:`,
-        notificationError instanceof Error ? notificationError.message : 'unknown notification error',
+    const redisQueued = await enqueueSpiceConnectCommand(principal.userId, {
+      id: created.id,
+      sourceDeviceId: created.sourceDeviceId,
+      targetDeviceId: created.targetDeviceId,
+      command: created.command as SpiceConnectCommandType,
+      payloadJson: input.payloadJson,
+      createdAt: created.createdAt.toISOString(),
+      consumedAt: null,
+      deliveryAttempts: 0,
+    });
+    if (redisQueued) {
+      // Redis Pub/Sub is a latency hint. The PostgreSQL command row is still
+      // durable, and the receiver's periodic fallback catches missed wakes.
+      void publishSpiceConnectRedisSignal(
+        principal.userId,
+        createSpiceConnectCommandSignal(principal.userId, input.targetDeviceId),
       );
+    } else {
+      try {
+        await db.execute(sql`SELECT pg_notify(
+          ${SPICE_CONNECT_REALTIME_CHANNEL},
+          ${createSpiceConnectCommandSignal(principal.userId, input.targetDeviceId)}
+        )`);
+      } catch (notificationError) {
+        // The command row is durable and polling remains authoritative. A wake
+        // notification must never turn a successfully queued command into an
+        // apparent failure for the controller.
+        console.warn(
+          `[Spice Connect] realtime wake notification failed for ${input.targetDeviceId}:`,
+          notificationError instanceof Error ? notificationError.message : 'unknown notification error',
+        );
+      }
     }
 
     return jsonResponse({

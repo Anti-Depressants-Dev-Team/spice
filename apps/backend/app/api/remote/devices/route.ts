@@ -14,6 +14,19 @@ import {
   SPICE_CONNECT_DEVICE_RETENTION_MS,
 } from '@/lib/spice-connect';
 import {
+  cacheSpiceConnectPairedAuthorization,
+  deleteSpiceConnectDeviceState,
+  hydrateSpiceConnectDeviceStates,
+  publishSpiceConnectRedisSignal,
+  readSpiceConnectDeviceStates,
+  removeSpiceConnectCommandsForDevice,
+  readSpiceConnectPairedAuthorization,
+  reserveSpiceConnectDeviceCheckpoint,
+  writeSpiceConnectDeviceState,
+  type SpiceConnectCachedDeviceState,
+} from '@/lib/spice-connect-redis';
+import { createSpiceConnectDeviceStateSignal } from '@/lib/spice-connect-realtime';
+import {
   authorizeSpiceConnectRequest,
   requirePrincipalDevice,
   SpiceConnectAuthorizationError,
@@ -21,8 +34,113 @@ import {
 
 export const runtime = 'nodejs';
 
+type StoredRemoteDevice = typeof remoteDevices.$inferSelect;
+
 export function OPTIONS(request: Request) {
   return optionsResponse(request);
+}
+
+function cachedStateFromStoredDevice(device: StoredRemoteDevice): SpiceConnectCachedDeviceState {
+  return {
+    deviceId: device.deviceId,
+    displayName: device.displayName,
+    pairedAuthorizationHash: device.pairedAuthorizationHash,
+    currentTrack: parseJson(device.currentTrackJson, null),
+    queue: parseJson(device.queueJson, []),
+    queueIndex: device.queueIndex,
+    isPlaying: device.isPlaying,
+    shuffleEnabled: device.shuffleEnabled,
+    repeatMode: device.repeatMode === 'all' || device.repeatMode === 'one' ? device.repeatMode : 'none',
+    progressMs: device.progressMs,
+    durationMs: device.durationMs,
+    volume: device.volume,
+    updatedAt: device.updatedAt.toISOString(),
+  };
+}
+
+function devicePayload(device: SpiceConnectCachedDeviceState, now: Date) {
+  return {
+    deviceId: device.deviceId,
+    displayName: device.displayName,
+    currentTrack: device.currentTrack,
+    queue: device.queue,
+    queueIndex: device.queueIndex,
+    isOnline: !isSpiceConnectDeviceStale(device.updatedAt, now),
+    isPlaying: device.isPlaying && !isSpiceConnectDeviceStale(device.updatedAt, now),
+    shuffleEnabled: device.shuffleEnabled,
+    repeatMode: device.repeatMode,
+    progress: projectSpiceConnectProgressMs(device, now) / 1000,
+    duration: device.durationMs / 1000,
+    volume: device.volume,
+    updatedAt: device.updatedAt,
+    rememberedUntil: spiceConnectDeviceRememberedUntil(device.updatedAt)?.toISOString() ?? null,
+  };
+}
+
+async function visibleCachedDeviceStates(states: SpiceConnectCachedDeviceState[], now: Date) {
+  const authorizations = new Map<string, { tokenHash: string; expiresAt: string; revokedAt: null }>();
+  for (const state of states) {
+    if (!state.pairedAuthorizationHash || authorizations.has(state.pairedAuthorizationHash)) continue;
+    const authorization = await readSpiceConnectPairedAuthorization(state.pairedAuthorizationHash);
+    // A cache miss deliberately falls back to Neon. It avoids showing a stale
+    // paired snapshot after a revoke or token rotation.
+    if (!authorization) return null;
+    authorizations.set(state.pairedAuthorizationHash, {
+      tokenHash: authorization.authorizationHash,
+      expiresAt: authorization.expiresAt,
+      revokedAt: null,
+    });
+  }
+
+  return states.filter((state) => (
+    isSpiceConnectDeviceRemembered(state.updatedAt, now)
+    && isSpiceConnectRemoteDeviceVisible(
+      state.pairedAuthorizationHash,
+      state.pairedAuthorizationHash ? [authorizations.get(state.pairedAuthorizationHash)!] : [],
+      now,
+    )
+  ));
+}
+
+async function persistRemoteDeviceState(
+  userId: string,
+  state: SpiceConnectCachedDeviceState,
+) {
+  await db
+    .insert(remoteDevices)
+    .values({
+      userId,
+      deviceId: state.deviceId,
+      pairedAuthorizationHash: state.pairedAuthorizationHash,
+      displayName: state.displayName,
+      currentTrackJson: safeJsonStringify(state.currentTrack, 'null'),
+      queueJson: safeJsonStringify(state.queue, '[]'),
+      queueIndex: state.queueIndex,
+      isPlaying: state.isPlaying,
+      shuffleEnabled: state.shuffleEnabled,
+      repeatMode: state.repeatMode,
+      progressMs: state.progressMs,
+      durationMs: state.durationMs,
+      volume: state.volume,
+      updatedAt: new Date(state.updatedAt),
+    })
+    .onConflictDoUpdate({
+      target: [remoteDevices.userId, remoteDevices.deviceId],
+      set: {
+        displayName: state.displayName,
+        pairedAuthorizationHash: state.pairedAuthorizationHash,
+        currentTrackJson: safeJsonStringify(state.currentTrack, 'null'),
+        queueJson: safeJsonStringify(state.queue, '[]'),
+        queueIndex: state.queueIndex,
+        isPlaying: state.isPlaying,
+        shuffleEnabled: state.shuffleEnabled,
+        repeatMode: state.repeatMode,
+        progressMs: state.progressMs,
+        durationMs: state.durationMs,
+        volume: state.volume,
+        updatedAt: new Date(state.updatedAt),
+      },
+    });
 }
 
 export async function GET(request: Request) {
@@ -36,6 +154,18 @@ export async function GET(request: Request) {
       );
     }
 
+    const now = new Date();
+    const cachedStates = await readSpiceConnectDeviceStates(principal.userId);
+    if (cachedStates !== null) {
+      const visibleCached = await visibleCachedDeviceStates(cachedStates, now);
+      if (visibleCached !== null) {
+        return jsonResponse({
+          serverTime: now.toISOString(),
+          devices: visibleCached.map((device) => devicePayload(device, now)),
+        }, { headers: { 'Cache-Control': 'no-store, max-age=0' } }, request);
+      }
+    }
+
     const [devices, authorizations] = await Promise.all([
       db.query.remoteDevices.findMany({
         where: eq(remoteDevices.userId, principal.userId),
@@ -43,6 +173,7 @@ export async function GET(request: Request) {
       }),
       db.query.remoteDeviceAuthorizations.findMany({
         columns: {
+          id: true,
           deviceId: true,
           tokenHash: true,
           expiresAt: true,
@@ -51,12 +182,20 @@ export async function GET(request: Request) {
         where: eq(remoteDeviceAuthorizations.userId, principal.userId),
       }),
     ]);
-    const now = new Date();
     const authorizationsByDevice = new Map<string, typeof authorizations>();
     for (const authorization of authorizations) {
       const current = authorizationsByDevice.get(authorization.deviceId) ?? [];
       current.push(authorization);
       authorizationsByDevice.set(authorization.deviceId, current);
+      if (!authorization.revokedAt && authorization.expiresAt > now) {
+        void cacheSpiceConnectPairedAuthorization({
+          authorizationId: authorization.id,
+          userId: principal.userId,
+          deviceId: authorization.deviceId,
+          authorizationHash: authorization.tokenHash,
+          expiresAt: authorization.expiresAt.toISOString(),
+        });
+      }
     }
     const visibleDevices = devices.filter((device) => (
       isSpiceConnectDeviceRemembered(device.updatedAt, now)
@@ -73,24 +212,11 @@ export async function GET(request: Request) {
       ));
     }
 
+    const visibleStates = visibleDevices.map(cachedStateFromStoredDevice);
+    void hydrateSpiceConnectDeviceStates(principal.userId, visibleStates);
     return jsonResponse({
       serverTime: now.toISOString(),
-      devices: visibleDevices.map((device) => ({
-        deviceId: device.deviceId,
-        displayName: device.displayName,
-        currentTrack: parseJson(device.currentTrackJson, null),
-        queue: parseJson(device.queueJson, []),
-        queueIndex: device.queueIndex,
-        isOnline: !isSpiceConnectDeviceStale(device.updatedAt, now),
-        isPlaying: device.isPlaying && !isSpiceConnectDeviceStale(device.updatedAt, now),
-        shuffleEnabled: device.shuffleEnabled,
-        repeatMode: device.repeatMode,
-        progress: projectSpiceConnectProgressMs(device, now) / 1000,
-        duration: device.durationMs / 1000,
-        volume: device.volume,
-        updatedAt: device.updatedAt.toISOString(),
-        rememberedUntil: spiceConnectDeviceRememberedUntil(device.updatedAt)?.toISOString() ?? null,
-      })),
+      devices: visibleStates.map((device) => devicePayload(device, now)),
     }, { headers: { 'Cache-Control': 'no-store, max-age=0' } }, request);
   } catch (error) {
     if (error instanceof SpiceConnectAuthorizationError) {
@@ -138,6 +264,10 @@ export async function DELETE(request: Request) {
       ))
       .returning({ deviceId: remoteDevices.deviceId });
 
+    void Promise.all([
+      deleteSpiceConnectDeviceState(principal.userId, deviceId),
+      removeSpiceConnectCommandsForDevice(principal.userId, deviceId),
+    ]);
     return jsonResponse(
       { success: true, forgotten: forgotten.length > 0, deviceId },
       { headers: { 'Cache-Control': 'no-store, max-age=0' } },
@@ -180,42 +310,26 @@ export async function POST(request: Request) {
     const pairedAuthorizationHash = principal.kind === 'paired_device'
       ? principal.authorizationHash
       : null;
-
-    await db
-      .insert(remoteDevices)
-      .values({
-        userId: principal.userId,
-        deviceId: input.deviceId,
-        pairedAuthorizationHash,
-        displayName: input.displayName,
-        currentTrackJson: safeJsonStringify(input.currentTrack, 'null'),
-        queueJson: safeJsonStringify(input.queue, '[]'),
-        queueIndex: input.queueIndex,
-        isPlaying: input.isPlaying,
-        shuffleEnabled: input.shuffleEnabled,
-        repeatMode: input.repeatMode,
-        progressMs: input.progressMs,
-        durationMs: input.durationMs,
-        volume: input.volume,
-        updatedAt,
-      })
-      .onConflictDoUpdate({
-        target: [remoteDevices.userId, remoteDevices.deviceId],
-        set: {
-          displayName: input.displayName,
-          pairedAuthorizationHash,
-          currentTrackJson: safeJsonStringify(input.currentTrack, 'null'),
-          queueJson: safeJsonStringify(input.queue, '[]'),
-          queueIndex: input.queueIndex,
-          isPlaying: input.isPlaying,
-          shuffleEnabled: input.shuffleEnabled,
-          repeatMode: input.repeatMode,
-          progressMs: input.progressMs,
-          durationMs: input.durationMs,
-          volume: input.volume,
-          updatedAt,
-        },
-      });
+    const state: SpiceConnectCachedDeviceState = {
+      ...input,
+      pairedAuthorizationHash,
+      updatedAt: updatedAt.toISOString(),
+    };
+    const cached = await writeSpiceConnectDeviceState(principal.userId, state);
+    const checkpointReserved = await reserveSpiceConnectDeviceCheckpoint(
+      principal.userId,
+      input.deviceId,
+      pairedAuthorizationHash,
+    );
+    if (!cached || checkpointReserved) {
+      await persistRemoteDeviceState(principal.userId, state);
+    }
+    if (cached) {
+      void publishSpiceConnectRedisSignal(
+        principal.userId,
+        createSpiceConnectDeviceStateSignal(principal.userId, input.deviceId),
+      );
+    }
 
     return jsonResponse(
       { success: true, updatedAt: updatedAt.toISOString() },
